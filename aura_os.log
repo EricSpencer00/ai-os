@@ -154,3 +154,61 @@ Warning: failed to launch javaldx - java may not function correctly
 2025-07-03 17:17:07,137 - INFO - [Script Gen] Intent: 'give me a list of all MLB players and their salaries' | CWD: '/home/eric/aura-os' | Windows: ['xfce4-panel', 'xfce4-panel', 'xfce4-panel', 'Desktop', 'Terminal - eric@aura-os-dev: ~/aura-os', 'Google Gemini — Mozilla Firefox', 'aura-os - Thunar', 'Terminal - eric@aura-os-dev: ~/aura-os', '~/aura-os/client.py - Mousepad']
 2025-07-03 17:17:07,682 - INFO - [Script Gen] Generated Script: None
 2025-07-03 17:17:07,684 - INFO - 127.0.0.1 - - [03/Jul/2025 17:17:07] "POST /generate_script HTTP/1.1" 200 -
+2025-07-03 17:18:46,731 - INFO - Starting AuraOS AI Daemon v4 (Window-Aware)...
+2025-07-03 17:18:46,732 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.64.2:5000
+2025-07-03 17:18:46,733 - INFO - [33mPress CTRL+C to quit[0m
+2025-07-03 17:18:48,574 - INFO - [Script Gen] Intent: 'give me a list of all MLB players and their salaries' | CWD: '/home/eric/aura-os' | Windows: ['xfce4-panel', 'xfce4-panel', 'xfce4-panel', 'Desktop', 'Terminal - eric@aura-os-dev: ~/aura-os', 'Google Gemini — Mozilla Firefox', 'aura-os - Thunar', 'Terminal - eric@aura-os-dev: ~/aura-os', '~/aura-os/client.py - Mousepad']
+2025-07-03 17:18:49,303 - INFO - [Script Gen] Generated Script: None
+2025-07-03 17:18:49,304 - INFO - 127.0.0.1 - - [03/Jul/2025 17:18:49] "POST /generate_script HTTP/1.1" 200 -
+2025-07-03 17:20:01,793 - INFO - Starting AuraOS AI Daemon v6 (Multi-lingual)...
+2025-07-03 17:20:01,794 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.64.2:5000
+2025-07-03 17:20:01,794 - INFO - [33mPress CTRL+C to quit[0m
+2025-07-03 17:20:02,952 - INFO - [Script Gen] Intent: 'give me a list of all MLB players and their salaries'
+2025-07-03 17:20:03,573 - INFO - [Script Gen] Generated 'python' script.
+2025-07-03 17:20:03,574 - INFO - 127.0.0.1 - - [03/Jul/2025 17:20:03] "POST /generate_script HTTP/1.1" 200 -
+2025-07-03 17:20:11,807 - INFO - [Script Gen] Intent: 'The original goal was 'give me a list of all MLB players and their salaries'. The last 'python' script 'import requests
+import json
+
+response = requests.get('https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/athletes')
+players = json.loads(response.text)['athletes']
+
+for player in players:
+    print(f"{player['displayName']} - {player['contracts'][0]['amount']}")' failed with the error: Traceback (most recent call last):
+  File "/tmp/tmppk17ivwe.py", line 5, in <module>
+    players = json.loads(response.text)['athletes']
+              ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+KeyError: 'athletes'
+. Please provide a new, corrected script to achieve the original goal.'
+2025-07-03 17:20:13,161 - INFO - [Script Gen] Generated 'python' script.
+2025-07-03 17:20:13,163 - INFO - 127.0.0.1 - - [03/Jul/2025 17:20:13] "POST /generate_script HTTP/1.1" 200 -
+2025-07-03 17:20:15,862 - INFO - [Script Gen] Intent: 'The original goal was 'give me a list of all MLB players and their salaries'. The last 'python' script 'import requests
+import json
+
+response = requests.get('https://lookup-service-prod.mlb.com/json/named.search_player_all.bam?sport_code=%27mlb%27&active_sw=%27Y%27&name_part=%27%25%27')
+players = json.loads(response.text)['search_player_all']['queryResults']['row']
+
+for player in players:
+    response = requests.get(f'https://lookup-service-prod.mlb.com/json/named.player_info.bam?player_id={player[0]}')
+    player_info = json.loads(response.text)['player_info']['queryResults']['row']
+    print(f'{player_info[1]} - {player_info[13]}')' failed with the error: Traceback (most recent call last):
+  File "/tmp/tmp49irikgr.py", line 5, in <module>
+    players = json.loads(response.text)['search_player_all']['queryResults']['row']
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/json/decoder.py", line 337, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/json/decoder.py", line 355, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+. Please provide a new, corrected script to achieve the original goal.'
+2025-07-03 17:20:17,092 - INFO - [Script Gen] Generated 'python' script.
+2025-07-03 17:20:17,092 - INFO - 127.0.0.1 - - [03/Jul/2025 17:20:17] "POST /generate_script HTTP/1.1" 200 -
