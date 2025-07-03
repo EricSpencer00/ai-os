@@ -21,3 +21,64 @@ venv
  * Running on http://127.0.0.1:5000
  * Running on http://192.168.64.2:5000
 2025-07-03 16:59:50,956 - INFO - [33mPress CTRL+C to quit[0m
+2025-07-03 17:04:13,941 - INFO - Starting AuraOS AI Daemon v3 (Context-Aware)...
+2025-07-03 17:04:13,942 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.64.2:5000
+2025-07-03 17:04:13,942 - INFO - [33mPress CTRL+C to quit[0m
+2025-07-03 17:04:30,083 - INFO - [Script Gen] Received Intent: 'find all files with .txt in my system' in context '/home/eric/aura-os'
+2025-07-03 17:04:30,278 - ERROR - Error during script generation: 503 Server Error: Service Unavailable for url: https://api.groq.com/openai/v1/chat/completions
+2025-07-03 17:04:30,280 - INFO - 127.0.0.1 - - [03/Jul/2025 17:04:30] "[35m[1mPOST /generate_script HTTP/1.1[0m" 500 -
+2025-07-03 17:04:51,367 - INFO - [Script Gen] Received Intent: 'find all files with .txt in my system' in context '/home/eric/aura-os'
+2025-07-03 17:04:51,828 - INFO - [Script Gen] Generated Script: find . -type f -name '*.txt' -print
+2025-07-03 17:04:51,831 - INFO - 127.0.0.1 - - [03/Jul/2025 17:04:51] "POST /generate_script HTTP/1.1" 200 -
+2025-07-03 17:04:55,830 - WARNING - [Execution] Preparing to run script: find . -type f -name '*.txt' -print
+2025-07-03 17:04:55,891 - INFO - [Execution] STDOUT: ./venv/lib/python3.11/site-packages/jinja2-3.1.6.dist-info/entry_points.txt
+./venv/lib/python3.11/site-packages/jinja2-3.1.6.dist-info/licenses/LICENSE.txt
+./venv/lib/python3.11/site-packages/certifi-2025.6.15.dist-info/top_level.txt
+./venv/lib/python3.11/site-packages/werkzeug-3.1.3.dist-info/LICENSE.txt
+./venv/lib/python3.11/site-packages/click-8.2.1.dist-info/licenses/LICENSE.txt
+./venv/lib/python3.11/site-packages/MarkupSafe-3.0.2.dist-info/LICENSE.txt
+./venv/lib/python3.11/site-packages/MarkupSafe-3.0.2.dist-info/top_level.txt
+./venv/lib/python3.11/site-packages/urllib3-2.5.0.dist-info/licenses/LICENSE.txt
+./venv/lib/python3.11/site-packages/blinker-1.9.0.dist-info/LICENSE.txt
+./venv/lib/python3.11/site-packages/setuptools-66.1.1.dist-info/entry_points.txt
+./venv/lib/python3.11/site-packages/setuptools-66.1.1.dist-info/top_level.txt
+./venv/lib/python3.11/site-packages/charset_normalizer-3.4.2.dist-info/entry_points.txt
+./venv/lib/python3.11/site-packages/charset_normalizer-3.4.2.dist-info/top_level.txt
+./venv/lib/python3.11/site-packages/pip/_vendor/vendor.txt
+./venv/lib/python3.11/site-packages/requests-2.32.4.dist-info/top_level.txt
+./venv/lib/python3.11/site-packages/flask-3.1.1.dist-info/entry_points.txt
+./venv/lib/python3.11/site-packages/flask-3.1.1.dist-info/licenses/LICENSE.txt
+./venv/lib/python3.11/site-packages/pip-23.0.1.dist-info/entry_points.txt
+./venv/lib/python3.11/site-packages/pip-23.0.1.dist-info/LICENSE.txt
+./venv/lib/python3.11/site-packages/pip-23.0.1.dist-info/top_level.txt
+./venv/lib/python3.11/site-packages/itsdangerous-2.2.0.dist-info/LICENSE.txt
+./git_key.txt
+
+2025-07-03 17:04:55,892 - INFO - 127.0.0.1 - - [03/Jul/2025 17:04:55] "POST /execute_script HTTP/1.1" 200 -
+2025-07-03 17:07:55,294 - INFO - Starting AuraOS AI Daemon v4 (Window-Aware)...
+2025-07-03 17:07:55,296 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.64.2:5000
+2025-07-03 17:07:55,296 - INFO - [33mPress CTRL+C to quit[0m
+2025-07-03 17:08:07,860 - INFO - [Script Gen] Intent: 'switch to my firefox browser' | CWD: '/home/eric/aura-os' | Windows: ['xfce4-panel', 'xfce4-panel', 'xfce4-panel', 'Desktop', 'Terminal - eric@aura-os-dev: ~/aura-os', 'Google Gemini — Mozilla Firefox', 'aura-os - Thunar', 'Terminal - eric@aura-os-dev: ~/aura-os', '~/aura-os/client.py - Mousepad']
+2025-07-03 17:08:08,431 - INFO - [Script Gen] Generated Script: wmctrl -a "Google Gemini — Mozilla Firefox"
+2025-07-03 17:08:08,433 - INFO - 127.0.0.1 - - [03/Jul/2025 17:08:08] "POST /generate_script HTTP/1.1" 200 -
+2025-07-03 17:08:10,527 - WARNING - [Execution] Preparing to run script: wmctrl -a "Google Gemini — Mozilla Firefox"
+2025-07-03 17:08:10,534 - INFO - [Execution] STDOUT: 
+2025-07-03 17:08:10,534 - ERROR - [Execution] STDERR: Cannot open display.
+
+2025-07-03 17:08:10,535 - INFO - 127.0.0.1 - - [03/Jul/2025 17:08:10] "POST /execute_script HTTP/1.1" 200 -
+2025-07-03 17:08:36,563 - INFO - [Script Gen] Intent: 'open my newest 3 .txt files' | CWD: '/home/eric/aura-os' | Windows: ['xfce4-panel', 'xfce4-panel', 'xfce4-panel', 'Desktop', 'Terminal - eric@aura-os-dev: ~/aura-os', 'Google Gemini — Mozilla Firefox', 'aura-os - Thunar', 'Terminal - eric@aura-os-dev: ~/aura-os', '~/aura-os/client.py - Mousepad']
+2025-07-03 17:08:37,142 - INFO - [Script Gen] Generated Script: wmctrl -a 'Mousepad'; for f in $(ls -t *.txt | head -3); do mousepad "$f" & done
+2025-07-03 17:08:37,144 - INFO - 127.0.0.1 - - [03/Jul/2025 17:08:37] "POST /generate_script HTTP/1.1" 200 -
+2025-07-03 17:08:39,235 - WARNING - [Execution] Preparing to run script: wmctrl -a 'Mousepad'; for f in $(ls -t *.txt | head -3); do mousepad "$f" & done
+2025-07-03 17:08:39,277 - INFO - [Execution] STDOUT: 
+2025-07-03 17:08:39,277 - ERROR - [Execution] STDERR: Cannot open display.
+
+(mousepad:14643): Gtk-WARNING **: 17:08:39.275: cannot open display: 
+
+2025-07-03 17:08:39,277 - INFO - 127.0.0.1 - - [03/Jul/2025 17:08:39] "POST /execute_script HTTP/1.1" 200 -

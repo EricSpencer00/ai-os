@@ -1,7 +1,6 @@
 # daemon.py
 # The advanced AI daemon for AuraOS.
-# v3: Now context-aware. It uses the user's current working directory
-#     to generate more relevant and accurate scripts.
+# v4: Now window-aware. It can generate commands to switch between open windows.
 
 import os
 import json
@@ -42,30 +41,37 @@ GROQ_MODEL = "llama3-70b-8192"
 def generate_script():
     """
     Translates a user's natural language INTENT into an executable shell script.
-    This uses the powerful external LLM and is now context-aware.
+    This is now aware of open windows.
     """
     data = request.get_json()
     user_intent = data.get('intent')
-    
-    # --- NEW: Get context from the request ---
     context = data.get('context', {})
-    cwd = context.get('cwd', '.') # Default to current directory if not provided
+    cwd = context.get('cwd', '.')
     
-    logging.info(f"[Script Gen] Received Intent: '{user_intent}' in context '{cwd}'")
+    # --- NEW: Get window list from context ---
+    windows = context.get('windows', [])
+    window_list_str = "\n- ".join(windows) if windows else "No open windows detected."
+    
+    logging.info(f"[Script Gen] Intent: '{user_intent}' | CWD: '{cwd}' | Windows: {windows}")
 
     if not GROQ_API_KEY:
         return jsonify({"error": "Groq API key is not configured on the server."}), 500
 
-    # --- NEW: The system prompt now includes the context ---
+    # --- NEW: The system prompt is now much more powerful ---
     system_prompt = f"""
     You are an expert Linux shell script generator. Your task is to convert a user's intent into a single, executable shell script.
-    The user is currently in the following directory: {cwd}
-    All file operations should assume this directory unless the user specifies an absolute path.
+    
+    CONTEXT:
+    - The user's current directory is: {cwd}
+    - The user has the following windows open:
+    - {window_list_str}
+
+    INSTRUCTIONS:
+    - For file operations, assume the current directory unless a full path is specified.
+    - To switch to an open window, use the command `wmctrl -a "substring_of_window_title"`. For example, to switch to a Firefox window, you can use `wmctrl -a "Firefox"`. Be specific enough to avoid ambiguity.
     - Only respond with a JSON object containing a single key: "script".
-    - The script should be a single string.
-    - Do not add any explanation or conversational text.
-    - If the user's intent is unclear or dangerous (e.g., 'delete my whole system'), respond with a JSON object containing an "error" key.
-    - The script must be safe and efficient.
+    - The script must be a single string. Do not add any explanation.
+    - If the intent is unclear or dangerous, respond with a JSON object containing an "error" key.
     """
 
     headers = {
@@ -85,10 +91,8 @@ def generate_script():
     try:
         response = requests.post(GROQ_API_URL, headers=headers, json=payload)
         response.raise_for_status()
-        
         generated_json = response.json()['choices'][0]['message']['content']
         script_data = json.loads(generated_json)
-        
         logging.info(f"[Script Gen] Generated Script: {script_data.get('script')}")
         return jsonify(script_data), 200
     except Exception as e:
@@ -100,31 +104,16 @@ def execute_script():
     """Executes a shell script provided in the request."""
     data = request.get_json()
     script_to_run = data.get('script')
-    
     if not script_to_run:
         return jsonify({"error": "No script provided."}), 400
-
     logging.warning(f"[Execution] Preparing to run script: {script_to_run}")
-    
     try:
-        result = subprocess.run(
-            script_to_run, 
-            shell=True, 
-            capture_output=True, 
-            text=True, 
-            check=False
-        )
+        result = subprocess.run(script_to_run, shell=True, capture_output=True, text=True, check=False)
         output = result.stdout
         error_output = result.stderr
         logging.info(f"[Execution] STDOUT: {output}")
-        if error_output:
-            logging.error(f"[Execution] STDERR: {error_output}")
-        return jsonify({
-            "status": "success" if result.returncode == 0 else "error",
-            "return_code": result.returncode,
-            "output": output,
-            "error_output": error_output
-        })
+        if error_output: logging.error(f"[Execution] STDERR: {error_output}")
+        return jsonify({"status": "success" if result.returncode == 0 else "error", "return_code": result.returncode, "output": output, "error_output": error_output})
     except Exception as e:
         logging.critical(f"[Execution] Failed to execute script: {e}")
         return jsonify({"error": f"An unexpected error occurred during execution: {e}"}), 500
@@ -138,7 +127,6 @@ def get_logs():
     except FileNotFoundError:
         return "Log file not found.", 404
 
-# --- Main execution ---
 if __name__ == '__main__':
-    logging.info("Starting AuraOS AI Daemon v3 (Context-Aware)...")
+    logging.info("Starting AuraOS AI Daemon v4 (Window-Aware)...")
     app.run(host='0.0.0.0', port=5000, debug=False)
