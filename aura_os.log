@@ -118,3 +118,39 @@ venv
 2025-07-03 17:12:23,901 - INFO - [Execution] STDOUT: [GFX1-]: RenderCompositorSWGL failed mapping default framebuffer, no dt
 
 2025-07-03 17:12:23,908 - INFO - 127.0.0.1 - - [03/Jul/2025 17:12:23] "POST /execute_script HTTP/1.1" 200 -
+2025-07-03 17:15:01,859 - INFO - Starting AuraOS AI Daemon v4 (Window-Aware)...
+2025-07-03 17:15:01,861 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.64.2:5000
+2025-07-03 17:15:01,861 - INFO - [33mPress CTRL+C to quit[0m
+2025-07-03 17:15:03,093 - INFO - [Script Gen] Intent: 'open a new youtube browser' | CWD: '/home/eric/aura-os' | Windows: ['xfce4-panel', 'xfce4-panel', 'xfce4-panel', 'Desktop', 'Terminal - eric@aura-os-dev: ~/aura-os', 'Google Gemini — Mozilla Firefox', 'aura-os - Thunar', 'Terminal - eric@aura-os-dev: ~/aura-os', '~/aura-os/client.py - Mousepad']
+2025-07-03 17:15:03,601 - INFO - [Script Gen] Generated Script: wmctrl -a 'Terminal'; firefox https://www.youtube.com &
+2025-07-03 17:15:03,603 - INFO - 127.0.0.1 - - [03/Jul/2025 17:15:03] "POST /generate_script HTTP/1.1" 200 -
+2025-07-03 17:15:03,609 - WARNING - [Execution] Preparing to run script: wmctrl -a 'Terminal'; firefox https://www.youtube.com &
+2025-07-03 17:15:03,610 - INFO - [Execution] Using DISPLAY=:0.0 for GUI context.
+2025-07-03 17:15:11,119 - INFO - [Execution] STDOUT: [GFX1-]: RenderCompositorSWGL failed mapping default framebuffer, no dt
+
+2025-07-03 17:15:11,124 - INFO - 127.0.0.1 - - [03/Jul/2025 17:15:11] "POST /execute_script HTTP/1.1" 200 -
+2025-07-03 17:15:48,096 - INFO - [Script Gen] Intent: 'make a new excel file with all of the baseball players in the MLB and how much money they make' | CWD: '/home/eric/aura-os' | Windows: ['xfce4-panel', 'xfce4-panel', 'xfce4-panel', 'Desktop', 'Terminal - eric@aura-os-dev: ~/aura-os', 'Google Gemini — Mozilla Firefox', 'aura-os - Thunar', 'Terminal - eric@aura-os-dev: ~/aura-os', '~/aura-os/client.py - Mousepad']
+2025-07-03 17:15:48,706 - INFO - [Script Gen] Generated Script: None
+2025-07-03 17:15:48,709 - INFO - 127.0.0.1 - - [03/Jul/2025 17:15:48] "POST /generate_script HTTP/1.1" 200 -
+2025-07-03 17:16:13,553 - INFO - [Script Gen] Intent: 'make a new libreoffice excel file with all of the baseball players in the MLB and how much money they make' | CWD: '/home/eric/aura-os' | Windows: ['xfce4-panel', 'xfce4-panel', 'xfce4-panel', 'Desktop', 'Terminal - eric@aura-os-dev: ~/aura-os', 'Google Gemini — Mozilla Firefox', 'aura-os - Thunar', 'Terminal - eric@aura-os-dev: ~/aura-os', '~/aura-os/client.py - Mousepad']
+2025-07-03 17:16:14,128 - INFO - [Script Gen] Generated Script: wmctrl -a 'Mousepad'; echo 'Please provide the data of baseball players in the MLB and their salaries.'; read; libreoffice --calc ~/aura-os/MLB_Player_Salaries.ods
+2025-07-03 17:16:14,129 - INFO - 127.0.0.1 - - [03/Jul/2025 17:16:14] "POST /generate_script HTTP/1.1" 200 -
+2025-07-03 17:16:14,132 - WARNING - [Execution] Preparing to run script: wmctrl -a 'Mousepad'; echo 'Please provide the data of baseball players in the MLB and their salaries.'; read; libreoffice --calc ~/aura-os/MLB_Player_Salaries.ods
+2025-07-03 17:16:14,132 - INFO - [Execution] Using DISPLAY=:0.0 for GUI context.
+2025-07-03 17:16:22,132 - INFO - [Execution] STDOUT: Please provide the data of baseball players in the MLB and their salaries.
+
+2025-07-03 17:16:22,133 - ERROR - [Execution] STDERR: /bin/sh: 1: read: arg count
+Warning: failed to launch javaldx - java may not function correctly
+
+2025-07-03 17:16:22,141 - INFO - 127.0.0.1 - - [03/Jul/2025 17:16:22] "POST /execute_script HTTP/1.1" 200 -
+2025-07-03 17:16:22,165 - INFO - [Script Gen] Intent: 'The original goal was 'make a new libreoffice excel file with all of the baseball players in the MLB and how much money they make'. The last command 'wmctrl -a 'Mousepad'; echo 'Please provide the data of baseball players in the MLB and their salaries.'; read; libreoffice --calc ~/aura-os/MLB_Player_Salaries.ods' failed with the error: /bin/sh: 1: read: arg count
+Warning: failed to launch javaldx - java may not function correctly
+. Please provide a new, corrected script to achieve the original goal.' | CWD: '/home/eric/aura-os' | Windows: ['xfce4-panel', 'xfce4-panel', 'xfce4-panel', 'Desktop', 'Terminal - eric@aura-os-dev: ~/aura-os', 'Google Gemini — Mozilla Firefox', 'aura-os - Thunar', 'Terminal - eric@aura-os-dev: ~/aura-os', '~/aura-os/client.py - Mousepad']
+2025-07-03 17:16:22,333 - ERROR - Error during script generation: 503 Server Error: Service Unavailable for url: https://api.groq.com/openai/v1/chat/completions
+2025-07-03 17:16:22,334 - INFO - 127.0.0.1 - - [03/Jul/2025 17:16:22] "[35m[1mPOST /generate_script HTTP/1.1[0m" 500 -
+2025-07-03 17:17:07,137 - INFO - [Script Gen] Intent: 'give me a list of all MLB players and their salaries' | CWD: '/home/eric/aura-os' | Windows: ['xfce4-panel', 'xfce4-panel', 'xfce4-panel', 'Desktop', 'Terminal - eric@aura-os-dev: ~/aura-os', 'Google Gemini — Mozilla Firefox', 'aura-os - Thunar', 'Terminal - eric@aura-os-dev: ~/aura-os', '~/aura-os/client.py - Mousepad']
+2025-07-03 17:17:07,682 - INFO - [Script Gen] Generated Script: None
+2025-07-03 17:17:07,684 - INFO - 127.0.0.1 - - [03/Jul/2025 17:17:07] "POST /generate_script HTTP/1.1" 200 -
