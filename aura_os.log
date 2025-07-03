@@ -212,3 +212,48 @@ json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
 . Please provide a new, corrected script to achieve the original goal.'
 2025-07-03 17:20:17,092 - INFO - [Script Gen] Generated 'python' script.
 2025-07-03 17:20:17,092 - INFO - 127.0.0.1 - - [03/Jul/2025 17:20:17] "POST /generate_script HTTP/1.1" 200 -
+2025-07-03 17:26:23,273 - INFO - Starting AuraOS AI Daemon v6 (Multi-lingual)...
+2025-07-03 17:26:23,275 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.64.2:5000
+2025-07-03 17:26:23,275 - INFO - [33mPress CTRL+C to quit[0m
+2025-07-03 17:26:43,637 - INFO - [Script Gen] Intent: 'I want you to learn a new skill. From now on, whenever you successfully generate a python script, you should also print a fun fact about python. Please modify yourself to add this feature.'
+2025-07-03 17:26:44,265 - INFO - [Script Gen] Generated 'None' script.
+2025-07-03 17:26:44,267 - INFO - 127.0.0.1 - - [03/Jul/2025 17:26:44] "POST /generate_script HTTP/1.1" 200 -
+2025-07-03 17:27:44,220 - INFO - Starting AuraOS AI Daemon v6 (Multi-lingual)...
+2025-07-03 17:27:44,222 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.64.2:5000
+2025-07-03 17:27:44,222 - INFO - [33mPress CTRL+C to quit[0m
+2025-07-03 17:27:46,126 - INFO - [Script Gen] Intent: 'I want you to learn a new skill. From now on, whenever you successfully generate a python script, you should also print a fun fact about python. Please modify yourself to add this feature.'
+2025-07-03 17:27:48,659 - ERROR - Error during script generation: 400 Client Error: Bad Request for url: https://api.groq.com/openai/v1/chat/completions
+2025-07-03 17:27:48,661 - INFO - 127.0.0.1 - - [03/Jul/2025 17:27:48] "[35m[1mPOST /generate_script HTTP/1.1[0m" 500 -
+2025-07-03 17:27:51,148 - INFO - [Script Gen] Intent: 'I want you to learn a new skill. From now on, whenever you successfully generate a python script, you should also print a fun fact about python. Please modify yourself to add this feature.'
+2025-07-03 17:27:53,496 - ERROR - Error during script generation: 400 Client Error: Bad Request for url: https://api.groq.com/openai/v1/chat/completions
+2025-07-03 17:27:53,498 - INFO - 127.0.0.1 - - [03/Jul/2025 17:27:53] "[35m[1mPOST /generate_script HTTP/1.1[0m" 500 -
+2025-07-03 17:28:42,658 - INFO - [Script Gen] Intent: 'I want you to learn a new skill. From now on, whenever you successfully generate a python script, you should also print a fun fact about python. Please modify yourself to add this feature.'
+2025-07-03 17:28:45,204 - ERROR - Error during script generation: 400 Client Error: Bad Request for url: https://api.groq.com/openai/v1/chat/completions
+2025-07-03 17:28:45,207 - INFO - 127.0.0.1 - - [03/Jul/2025 17:28:45] "[35m[1mPOST /generate_script HTTP/1.1[0m" 500 -
+2025-07-03 17:28:49,881 - INFO - Starting AuraOS AI Daemon v6 (Multi-lingual)...
+2025-07-03 17:28:49,882 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.64.2:5000
+2025-07-03 17:28:49,882 - INFO - [33mPress CTRL+C to quit[0m
+2025-07-03 17:29:03,505 - INFO - [Script Gen] Intent: 'hello'
+2025-07-03 17:29:03,976 - INFO - [Script Gen] Generated 'shell' script.
+2025-07-03 17:29:03,978 - INFO - 127.0.0.1 - - [03/Jul/2025 17:29:03] "POST /generate_script HTTP/1.1" 200 -
+2025-07-03 17:29:09,665 - INFO - [Script Gen] Intent: 'I want you to learn a new skill. From now on, whenever you successfully generate a python script, you should also print a fun fact about python. Please modify yourself to add this feature.'
+2025-07-03 17:29:12,112 - ERROR - Error during script generation: 400 Client Error: Bad Request for url: https://api.groq.com/openai/v1/chat/completions
+2025-07-03 17:29:12,113 - INFO - 127.0.0.1 - - [03/Jul/2025 17:29:12] "[35m[1mPOST /generate_script HTTP/1.1[0m" 500 -
+2025-07-03 17:31:16,564 - INFO - Starting AuraOS AI Daemon v6 (Multi-lingual)...
+2025-07-03 17:31:16,565 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.64.2:5000
+2025-07-03 17:31:16,565 - INFO - [33mPress CTRL+C to quit[0m
+2025-07-03 17:31:19,988 - INFO - [Script Gen] Intent: 'I want you to learn a new skill. From now on, whenever you successfully generate a python script, you should also print a fun fact about python. Please modify yourself to add this feature.'
+2025-07-03 17:31:42,356 - ERROR - Error during script generation: 400 Client Error: Bad Request for url: https://api.groq.com/openai/v1/chat/completions
+2025-07-03 17:31:42,365 - INFO - 127.0.0.1 - - [03/Jul/2025 17:31:42] "[35m[1mPOST /generate_script HTTP/1.1[0m" 500 -

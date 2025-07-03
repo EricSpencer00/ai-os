@@ -1,7 +1,6 @@
 # daemon.py
 # The advanced AI daemon for AuraOS.
-# v6: Now multi-lingual. It decides whether to generate a shell script or a 
-#     more powerful Python script based on the user's request.
+# v6: Now multi-lingual and multi-provider. It uses OpenRouter for specialized tasks.
 
 import os
 import json
@@ -26,8 +25,7 @@ try:
     with open('config.json', 'r') as f:
         config = json.load(f)
     GROQ_API_KEY = config.get("GROQ_API_KEY")
-    if not GROQ_API_KEY:
-        logging.warning("Groq API key not found in config.json. Script generation will fail.")
+    OPENROUTER_API_KEY = config.get("OPENROUTER_API_KEY") # Using OpenRouter key now
 except FileNotFoundError:
     logging.error("CRITICAL: config.json not found. Please create it. Exiting.")
     exit()
@@ -36,13 +34,17 @@ except FileNotFoundError:
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = "llama3-70b-8192"
 
+# --- OpenRouter Configuration ---
+OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_DEEPSEEK_MODEL = "deepseek/deepseek-coder" # The free Deepseek Coder model
+
 # --- Core Endpoints ---
 
 @app.route('/generate_script', methods=['POST'])
 def generate_script():
     """
     Translates a user's intent into an executable script, deciding
-    between shell and Python based on the task's complexity.
+    between shell and Python and switching AI models based on the task.
     """
     data = request.get_json()
     user_intent = data.get('intent')
@@ -53,51 +55,74 @@ def generate_script():
     
     logging.info(f"[Script Gen] Intent: '{user_intent}'")
 
-    # --- The system prompt that teaches the AI its new skill ---
     system_prompt = f"""
-    You are an expert script generator. Your task is to convert a user's request into an executable script. You can generate either shell or Python scripts.
+    You are the core AI of AuraOS, an AI-native operating system. Your primary function is to assist the user by generating scripts. You have two special capabilities: Standard Scripting and Self-Modification.
 
-    DECISION CRITERIA:
-    - If the task involves simple file operations (ls, cd, mkdir, cp), system commands, or window management (wmctrl), generate a 'shell' script.
-    - If the task requires complex logic, web scraping, accessing APIs, or processing large amounts of data (e.g., "list all MLB players and their salaries"), you MUST generate a 'python' script.
-    - Python scripts should be self-contained and use standard libraries (like requests, json, os) if possible. Do not assume non-standard packages are installed.
+    **1. STANDARD SCRIPTING PROTOCOL**
+    - For simple file/system tasks, generate a 'shell' script.
+    - For complex logic, web scraping, or data processing, generate a 'python' script.
+    - Your response MUST be a JSON object with "script_type" and "script" keys.
 
-    RESPONSE FORMAT:
-    - You MUST respond with a JSON object containing two keys: "script_type" (a string, either "shell" or "python") and "script" (the code as a single string).
-    - Do not add any explanation or conversational text.
-    - If the task is impossible or dangerous, respond with a JSON object containing an "error" key.
+    **2. SELF-MODIFICATION PROTOCOL (TOP PRIORITY)**
+    - If the user asks you to "learn", "improve", "add a feature", or "modify yourself", you MUST follow this protocol. You are generating the new version of your own source code (`daemon.py`).
+    - **Step 1:** Recall your own structure. You are a Flask app in a file named `daemon.py`. You have endpoints like `/generate_script` and `/execute_script`.
+    - **Step 2:** Generate the **complete, new, and correct source code for `daemon.py`** from scratch that implements the user's requested change, while preserving all existing functionality.
+    - **Step 3:** If the new code requires new python packages, identify them in a "packages" list.
+    - **Step 4:** Generate a 'shell' script that calls the supervisor `updater.py`. The script MUST be in the format: `python3 updater.py <base64_encoded_json_payload>`.
+    - **Step 5:** The payload is a base64-encoded JSON object: `{{ "code": "...", "packages": ["...", "..."] }}`. You must generate this payload correctly.
 
-    CONTEXT:
-    - The user's current directory is: {cwd}
-    - The user has the following windows open:
-    - {window_list_str}
+    **CONTEXT FOR STANDARD SCRIPTING:**
+    - CWD: {cwd}
+    - Open Windows: {window_list_str}
     """
+    
+    # --- Model Switching Logic ---
+    is_modification_task = any(keyword in user_intent.lower() for keyword in ["modify", "improve", "learn", "add a feature"])
 
-    headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
+    if is_modification_task:
+        logging.info("Task identified as self-modification. Switching to OpenRouter DeepSeek model.")
+        api_url = OPENROUTER_API_URL
+        api_key = OPENROUTER_API_KEY
+        model = OPENROUTER_DEEPSEEK_MODEL
+        if not api_key:
+            return jsonify({"error": "OpenRouter API key not configured for self-modification."}), 500
+    else:
+        api_url = GROQ_API_URL
+        api_key = GROQ_API_KEY
+        model = GROQ_MODEL
+        if not api_key:
+            return jsonify({"error": "Groq API key not configured for standard tasks."}), 500
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        # OpenRouter recommends these headers for identification
+        "HTTP-Referer": "https://github.com/your-repo/AuraOS", 
+        "X-Title": "AuraOS"
+    }
     payload = {
-        "model": GROQ_MODEL,
+        "model": model,
         "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_intent}],
-        "temperature": 0.2,
+        "temperature": 0.1,
         "response_format": {"type": "json_object"}
     }
 
     try:
-        response = requests.post(GROQ_API_URL, headers=headers, json=payload)
+        response = requests.post(api_url, headers=headers, json=payload)
         response.raise_for_status()
-        generated_json = response.json()['choices'][0]['message']['content']
-        script_data = json.loads(generated_json)
-        logging.info(f"[Script Gen] Generated '{script_data.get('script_type')}' script.")
+        
+        generated_json_string = response.json()['choices'][0]['message']['content']
+        script_data = json.loads(generated_json_string) # The model itself returns a JSON string
+
+        logging.info(f"[Script Gen] Generated '{script_data.get('script_type')}' script using {model}.")
         return jsonify(script_data), 200
     except Exception as e:
-        logging.error(f"Error during script generation: {e}")
-        return jsonify({"error": "Failed to generate script."}), 500
+        logging.error(f"Error during script generation with {model}: {e}")
+        return jsonify({"error": f"Failed to generate script using {model}."}), 500
 
 @app.route('/execute_script', methods=['POST'])
 def execute_script():
-    """
-    Executes a shell script provided in the request. 
-    Note: The client is responsible for executing Python scripts.
-    """
+    """Executes a shell script provided in the request."""
     data = request.get_json()
     script_to_run = data.get('script')
     context = data.get('context', {})
@@ -107,19 +132,4 @@ def execute_script():
     logging.warning(f"[Execution] Preparing to run SHELL script: {script_to_run}")
     
     script_env = os.environ.copy()
-    if display_var: script_env['DISPLAY'] = display_var
-
-    try:
-        result = subprocess.run(script_to_run, shell=True, capture_output=True, text=True, check=False, env=script_env)
-        output = result.stdout
-        error_output = result.stderr
-        logging.info(f"[Execution] STDOUT: {output}")
-        if error_output: logging.error(f"[Execution] STDERR: {error_output}")
-        return jsonify({"status": "success" if result.returncode == 0 else "error", "return_code": result.returncode, "output": output, "error_output": error_output})
-    except Exception as e:
-        logging.critical(f"[Execution] Failed to execute script: {e}")
-        return jsonify({"error": f"An unexpected error occurred during execution: {e}"}), 500
-
-if __name__ == '__main__':
-    logging.info("Starting AuraOS AI Daemon v6 (Multi-lingual)...")
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    if display_var: script_env['DISPLA
