@@ -15,3 +15,9 @@ daemon.py
 venv
 
 2025-07-03 16:30:08,300 - INFO - 127.0.0.1 - - [03/Jul/2025 16:30:08] "POST /execute_script HTTP/1.1" 200 -
+2025-07-03 16:59:50,955 - INFO - Starting AuraOS AI Daemon v2...
+2025-07-03 16:59:50,956 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.64.2:5000
+2025-07-03 16:59:50,956 - INFO - [33mPress CTRL+C to quit[0m

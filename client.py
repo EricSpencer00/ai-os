@@ -1,9 +1,11 @@
+#!/usr/bin/env python3
 # client.py
 # A command-line client to interact with the AuraOS daemon.
-# Demonstrates the Generate -> Confirm -> Execute workflow.
+# v2: Now context-aware. It sends the current working directory to the daemon.
 
 import requests
 import sys
+import os # Import the os module to get the current directory
 
 DAEMON_URL = "http://127.0.0.1:5000"
 
@@ -11,9 +13,20 @@ def generate_and_execute(intent):
     """The main workflow for handling a user's intent."""
     print(f"[*] Sending intent to daemon: '{intent}'")
     
+    # --- NEW: Get the current working directory ---
+    current_directory = os.getcwd()
+    print(f"[*] Context (current directory): {current_directory}")
+
     # 1. Generate the script
     try:
-        response = requests.post(f"{DAEMON_URL}/generate_script", json={"intent": intent})
+        # --- NEW: Send the intent AND the context ---
+        payload = {
+            "intent": intent,
+            "context": {
+                "cwd": current_directory
+            }
+        }
+        response = requests.post(f"{DAEMON_URL}/generate_script", json=payload)
         response.raise_for_status()
         data = response.json()
     except requests.exceptions.RequestException as e:
@@ -44,6 +57,7 @@ def generate_and_execute(intent):
     # 3. Execute the script
     print("\n[*] Executing script...")
     try:
+        # The execution context is handled by the shell, so we don't need to pass the cwd here.
         exec_response = requests.post(f"{DAEMON_URL}/execute_script", json={"script": script})
         exec_response.raise_for_status()
         exec_data = exec_response.json()
@@ -62,9 +76,8 @@ def generate_and_execute(intent):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python3 client.py \"Your command for the AI\"")
+        print("Usage: ai \"Your command for the AI\"")
         sys.exit(1)
     
     user_intent = " ".join(sys.argv[1:])
     generate_and_execute(user_intent)
-
