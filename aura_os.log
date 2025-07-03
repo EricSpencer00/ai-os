@@ -1,0 +1,17 @@
+2025-07-03 16:29:31,465 - INFO - Starting AuraOS AI Daemon v2...
+2025-07-03 16:29:31,466 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.64.2:5000
+2025-07-03 16:29:31,466 - INFO - [33mPress CTRL+C to quit[0m
+2025-07-03 16:30:05,321 - INFO - [Script Gen] Received Intent: 'List all files in the current directory'
+2025-07-03 16:30:05,854 - INFO - [Script Gen] Generated Script: ls
+2025-07-03 16:30:05,855 - INFO - 127.0.0.1 - - [03/Jul/2025 16:30:05] "POST /generate_script HTTP/1.1" 200 -
+2025-07-03 16:30:08,295 - WARNING - [Execution] Preparing to run script: ls
+2025-07-03 16:30:08,299 - INFO - [Execution] STDOUT: aura_os.log
+client.py
+config.json
+daemon.py
+venv
+
+2025-07-03 16:30:08,300 - INFO - 127.0.0.1 - - [03/Jul/2025 16:30:08] "POST /execute_script HTTP/1.1" 200 -
