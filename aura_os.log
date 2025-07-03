@@ -82,3 +82,39 @@ venv
 (mousepad:14643): Gtk-WARNING **: 17:08:39.275: cannot open display: 
 
 2025-07-03 17:08:39,277 - INFO - 127.0.0.1 - - [03/Jul/2025 17:08:39] "POST /execute_script HTTP/1.1" 200 -
+2025-07-03 17:11:32,160 - INFO - Starting AuraOS AI Daemon v4 (Window-Aware)...
+2025-07-03 17:11:32,162 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.64.2:5000
+2025-07-03 17:11:32,162 - INFO - [33mPress CTRL+C to quit[0m
+2025-07-03 17:11:38,662 - INFO - [Script Gen] Intent: 'open my newest 3 .txt files' | CWD: '/home/eric/aura-os' | Windows: ['xfce4-panel', 'xfce4-panel', 'xfce4-panel', 'Desktop', 'Terminal - eric@aura-os-dev: ~/aura-os', 'Google Gemini — Mozilla Firefox', 'aura-os - Thunar', 'Terminal - eric@aura-os-dev: ~/aura-os', '~/aura-os/client.py - Mousepad']
+2025-07-03 17:11:39,371 - INFO - [Script Gen] Generated Script: wmctrl -a 'Mousepad'; for file in $(ls -t *.txt | head -3); do mousepad "$file" & done
+2025-07-03 17:11:39,375 - INFO - 127.0.0.1 - - [03/Jul/2025 17:11:39] "POST /generate_script HTTP/1.1" 200 -
+2025-07-03 17:11:41,287 - WARNING - [Execution] Preparing to run script: wmctrl -a 'Mousepad'; for file in $(ls -t *.txt | head -3); do mousepad "$file" & done
+2025-07-03 17:11:41,287 - INFO - [Execution] Using DISPLAY=:0.0 for GUI context.
+2025-07-03 17:11:44,087 - INFO - [Execution] STDOUT: 
+2025-07-03 17:11:44,088 - ERROR - [Execution] STDERR: 
+(mousepad:14737): dconf-WARNING **: 17:11:41.466: failed to commit changes to dconf: Failed to execute child process “dbus-launch” (No such file or directory)
+
+(mousepad:14737): dconf-WARNING **: 17:11:41.466: failed to commit changes to dconf: Failed to execute child process “dbus-launch” (No such file or directory)
+
+(mousepad:14737): dconf-WARNING **: 17:11:43.080: failed to commit changes to dconf: Failed to execute child process “dbus-launch” (No such file or directory)
+
+(mousepad:14737): dconf-WARNING **: 17:11:43.080: failed to commit changes to dconf: Failed to execute child process “dbus-launch” (No such file or directory)
+
+(mousepad:14737): dconf-WARNING **: 17:11:43.081: failed to commit changes to dconf: Failed to execute child process “dbus-launch” (No such file or directory)
+
+(mousepad:14737): dconf-WARNING **: 17:11:44.026: failed to commit changes to dconf: Failed to execute child process “dbus-launch” (No such file or directory)
+
+(mousepad:14737): dconf-WARNING **: 17:11:44.026: failed to commit changes to dconf: Failed to execute child process “dbus-launch” (No such file or directory)
+
+2025-07-03 17:11:44,089 - INFO - 127.0.0.1 - - [03/Jul/2025 17:11:44] "POST /execute_script HTTP/1.1" 200 -
+2025-07-03 17:12:13,335 - INFO - [Script Gen] Intent: 'open a new youtube browser' | CWD: '/home/eric/aura-os' | Windows: ['xfce4-panel', 'xfce4-panel', 'xfce4-panel', 'Desktop', 'Terminal - eric@aura-os-dev: ~/aura-os', 'Google Gemini — Mozilla Firefox', 'aura-os - Thunar', 'Terminal - eric@aura-os-dev: ~/aura-os']
+2025-07-03 17:12:13,851 - INFO - [Script Gen] Generated Script: wmctrl -a 'Terminal' && firefox https://www.youtube.com &
+2025-07-03 17:12:13,854 - INFO - 127.0.0.1 - - [03/Jul/2025 17:12:13] "POST /generate_script HTTP/1.1" 200 -
+2025-07-03 17:12:15,869 - WARNING - [Execution] Preparing to run script: wmctrl -a 'Terminal' && firefox https://www.youtube.com &
+2025-07-03 17:12:15,869 - INFO - [Execution] Using DISPLAY=:0.0 for GUI context.
+2025-07-03 17:12:23,901 - INFO - [Execution] STDOUT: [GFX1-]: RenderCompositorSWGL failed mapping default framebuffer, no dt
+
+2025-07-03 17:12:23,908 - INFO - 127.0.0.1 - - [03/Jul/2025 17:12:23] "POST /execute_script HTTP/1.1" 200 -

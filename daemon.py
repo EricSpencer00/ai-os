@@ -48,7 +48,6 @@ def generate_script():
     context = data.get('context', {})
     cwd = context.get('cwd', '.')
     
-    # --- NEW: Get window list from context ---
     windows = context.get('windows', [])
     window_list_str = "\n- ".join(windows) if windows else "No open windows detected."
     
@@ -57,7 +56,6 @@ def generate_script():
     if not GROQ_API_KEY:
         return jsonify({"error": "Groq API key is not configured on the server."}), 500
 
-    # --- NEW: The system prompt is now much more powerful ---
     system_prompt = f"""
     You are an expert Linux shell script generator. Your task is to convert a user's intent into a single, executable shell script.
     
@@ -106,9 +104,27 @@ def execute_script():
     script_to_run = data.get('script')
     if not script_to_run:
         return jsonify({"error": "No script provided."}), 400
+    
     logging.warning(f"[Execution] Preparing to run script: {script_to_run}")
+
+    # --- NEW: Get graphical context for running GUI apps ---
+    context = data.get('context', {})
+    display_var = context.get('display')
+    
+    script_env = os.environ.copy()
+    if display_var:
+        script_env['DISPLAY'] = display_var
+        logging.info(f"[Execution] Using DISPLAY={display_var} for GUI context.")
+
     try:
-        result = subprocess.run(script_to_run, shell=True, capture_output=True, text=True, check=False)
+        result = subprocess.run(
+            script_to_run, 
+            shell=True, 
+            capture_output=True, 
+            text=True, 
+            check=False,
+            env=script_env # Use the modified environment
+        )
         output = result.stdout
         error_output = result.stderr
         logging.info(f"[Execution] STDOUT: {output}")
