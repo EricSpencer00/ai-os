@@ -34,7 +34,7 @@ except FileNotFoundError:
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = "llama3-70b-8192"
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-OPENROUTER_DEEPSEEK_MODEL = "deepseek-ai/deepseek-r1"  # Updated model name
+OPENROUTER_DEEPSEEK_MODEL = "deepseek/deepseek-r1-0528:free"
 
 COMPLEX_TASK_KEYWORDS = [
     "modify", "improve", "learn", "add a feature", "update", "change your code",
@@ -44,71 +44,86 @@ COMPLEX_TASK_KEYWORDS = [
 @app.route("/generate_script", methods=["POST"])
 def generate_script():
     data = request.get_json(force=True)
-    user_intent = data.get("intent", "")
+    user_intent = data.get("intent", "").strip()
     context = data.get("context", {})
     cwd = context.get("cwd", ".")
     windows = context.get("windows", [])
 
-    window_list_str = "\n- " + "\n- ".join(windows) if windows else "No open windows detected."
-    logging.info(f"[Script Gen] Intent: '{user_intent}'")
+    # --- Intent Routing Table ---
+    intent_routes = [
+        (lambda intent: any(k in intent.lower() for k in COMPLEX_TASK_KEYWORDS), "script"),
+        (lambda intent: intent.lower() in ["hi", "hello", "hey"], "greeting"),
+        # Add more (predicate, handler_name) pairs as the system learns
+    ]
 
-    system_prompt = f"""
-    You are AuraOS's autonomous daemon. Generate either a Python or shell script based on the intent.
-    Self-modify if the request includes 'learn', 'add a feature', 'improve', or 'modify yourself'.
-
-    Return JSON: {{"script_type": "shell" or "python", "script": "..."}}
-
-    CONTEXT:
-    - CWD: {cwd}
-    - Open Windows: {window_list_str}
-    """
-
-    is_complex = any(k in user_intent.lower() for k in COMPLEX_TASK_KEYWORDS)
-    if is_complex:
-        model, api_key, api_url = OPENROUTER_DEEPSEEK_MODEL, OPENROUTER_API_KEY, OPENROUTER_API_URL
-        if not api_key:
-            return jsonify({"error": "OpenRouter API key missing"}), 500
-    else:
-        model, api_key, api_url = GROQ_MODEL, GROQ_API_KEY, GROQ_API_URL
-        if not api_key:
-            return jsonify({"error": "Groq API key missing"}), 500
-
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_intent}
-        ],
-        "temperature": 0.1
-    }
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
-
-    try:
-        response = requests.post(api_url, headers=headers, json=payload, timeout=15)
-        response.raise_for_status()
-        response_json = response.json()
-
-        if "error" in response_json:
-            raise ValueError(f"API Error: {response_json['error']}")
-
-        msg = response_json["choices"][0]["message"]["content"]
-
-        # Improved JSON extraction with validation
+    # --- Handler Functions ---
+    def handle_script():
+        window_list_str = "\n- " + "\n- ".join(windows) if windows else "No open windows detected."
+        logging.info(f"[Script Gen] Intent: '{user_intent}'")
+        system_prompt = f"""
+        You are AuraOS's autonomous daemon. Generate either a Python or shell script based on the intent.
+        Self-modify if the request includes 'learn', 'add a feature', 'improve', or 'modify yourself'.
+        Return JSON: {{"script_type": "shell" or "python", "script": "..."}}
+        CONTEXT:
+        - CWD: {cwd}
+        - Open Windows: {window_list_str}
+        """
+        is_complex = any(k in user_intent.lower() for k in COMPLEX_TASK_KEYWORDS)
+        if is_complex:
+            model, api_key, api_url = OPENROUTER_DEEPSEEK_MODEL, OPENROUTER_API_KEY, OPENROUTER_API_URL
+            if not api_key:
+                return jsonify({"error": "OpenRouter API key missing"}), 500
+        else:
+            model, api_key, api_url = GROQ_MODEL, GROQ_API_KEY, GROQ_API_URL
+            if not api_key:
+                return jsonify({"error": "Groq API key missing"}), 500
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_intent}
+            ],
+            "temperature": 0.1
+        }
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
         try:
-            content = json.loads(msg)
-        except json.JSONDecodeError:
-            match = re.search(r'\{(?:[^{}]|(?R))*\}', msg, re.DOTALL)
+            response = requests.post(api_url, headers=headers, json=payload, timeout=15)
+            response.raise_for_status()
+            response_json = response.json()
+            if "error" in response_json:
+                raise ValueError(f"API Error: {response_json['error']}")
+            msg = response_json["choices"][0]["message"]["content"]
+            match = re.search(r'\{.*\}', msg, re.DOTALL)
             if not match:
                 raise ValueError("No valid JSON found in LLM response.")
-            content = json.loads(match.group(0))
+            content = match.group(0)
+            return jsonify(json.loads(content)), 200
+        except Exception as e:
+            logging.error(f"[Script Gen] Error: {e}")
+            return jsonify({"error": "Failed to generate script.", "details": str(e)}), 500
 
-        return jsonify(content), 200
-    except Exception as e:
-        logging.error(f"[Script Gen] Error: {e}")
-        return jsonify({"error": "Failed to generate script.", "details": str(e)}), 500
+    def handle_greeting():
+        return jsonify({"message": "hello!"}), 200
+
+    def handle_unknown():
+        # Log unknown intent for self-improvement
+        logging.warning(f"[Intent Router] Unknown intent: '{user_intent}'")
+        with open(os.path.join(BASE_DIR, "unknown_intents.log"), "a") as f:
+            f.write(json.dumps({"intent": user_intent, "context": context, "time": time.time()}) + "\n")
+        return jsonify({"message": "I'm not sure how to handle that yet, but I'm learning!"}), 200
+
+    # --- Routing Logic ---
+    for predicate, handler_name in intent_routes:
+        if predicate(user_intent):
+            if handler_name == "script":
+                return handle_script()
+            elif handler_name == "greeting":
+                return handle_greeting()
+    # Fallback for unknown intents
+    return handle_unknown()
 
 def is_malicious_script(script):
     dangerous_patterns = [
@@ -152,14 +167,23 @@ def self_reflect():
         return jsonify({"error": "OpenRouter API key missing"}), 500
 
     try:
+        # Only include the last 5 unknown intents for self-reflection
+        unknown_intents_path = os.path.join(BASE_DIR, "unknown_intents.log")
+        last_unknowns = []
+        if os.path.exists(unknown_intents_path):
+            with open(unknown_intents_path, "r") as f:
+                lines = f.readlines()
+                last_unknowns = [json.loads(line) for line in lines[-5:] if line.strip()]
+
         with open(LOG_PATH, "r") as log:
             logs = log.read()[-5000:]
         with open(DAEMON_PATH, "r") as code:
             src = code.read()
 
         system_prompt = (
-            "You are a self-improving daemon. Given logs and source code, output improved daemon.py. "
-            "Return only a JSON object: {\"code\": \"...new daemon.py code...\", \"packages\": [\"...optional deps...\"]}"
+            "You are a self-improving daemon. Given logs, source code, and recent unknown user intents, output improved daemon.py. "
+            "Return only a JSON object: {\"code\": \"...new daemon.py code...\", \"packages\": [\"...optional deps...\"]} "
+            "Recent unknown intents: " + json.dumps(last_unknowns)
         )
         task = f"LOGS: {logs}\nSOURCE: {src}"
 
@@ -180,6 +204,8 @@ def self_reflect():
         }
 
         r = requests.post(OPENROUTER_API_URL, headers=headers, json=payload, timeout=15)
+        if r.status_code != 200:
+            logging.error(f"[Self-Reflect] OpenRouter response: {r.text}")
         r.raise_for_status()
         response_json = r.json()
         logging.warning(f"[Self-Reflect] LLM Raw Response: {json.dumps(response_json, indent=2)[:1000]}...")
@@ -190,17 +216,20 @@ def self_reflect():
             raise ValueError("Response missing 'choices' key")
 
         msg = response_json["choices"][0]["message"]["content"]
-        
         # Multi-stage JSON parsing
         try:
+            # Remove markdown code block if present
+            if msg.strip().startswith('```json'):
+                msg = re.sub(r'^```json|```$', '', msg.strip(), flags=re.MULTILINE).strip()
             content = json.loads(msg)
-        except json.JSONDecodeError:
-            match = re.search(r'\{(?:[^{}]|(?R))*\}', msg, re.DOTALL)
+        except Exception:
+            match = re.search(r'\{.*\}', msg, re.DOTALL)
             if not match:
                 raise ValueError("No valid JSON found in model output")
             content = json.loads(match.group(0))
 
-        if not isinstance(content.get("code", ""), str) or not content["code"]:
+        # Ensure content is a dict and has 'code' key
+        if not isinstance(content, dict) or not isinstance(content.get("code", ""), str) or not content["code"]:
             raise ValueError("Invalid code in update payload")
 
         b64 = base64.b64encode(json.dumps(content).encode()).decode()
