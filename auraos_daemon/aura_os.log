@@ -467,3 +467,39 @@ Traceback (most recent call last):
 AttributeError: 'str' object has no attribute 'get'
 2025-07-03 22:27:23,723 - INFO - 127.0.0.1 - - [03/Jul/2025 22:27:23] "[35m[1mPOST /self_reflect HTTP/1.1[0m" 500 -
 2025-07-03 22:31:57,930 - INFO - 127.0.0.1 - - [03/Jul/2025 22:31:57] "POST /generate_script HTTP/1.1" 200 -
+2025-07-03 23:01:39,861 - INFO - Starting AuraOS AI Daemon v7.1...
+2025-07-03 23:01:39,869 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5050
+ * Running on http://192.168.1.36:5050
+2025-07-03 23:01:39,869 - INFO - [33mPress CTRL+C to quit[0m
+2025-07-03 23:01:41,429 - INFO - 127.0.0.1 - - [03/Jul/2025 23:01:41] "POST /generate_script HTTP/1.1" 200 -
+2025-07-03 23:01:43,150 - INFO - 127.0.0.1 - - [03/Jul/2025 23:01:43] "POST /generate_script HTTP/1.1" 200 -
+2025-07-03 23:01:44,080 - INFO - 127.0.0.1 - - [03/Jul/2025 23:01:44] "POST /generate_script HTTP/1.1" 200 -
+2025-07-03 23:01:52,967 - WARNING - [Intent Router] Unknown intent: 'reflect on yourself'
+2025-07-03 23:01:52,968 - INFO - 127.0.0.1 - - [03/Jul/2025 23:01:52] "POST /generate_script HTTP/1.1" 200 -
+2025-07-03 23:02:10,409 - WARNING - [Intent Router] Unknown intent: 'give me top 20 mlb players by salary'
+2025-07-03 23:02:10,409 - INFO - 127.0.0.1 - - [03/Jul/2025 23:02:10] "POST /generate_script HTTP/1.1" 200 -
+2025-07-03 23:02:24,652 - INFO - [Script Gen] Intent: 'echo 5 ai aura_os.log commands config.json daemon.py daemon_backup.py run.sh test_execute_script.sh unknown_intents.log updater.py venv 20 to the terminal'
+2025-07-03 23:02:39,893 - INFO - [Periodic Self-Reflect] Initiating self-reflection...
+2025-07-03 23:02:40,057 - WARNING - [Self-Reflect] Sending self-improvement task to OpenRouter...
+2025-07-03 23:02:54,673 - ERROR - [Ollama Llama3] Error: HTTPConnectionPool(host='localhost', port=11434): Read timed out. (read timeout=30)
+2025-07-03 23:02:54,679 - ERROR - [Script Gen] Error: HTTPConnectionPool(host='localhost', port=11434): Read timed out. (read timeout=30)
+2025-07-03 23:02:54,710 - INFO - 127.0.0.1 - - [03/Jul/2025 23:02:54] "[35m[1mPOST /generate_script HTTP/1.1[0m" 500 -
+2025-07-03 23:02:55,045 - ERROR - [Periodic Self-Reflect] Error: HTTPConnectionPool(host='localhost', port=5050): Read timed out. (read timeout=15)
+2025-07-03 23:03:24,441 - WARNING - [Intent Router] Unknown intent: 'echo 5 x 20 to the terminal'
+2025-07-03 23:03:24,446 - INFO - 127.0.0.1 - - [03/Jul/2025 23:03:24] "POST /generate_script HTTP/1.1" 200 -
+2025-07-03 23:03:30,061 - WARNING - [Intent Router] Unknown intent: 'what is 5 x 10'
+2025-07-03 23:03:30,062 - INFO - 127.0.0.1 - - [03/Jul/2025 23:03:30] "POST /generate_script HTTP/1.1" 200 -
+2025-07-03 23:04:08,304 - WARNING - [Intent Router] Unknown intent: 'write a script that evaluates 2 x 3'
+2025-07-03 23:04:08,306 - INFO - 127.0.0.1 - - [03/Jul/2025 23:04:08] "POST /generate_script HTTP/1.1" 200 -
+2025-07-03 23:04:14,126 - INFO - 127.0.0.1 - - [03/Jul/2025 23:04:14] "POST /generate_script HTTP/1.1" 200 -
+2025-07-03 23:04:16,940 - WARNING - [Intent Router] Unknown intent: 'goodbye'
+2025-07-03 23:04:16,941 - INFO - 127.0.0.1 - - [03/Jul/2025 23:04:16] "POST /generate_script HTTP/1.1" 200 -
+2025-07-03 23:04:54,242 - WARNING - [Intent Router] Unknown intent: 'what do you mean'
+2025-07-03 23:04:54,244 - INFO - 127.0.0.1 - - [03/Jul/2025 23:04:54] "POST /generate_script HTTP/1.1" 200 -
+2025-07-03 23:05:11,631 - INFO - [Script Gen] Intent: 'what are the top 20 mlb players ever'
+2025-07-03 23:05:41,802 - ERROR - [Ollama Llama3] Error: HTTPConnectionPool(host='localhost', port=11434): Read timed out. (read timeout=30)
+2025-07-03 23:05:41,839 - ERROR - [Script Gen] Error: HTTPConnectionPool(host='localhost', port=11434): Read timed out. (read timeout=30)
+2025-07-03 23:05:41,886 - INFO - 127.0.0.1 - - [03/Jul/2025 23:05:41] "[35m[1mPOST /generate_script HTTP/1.1[0m" 500 -
+2025-07-03 23:07:01,958 - INFO - [Script Gen] Intent: 'what are the top 20 mlb players ever'

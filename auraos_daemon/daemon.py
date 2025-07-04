@@ -150,8 +150,17 @@ def generate_script():
                 return handle_script()
             elif handler_name == "greeting":
                 return handle_greeting()
-    # Fallback for unknown intents
-    return handle_unknown()
+    # Fallback for unknown intents: use local LLM for a basic response
+    try:
+        messages = [
+            {"role": "system", "content": "You are AuraOS's helpful assistant. Respond conversationally to the user's message."},
+            {"role": "user", "content": user_intent}
+        ]
+        result = query_ollama_llama3(messages)
+        return jsonify({"message": result.get("response", result)}), 200
+    except Exception as e:
+        logging.error(f"[Fallback LLM] Error: {e}")
+        return jsonify({"message": "I'm not sure how to handle that yet, but I'm learning!"}), 200
 
 def is_malicious_script(script):
     dangerous_patterns = [
