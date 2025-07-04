@@ -1,0 +1,56 @@
+#!/bin/bash
+# ai: AuraOS CLI for /generate_script and /execute_script
+# Usage: ai <prompt>
+
+API_URL="http://localhost:5050"
+
+if [ $# -eq 0 ]; then
+  echo "Usage: ai <prompt>"
+  exit 1
+fi
+
+PROMPT="$*"
+
+# Install the ai CLI to /usr/local/bin if not already present
+if [ ! -f /usr/local/bin/ai ]; then
+  echo "[ai installer] Installing ai CLI to /usr/local/bin..."
+  cp "$(dirname "$0")/ai" /usr/local/bin/ai
+  chmod +x /usr/local/bin/ai
+  echo "[ai installer] Installed. You can now use: ai <prompt>"
+fi
+
+# 1. Generate script from prompt
+RESPONSE=$(curl -s -X POST "$API_URL/generate_script" \
+  -H "Content-Type: application/json" \
+  -d '{"intent": '"$(printf '%s' "$PROMPT" | jq -R .)"', "context": {}}')
+
+SCRIPT=$(echo "$RESPONSE" | jq -r .script)
+SCRIPT_TYPE=$(echo "$RESPONSE" | jq -r .script_type)
+
+if [ "$SCRIPT" = "null" ] || [ -z "$SCRIPT" ]; then
+  echo "[ai] Error: No script generated."
+  echo "$RESPONSE"
+  exit 2
+fi
+
+echo "[ai] Generated $SCRIPT_TYPE script:"
+echo "----------------------"
+echo "$SCRIPT"
+echo "----------------------"
+
+# 2. Execute the script
+EXEC_RESPONSE=$(curl -s -X POST "$API_URL/execute_script" \
+  -H "Content-Type: application/json" \
+  -d '{"script": '"$(printf '%s' "$SCRIPT" | jq -Rs .)"', "context": {}}')
+
+STATUS=$(echo "$EXEC_RESPONSE" | jq -r .status)
+OUTPUT=$(echo "$EXEC_RESPONSE" | jq -r .output)
+ERROR_OUTPUT=$(echo "$EXEC_RESPONSE" | jq -r .error_output)
+
+if [ "$STATUS" = "success" ]; then
+  echo "[ai] Output:"
+  echo "$OUTPUT"
+else
+  echo "[ai] Error Output:"
+  echo "$ERROR_OUTPUT"
+fi

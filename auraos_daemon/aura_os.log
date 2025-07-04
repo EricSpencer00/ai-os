@@ -230,3 +230,57 @@ if __name__ == "__main__":
  * Running on http://192.168.1.36:5050
 2025-07-03 22:00:46,689 - INFO - [33mPress CTRL+C to quit[0m
 2025-07-03 22:00:48,746 - WARNING - [Self-Reflect] Sending self-improvement task to OpenRouter...
+2025-07-03 22:03:19,268 - WARNING - [Self-Reflect] LLM Raw Response: {
+  "id": "gen-1751598049-SDv0Y2IMQwPzEJaRrSX8",
+  "provider": "Targon",
+  "model": "deepseek/deepseek-r1-0528:free",
+  "object": "chat.completion",
+  "created": 1751598049,
+  "choices": [
+    {
+      "logprobs": null,
+      "finish_reason": "stop",
+      "native_finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "```json\n{\n  \"code\": \"# daemon.py\\n# AuraOS Autonomous AI Daemon v7.1\\nimport os, json, requests, subprocess, logging, base64, re, threading, time\\nfrom flask import Flask, request, jsonify\\n\\napp = Flask(__name__)\\n\\n# Use absolute paths for config and log files\\nBASE_DIR = os.path.dirname(os.path.abspath(__file__))\\nCONFIG_PATH = os.path.join(BASE_DIR, \\\"config.json\\\")\\nLOG_PATH = os.path.join(BASE_DIR, \\\"aura_os.log\\\")\\nDAEMON_PATH = os.path.join(BASE_DIR, \\\"daemon.py\\\")\\nUPDATER_PATH = os.path.join(BASE_DIR, \\\"updater.py\\\")\\n\\nlogging.basicConfig(\\n    level=logging.INFO,\\n    fo...
+2025-07-03 22:03:19,540 - WARNING - [Execution] Running script: echo Hello, AuraOS!
+2025-07-03 22:03:19,543 - INFO - 127.0.0.1 - - [03/Jul/2025 22:03:19] "POST /execute_script HTTP/1.1" 200 -
+2025-07-03 22:03:20,066 - WARNING - [Execution] Running script: python3 -c "print(42)"
+2025-07-03 22:03:20,092 - INFO - 127.0.0.1 - - [03/Jul/2025 22:03:20] "POST /execute_script HTTP/1.1" 200 -
+2025-07-03 22:03:20,099 - ERROR - [Execution] Blocked potentially malicious script: rm -rf /
+2025-07-03 22:03:20,099 - INFO - 127.0.0.1 - - [03/Jul/2025 22:03:20] "[31m[1mPOST /execute_script HTTP/1.1[0m" 400 -
+2025-07-03 22:03:20,107 - ERROR - [Execution] Blocked potentially malicious script: python3 -c "import os; os.system(\"rm -rf /\")"
+2025-07-03 22:03:20,107 - INFO - 127.0.0.1 - - [03/Jul/2025 22:03:20] "[31m[1mPOST /execute_script HTTP/1.1[0m" 400 -
+2025-07-03 22:03:20,115 - INFO - 127.0.0.1 - - [03/Jul/2025 22:03:20] "[31m[1mPOST /execute_script HTTP/1.1[0m" 400 -
+2025-07-03 22:03:20,127 - WARNING - [Execution] Running script: echo $DISPLAY
+2025-07-03 22:03:20,131 - INFO - 127.0.0.1 - - [03/Jul/2025 22:03:20] "POST /execute_script HTTP/1.1" 200 -
+2025-07-03 22:03:20,142 - ERROR - [Execution] Blocked potentially malicious script: echo safe # rm -rf /
+2025-07-03 22:03:20,142 - INFO - 127.0.0.1 - - [03/Jul/2025 22:03:20] "[31m[1mPOST /execute_script HTTP/1.1[0m" 400 -
+2025-07-03 22:03:20,472 - INFO - Starting AuraOS AI Daemon v7.1...
+2025-07-03 22:03:20,489 - INFO - 127.0.0.1 - - [03/Jul/2025 22:03:20] "POST /self_reflect HTTP/1.1" 200 -
+2025-07-03 22:03:48,027 - WARNING - [Self-Reflect] Sending self-improvement task to OpenRouter...
+2025-07-03 22:04:31,659 - INFO - Starting AuraOS AI Daemon v7.1...
+2025-07-03 22:04:31,662 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5050
+ * Running on http://192.168.1.36:5050
+2025-07-03 22:04:31,662 - INFO - [33mPress CTRL+C to quit[0m
+2025-07-03 22:05:31,661 - INFO - [Periodic Self-Reflect] Initiating self-reflection...
+2025-07-03 22:05:31,674 - WARNING - [Self-Reflect] Sending self-improvement task to OpenRouter...
+2025-07-03 22:05:32,105 - ERROR - [Self-Reflect] Error: 400 Client Error: Bad Request for url: https://openrouter.ai/api/v1/chat/completions
+Traceback (most recent call last):
+  File "/Users/ericspencer/GitHub/ai-os/auraos_daemon/daemon.py", line 183, in self_reflect
+    r.raise_for_status()
+  File "/Users/ericspencer/GitHub/ai-os/auraos_daemon/venv/lib/python3.11/site-packages/requests/models.py", line 1026, in raise_for_status
+    raise HTTPError(http_error_msg, response=self)
+requests.exceptions.HTTPError: 400 Client Error: Bad Request for url: https://openrouter.ai/api/v1/chat/completions
+2025-07-03 22:05:32,107 - INFO - 127.0.0.1 - - [03/Jul/2025 22:05:32] "[35m[1mPOST /self_reflect HTTP/1.1[0m" 500 -
+2025-07-03 22:05:32,107 - ERROR - [Periodic] Unexpected status: 500
+2025-07-03 22:05:56,184 - INFO - [Script Gen] Intent: 'hello'
+2025-07-03 22:05:56,694 - ERROR - [Script Gen] Error: unknown extension ?R at position 12
+2025-07-03 22:05:56,695 - INFO - 127.0.0.1 - - [03/Jul/2025 22:05:56] "[35m[1mPOST /generate_script HTTP/1.1[0m" 500 -
+2025-07-03 22:06:06,384 - INFO - [Script Gen] Intent: 'hello'
+2025-07-03 22:06:08,920 - ERROR - [Script Gen] Error: unknown extension ?R at position 12
+2025-07-03 22:06:08,922 - INFO - 127.0.0.1 - - [03/Jul/2025 22:06:08] "[35m[1mPOST /generate_script HTTP/1.1[0m" 500 -

@@ -1,5 +1,5 @@
 # daemon.py
-# AuraOS Autonomous AI Daemon v7.1
+# AuraOS Autonomous AI Daemon v7
 import os, json, requests, subprocess, logging, base64, re, threading, time
 from flask import Flask, request, jsonify
 
@@ -34,7 +34,7 @@ except FileNotFoundError:
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = "llama3-70b-8192"
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-OPENROUTER_DEEPSEEK_MODEL = "deepseek-ai/deepseek-r1"  # Updated model name
+OPENROUTER_DEEPSEEK_MODEL = "deepseek/deepseek-r1-0528:free"
 
 COMPLEX_TASK_KEYWORDS = [
     "modify", "improve", "learn", "add a feature", "update", "change your code",
@@ -87,41 +87,30 @@ def generate_script():
     }
 
     try:
-        response = requests.post(api_url, headers=headers, json=payload, timeout=15)
+        response = requests.post(api_url, headers=headers, json=payload, timeout=60)
         response.raise_for_status()
-        response_json = response.json()
+        msg = response.json()["choices"][0]["message"]["content"]
 
-        if "error" in response_json:
-            raise ValueError(f"API Error: {response_json['error']}")
+        # Extract and parse JSON
+        match = re.search(r'{.*}', msg, re.DOTALL)
+        if not match:
+            raise ValueError("No valid JSON found in LLM response.")
 
-        msg = response_json["choices"][0]["message"]["content"]
-
-        # Improved JSON extraction with validation
-        try:
-            content = json.loads(msg)
-        except json.JSONDecodeError:
-            match = re.search(r'\{(?:[^{}]|(?R))*\}', msg, re.DOTALL)
-            if not match:
-                raise ValueError("No valid JSON found in LLM response.")
-            content = json.loads(match.group(0))
-
-        return jsonify(content), 200
+        content = match.group(0)
+        return jsonify(json.loads(content)), 200
     except Exception as e:
         logging.error(f"[Script Gen] Error: {e}")
         return jsonify({"error": "Failed to generate script.", "details": str(e)}), 500
 
 def is_malicious_script(script):
+    # Add more patterns as needed for your threat model
     dangerous_patterns = [
-        r"rm\s+-rf\s+/", r"rm\s+-rf\s+~", r"rm\s+-rf", r"shutdown", r"reboot", r"halt",
-        r"mkfs", r"dd\s+if=", r":(){:|:&};:", r"kill\s+-9\s+1", r"killall", r"poweroff",
-        r"init\s+0", r"sudo\s+", r"chown\s+-R\s+root", r"chmod\s+000", r">\s+/dev/sda",
-        r">\s+/dev/nvme", r"/dev/null\s*\|\s*dd", r"wget\s+http", r"curl\s+http",
-        r"scp\s+", r"ftp\s+", r"nc\s+", r"ncat\s+", r"netcat\s+",
-        r"python\s+-c.*import\s+os;.*os.system", r"os\.system", r"subprocess\.Popen",
-        r"subprocess\.call", r"eval", r"exec", r"open\s*\(", r"import\s+socket",
-        r"import\s+ftplib", r"import\s+paramiko"
+        r"rm\s+-rf\s+/", r"rm\s+-rf\s+~", r"rm\s+-rf", r"shutdown", r"reboot", r"halt", r"mkfs", r"dd\s+if=", r":(){:|:&};:", r"kill\s+-9\s+1", r"killall", r"poweroff", r"init\s+0", r"sudo\s+", r"chown\s+-R\s+root", r"chmod\s+000", r">\s+/dev/sda", r">\s+/dev/nvme", r"/dev/null\s*\|\s*dd", r"wget\s+http", r"curl\s+http", r"scp\s+", r"ftp\s+", r"nc\s+", r"ncat\s+", r"netcat\s+", r"python\s+-c.*import\s+os;.*os.system", r"os\.system", r"subprocess\.Popen", r"subprocess\.call", r"eval", r"exec", r"open\s*\(", r"import\s+socket", r"import\s+ftplib", r"import\s+paramiko"
     ]
-    return any(re.search(pattern, script, re.IGNORECASE) for pattern in dangerous_patterns)
+    for pattern in dangerous_patterns:
+        if re.search(pattern, script, re.IGNORECASE):
+            return True
+    return False
 
 @app.route("/execute_script", methods=["POST"])
 def execute_script():
@@ -148,9 +137,6 @@ def execute_script():
 
 @app.route("/self_reflect", methods=["POST"])
 def self_reflect():
-    if not OPENROUTER_API_KEY:
-        return jsonify({"error": "OpenRouter API key missing"}), 500
-
     try:
         with open(LOG_PATH, "r") as log:
             logs = log.read()[-5000:]
@@ -166,9 +152,7 @@ def self_reflect():
         logging.warning("[Self-Reflect] Sending self-improvement task to OpenRouter...")
         headers = {
             "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com/your-repo",
-            "X-Title": "AuraOS Autonomous Daemon"
+            "Content-Type": "application/json"
         }
         payload = {
             "model": OPENROUTER_DEEPSEEK_MODEL,
@@ -179,56 +163,45 @@ def self_reflect():
             "temperature": 0.1
         }
 
-        r = requests.post(OPENROUTER_API_URL, headers=headers, json=payload, timeout=15)
+        r = requests.post(OPENROUTER_API_URL, headers=headers, json=payload, timeout=120)
         r.raise_for_status()
-        response_json = r.json()
-        logging.warning(f"[Self-Reflect] LLM Raw Response: {json.dumps(response_json, indent=2)[:1000]}...")
-
-        if "error" in response_json:
-            raise ValueError(f"API Error: {response_json['error']}")
-        if "choices" not in response_json:
-            raise ValueError("Response missing 'choices' key")
-
-        msg = response_json["choices"][0]["message"]["content"]
-        
-        # Multi-stage JSON parsing
         try:
-            content = json.loads(msg)
-        except json.JSONDecodeError:
-            match = re.search(r'\{(?:[^{}]|(?R))*\}', msg, re.DOTALL)
+            response_json = r.json()
+            logging.warning(f"[Self-Reflect] LLM Raw Response: {json.dumps(response_json, indent=2)[:1000]}...")
+
+            if "choices" not in response_json:
+                raise ValueError("Response missing 'choices' key")
+
+            msg = response_json["choices"][0]["message"]["content"]
+            match = re.search(r'{.*}', msg, re.DOTALL)
             if not match:
                 raise ValueError("No valid JSON found in model output")
-            content = json.loads(match.group(0))
 
-        if not isinstance(content.get("code", ""), str) or not content["code"]:
-            raise ValueError("Invalid code in update payload")
+            content = match.group(0)
+            update = json.loads(content)
+            b64 = base64.b64encode(json.dumps(update).encode()).decode()
 
-        b64 = base64.b64encode(json.dumps(content).encode()).decode()
-        subprocess.run(["python3", UPDATER_PATH, b64], check=False)
-        return jsonify({"status": "update triggered"}), 200
+            subprocess.run(["python3", UPDATER_PATH, b64], check=False)
+            return jsonify({"status": "update triggered"}), 200
+
+        except Exception as parse_err:
+            logging.error(f"[Self-Reflect] Response parse error: {parse_err}")
+            return jsonify({"error": "Parse failed", "details": str(parse_err)}), 500
 
     except Exception as e:
-        logging.error(f"[Self-Reflect] Error: {e}", exc_info=True)
+        logging.error(f"[Self-Reflect] Failed: {e}")
         return jsonify({"error": str(e)}), 500
 
 def periodic_self_reflect():
-    time.sleep(60)  # Initial delay for server startup
     while True:
+        time.sleep(3600)
         try:
-            logging.info("[Periodic Self-Reflect] Initiating self-reflection...")
-            response = requests.post(
-                "http://localhost:5050/self_reflect",
-                timeout=15,
-                headers={"Content-Type": "application/json"}
-            )
-            if response.status_code != 200:
-                logging.error(f"[Periodic] Unexpected status: {response.status_code}")
+            requests.post("http://localhost:5050/self_reflect", timeout=10)
         except Exception as e:
             logging.error(f"[Periodic Self-Reflect] Error: {e}")
-        time.sleep(3600)
 
 threading.Thread(target=periodic_self_reflect, daemon=True).start()
 
 if __name__ == "__main__":
-    logging.info("Starting AuraOS AI Daemon v7.1...")
+    logging.info("Starting AuraOS AI Daemon v7...")
     app.run(host="0.0.0.0", port=5050)
