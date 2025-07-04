@@ -1,0 +1,232 @@
+2025-07-03 20:15:58,066 - INFO - [Script Gen] Intent: 'List all files in the current directory'
+2025-07-03 20:15:58,642 - INFO - 127.0.0.1 - - [03/Jul/2025 20:15:58] "POST /generate_script HTTP/1.1" 200 -
+2025-07-03 20:16:04,075 - WARNING - [Execution] Running script:ls -la
+2025-07-03 20:16:04,081 - INFO - 127.0.0.1 - - [03/Jul/2025 20:16:04] "POST /execute_script HTTP/1.1" 200 -
+2025-07-03 20:16:08,546 - WARNING - [Self-Reflect] Running task:LOGS: 2025-07-03 20:15:58,066 - INFO - [Script Gen] Intent: 'List all files in the current directory'
+2025-07-03 20:15:58,642 - INFO - 127.0.0.1 - - [03/Jul/2025 20:15:58] "POST /generate_script HTTP/1.1" 200 -
+2025-07-03 20:16:04,075 - WARNING - [Execution] Running script:ls -la
+2025-07-03 20:16:04,081 - INFO - 127.0.0.1 - - [03/Jul/2025 20:16:04] "POST /execute_script HTTP/1.1" 200 -
+ SOURCE: # daemon.py
+# AuraOS Autonomous AI Daemon v7
+import os, json, requests, subprocess, logging, base64, re, threading, time
+from flask import Flask, request, jsonify
+
+app = Flask(__name__)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler("aura_os.log"),
+        logging.StreamHandler()
+    ]
+)
+
+# --- Load config ---
+try:
+    with open("config.json", "r") as f:
+        config = json.load(f)
+    GROQ_API_KEY = config.get("GROQ_API_KEY")
+    OPENROUTER_API_KEY = config.get("OPENROUTER_API_KEY")
+except FileNotFoundError:
+    logging.error("Missing config.json.")
+    exit(1)
+
+GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_MODEL = "llama3-70b-8192"
+OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_DEEPSEEK_MODEL = "deepseek/deepseek-coder"
+
+COMPLEX_TASK_KEYWORDS = ["modify", "improve", "learn", "add a feature", "update", "change your code", "scrape", "list of", "find data", "get information on", "what are", "who are"]
+
+@app.route("/generate_script", methods=["POST"])
+def generate_script():
+    data = request.get_json()
+    user_intent = data.get("intent")
+    context = data.get("context", {})
+    cwd = context.get("cwd", ".")
+    windows = context.get("windows", [])
+
+    # Fix: properly format the window list
+    window_list_str = "\n- " + "\n- ".join(windows) if windows else "No open windows detected."
+    
+    logging.info(f"[Script Gen] Intent: '{user_intent}'")
+
+    system_prompt = f"""
+    You are AuraOS's autonomous daemon. Generate either a Python or shell script based on the intent.
+    Self-modify if the request includes 'learn', 'add a feature', 'improve', or 'modify yourself'.
+
+    Return JSON: {{"script_type": "shell" or "python", "script": "..."}}
+
+    CONTEXT:
+    - CWD: {cwd}
+    - Open Windows: {window_list_str}
+    """
+
+    is_complex = any(k in user_intent.lower() for k in COMPLEX_TASK_KEYWORDS)
+    if is_complex:
+        model, api_key, api_url = OPENROUTER_DEEPSEEK_MODEL, OPENROUTER_API_KEY, OPENROUTER_API_URL
+        if not api_key:
+            return jsonify({"error": "OpenRouter API key missing"}), 500
+    else:
+        model, api_key, api_url = GROQ_MODEL, GROQ_API_KEY, GROQ_API_URL
+        if not api_key:
+            return jsonify({"error": "Groq API key missing"}), 500
+
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_intent}
+        ],
+        "temperature": 0.1
+    }
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+
+    try:
+        response = requests.post(api_url, headers=headers, json=payload)
+        response.raise_for_status()
+        msg = response.json()["choices"][0]["message"]["content"]
+        
+        # Extract and parse JSON
+        match = re.search(r'{.*}', msg, re.DOTALL)
+        if not match:
+            raise ValueError("No valid JSON found in LLM response.")
+        
+        content = match.group(0)
+        return jsonify(json.loads(content)), 200
+    except Exception as e:
+        logging.error(f"[Script Gen] Error: {e}")
+        return jsonify({"error": "Failed to generate script.", "details": str(e)}), 500
+
+@app.route("/execute_script", methods=["POST"])
+def execute_script():
+    data = request.get_json()
+    script = data.get("script")
+    context = data.get("context", {})
+    display = context.get("display")
+    if not script: return jsonify({"error": "No script provided."}), 400
+    env = os.environ.copy()
+    if display: env["DISPLAY"] = display
+    logging.warning(f"[Execution] Running script:{script}")
+    result = subprocess.run(script, shell=True, capture_output=True, text=True, env=env)
+    return jsonify({
+        "status": "success" if result.returncode == 0 else "error",
+        "return_code": result.returncode,
+        "output": result.stdout,
+        "error_output": result.stderr
+    })
+
+@app.route("/self_reflect", methods=["POST"])
+def self_reflect():
+    try:
+        with open("aura_os.log", "r") as log:
+            logs = log.read()[-5000:]
+        with open("daemon.py", "r") as code:
+            src = code.read()
+
+        system_prompt = "You are a self-improving daemon. Given logs and source code, output improved daemon.py. Return only a JSON object: {\"code\": \"...new daemon.py code...\", \"packages\": [\"...optional deps...\"]}"
+        task = f"LOGS: {logs}\nSOURCE: {src}"
+
+        logging.warning("[Self-Reflect] Sending self-improvement task to OpenRouter...")
+        headers = {
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": OPENROUTER_DEEPSEEK_MODEL,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": task}
+            ],
+            "temperature": 0.1
+        }
+
+        r = requests.post(OPENROUTER_API_URL, headers=headers, json=payload)
+        r.raise_for_status()
+        try:
+            response_json = r.json()
+            logging.warning(f"[Self-Reflect] LLM Raw Response: {json.dumps(response_json, indent=2)[:1000]}...")
+
+            if "choices" not in response_json:
+                raise ValueError("Response missing 'choices' key")
+
+            msg = response_json["choices"][0]["message"]["content"]
+            match = re.search(r'{.*}', msg, re.DOTALL)
+            if not match:
+                raise ValueError("No valid JSON found in model output")
+
+            content = match.group(0)
+            update = json.loads(content)
+            b64 = base64.b64encode(json.dumps(update).encode()).decode()
+
+            subprocess.run(["python3", "updater.py", b64], check=False)
+            return jsonify({"status": "update triggered"}), 200
+
+        except Exception as parse_err:
+            logging.error(f"[Self-Reflect] Response parse error: {parse_err}")
+            return jsonify({"error": "Parse failed", "details": str(parse_err)}), 500
+
+    except Exception as e:
+        logging.error(f"[Self-Reflect] Failed: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+
+def periodic_self_reflect():
+    while True:
+        time.sleep(3600)
+        try:
+            requests.post("http://localhost:5000/self_reflect")
+        except:
+            pass
+
+threading.Thread(target=periodic_self_reflect, daemon=True).start()
+
+if __name__ == "__main__":
+    logging.info("Starting AuraOS AI Daemon v7...")
+    app.run(host="0.0.0.0", port=5050)
+
+2025-07-03 20:16:08,978 - ERROR - [Self-Reflect] Failed: 'choices'
+2025-07-03 20:16:08,980 - INFO - 127.0.0.1 - - [03/Jul/2025 20:16:08] "[35m[1mPOST /self_reflect HTTP/1.1[0m" 500 -
+2025-07-03 21:53:46,532 - WARNING - [Execution] Running script:ls -la
+2025-07-03 21:53:46,542 - INFO - 127.0.0.1 - - [03/Jul/2025 21:53:46] "POST /execute_script HTTP/1.1" 200 -
+2025-07-03 21:55:28,728 - INFO - Starting AuraOS AI Daemon v7...
+2025-07-03 21:55:28,744 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5050
+ * Running on http://192.168.1.36:5050
+2025-07-03 21:55:28,744 - INFO - [33mPress CTRL+C to quit[0m
+2025-07-03 21:55:42,411 - INFO - [Script Gen] Intent: 'List all files in the current directory'
+2025-07-03 21:55:43,069 - INFO - 127.0.0.1 - - [03/Jul/2025 21:55:43] "POST /generate_script HTTP/1.1" 200 -
+2025-07-03 21:56:40,920 - INFO - Starting AuraOS AI Daemon v7...
+2025-07-03 21:56:40,923 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5050
+ * Running on http://192.168.1.36:5050
+2025-07-03 21:56:40,923 - INFO - [33mPress CTRL+C to quit[0m
+2025-07-03 21:58:22,476 - WARNING - [Execution] Running script: echo Hello, AuraOS!
+2025-07-03 21:58:22,481 - INFO - 127.0.0.1 - - [03/Jul/2025 21:58:22] "POST /execute_script HTTP/1.1" 200 -
+2025-07-03 21:58:22,489 - WARNING - [Execution] Running script: python3 -c "print(42)"
+2025-07-03 21:58:22,517 - INFO - 127.0.0.1 - - [03/Jul/2025 21:58:22] "POST /execute_script HTTP/1.1" 200 -
+2025-07-03 21:58:22,523 - ERROR - [Execution] Blocked potentially malicious script: rm -rf /
+2025-07-03 21:58:22,523 - INFO - 127.0.0.1 - - [03/Jul/2025 21:58:22] "[31m[1mPOST /execute_script HTTP/1.1[0m" 400 -
+2025-07-03 21:58:22,529 - ERROR - [Execution] Blocked potentially malicious script: python3 -c "import os; os.system(\"rm -rf /\")"
+2025-07-03 21:58:22,529 - INFO - 127.0.0.1 - - [03/Jul/2025 21:58:22] "[31m[1mPOST /execute_script HTTP/1.1[0m" 400 -
+2025-07-03 21:58:22,535 - INFO - 127.0.0.1 - - [03/Jul/2025 21:58:22] "[31m[1mPOST /execute_script HTTP/1.1[0m" 400 -
+2025-07-03 21:58:22,542 - WARNING - [Execution] Running script: echo $DISPLAY
+2025-07-03 21:58:22,545 - INFO - 127.0.0.1 - - [03/Jul/2025 21:58:22] "POST /execute_script HTTP/1.1" 200 -
+2025-07-03 21:58:22,551 - ERROR - [Execution] Blocked potentially malicious script: echo safe # rm -rf /
+2025-07-03 21:58:22,552 - INFO - 127.0.0.1 - - [03/Jul/2025 21:58:22] "[31m[1mPOST /execute_script HTTP/1.1[0m" 400 -
+2025-07-03 21:59:35,533 - WARNING - [Self-Reflect] Sending self-improvement task to OpenRouter...
+2025-07-03 21:59:36,001 - ERROR - [Self-Reflect] Failed: 400 Client Error: Bad Request for url: https://openrouter.ai/api/v1/chat/completions
+2025-07-03 21:59:36,002 - INFO - 127.0.0.1 - - [03/Jul/2025 21:59:36] "[35m[1mPOST /self_reflect HTTP/1.1[0m" 500 -
+2025-07-03 22:00:46,685 - INFO - Starting AuraOS AI Daemon v7...
+2025-07-03 22:00:46,689 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5050
+ * Running on http://192.168.1.36:5050
+2025-07-03 22:00:46,689 - INFO - [33mPress CTRL+C to quit[0m
+2025-07-03 22:00:48,746 - WARNING - [Self-Reflect] Sending self-improvement task to OpenRouter...
