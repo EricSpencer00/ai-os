@@ -1,6 +1,7 @@
 # daemon.py
-# The advanced AI daemon for AuraOS.
-# v6: Now multi-lingual and multi-provider. It uses OpenRouter for specialized tasks.
+# The final, autonomous AI daemon for AuraOS.
+# This version implements a ReAct (Reason+Act) loop, allowing the AI
+# to use tools, observe results, and reason step-by-step to solve complex tasks.
 
 import os
 import json
@@ -8,128 +9,139 @@ import requests
 import subprocess
 import logging
 from flask import Flask, request, jsonify
+import base64
 
 # --- Basic Setup & Logging ---
 app = Flask(__name__)
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("aura_os.log"),
-        logging.StreamHandler()
-    ]
-)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', handlers=[logging.FileHandler("aura_os.log"), logging.StreamHandler()])
 
 # --- Configuration Loading ---
 try:
     with open('config.json', 'r') as f:
         config = json.load(f)
-    GROQ_API_KEY = config.get("GROQ_API_KEY")
-    OPENROUTER_API_KEY = config.get("OPENROUTER_API_KEY") # Using OpenRouter key now
-except FileNotFoundError:
-    logging.error("CRITICAL: config.json not found. Please create it. Exiting.")
+    OPENROUTER_API_KEY = config.get("OPENROUTER_API_KEY")
+    if not OPENROUTER_API_KEY:
+        raise ValueError("OPENROUTER_API_KEY not found in config.json.")
+except Exception as e:
+    logging.error(f"CRITICAL: Failed to load config. {e}. Exiting.")
     exit()
 
 # --- LLM Provider Definitions ---
-GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL = "llama3-70b-8192"
-
-# --- OpenRouter Configuration ---
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-OPENROUTER_DEEPSEEK_MODEL = "deepseek/deepseek-coder" # The free Deepseek Coder model
+AGENT_MODEL = "mistralai/mistral-7b-instruct:free"
+MAX_AGENT_LOOPS = 7 # Max steps the agent can take
 
-# --- Core Endpoints ---
+# --- Agent's Tools ---
 
-@app.route('/generate_script', methods=['POST'])
-def generate_script():
-    """
-    Translates a user's intent into an executable script, deciding
-    between shell and Python and switching AI models based on the task.
-    """
-    data = request.get_json()
-    user_intent = data.get('intent')
-    context = data.get('context', {})
-    cwd = context.get('cwd', '.')
-    windows = context.get('windows', [])
-    window_list_str = "\n- ".join(windows) if windows else "No open windows detected."
-    
-    logging.info(f"[Script Gen] Intent: '{user_intent}'")
-
-    system_prompt = f"""
-    You are the core AI of AuraOS, an AI-native operating system. Your primary function is to assist the user by generating scripts. You have two special capabilities: Standard Scripting and Self-Modification.
-
-    **1. STANDARD SCRIPTING PROTOCOL**
-    - For simple file/system tasks, generate a 'shell' script.
-    - For complex logic, web scraping, or data processing, generate a 'python' script.
-    - Your response MUST be a JSON object with "script_type" and "script" keys.
-
-    **2. SELF-MODIFICATION PROTOCOL (TOP PRIORITY)**
-    - If the user asks you to "learn", "improve", "add a feature", or "modify yourself", you MUST follow this protocol. You are generating the new version of your own source code (`daemon.py`).
-    - **Step 1:** Recall your own structure. You are a Flask app in a file named `daemon.py`. You have endpoints like `/generate_script` and `/execute_script`.
-    - **Step 2:** Generate the **complete, new, and correct source code for `daemon.py`** from scratch that implements the user's requested change, while preserving all existing functionality.
-    - **Step 3:** If the new code requires new python packages, identify them in a "packages" list.
-    - **Step 4:** Generate a 'shell' script that calls the supervisor `updater.py`. The script MUST be in the format: `python3 updater.py <base64_encoded_json_payload>`.
-    - **Step 5:** The payload is a base64-encoded JSON object: `{{ "code": "...", "packages": ["...", "..."] }}`. You must generate this payload correctly.
-
-    **CONTEXT FOR STANDARD SCRIPTING:**
-    - CWD: {cwd}
-    - Open Windows: {window_list_str}
-    """
-    
-    # --- Model Switching Logic ---
-    is_modification_task = any(keyword in user_intent.lower() for keyword in ["modify", "improve", "learn", "add a feature"])
-
-    if is_modification_task:
-        logging.info("Task identified as self-modification. Switching to OpenRouter DeepSeek model.")
-        api_url = OPENROUTER_API_URL
-        api_key = OPENROUTER_API_KEY
-        model = OPENROUTER_DEEPSEEK_MODEL
-        if not api_key:
-            return jsonify({"error": "OpenRouter API key not configured for self-modification."}), 500
-    else:
-        api_url = GROQ_API_URL
-        api_key = GROQ_API_KEY
-        model = GROQ_MODEL
-        if not api_key:
-            return jsonify({"error": "Groq API key not configured for standard tasks."}), 500
-
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-        # OpenRouter recommends these headers for identification
-        "HTTP-Referer": "https://github.com/your-repo/AuraOS", 
-        "X-Title": "AuraOS"
-    }
-    payload = {
-        "model": model,
-        "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_intent}],
-        "temperature": 0.1,
-        "response_format": {"type": "json_object"}
-    }
-
+def execute_shell(command: str) -> str:
+    """Executes a shell command and returns its output or error."""
+    logging.info(f"TOOL: Executing shell command: {command}")
     try:
-        response = requests.post(api_url, headers=headers, json=payload)
-        response.raise_for_status()
-        
-        generated_json_string = response.json()['choices'][0]['message']['content']
-        script_data = json.loads(generated_json_string) # The model itself returns a JSON string
-
-        logging.info(f"[Script Gen] Generated '{script_data.get('script_type')}' script using {model}.")
-        return jsonify(script_data), 200
+        result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=30)
+        # Combine stdout and stderr to give the AI full context
+        output = f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+        return output.strip()
     except Exception as e:
-        logging.error(f"Error during script generation with {model}: {e}")
-        return jsonify({"error": f"Failed to generate script using {model}."}), 500
+        return f"Error executing shell command: {e}"
 
-@app.route('/execute_script', methods=['POST'])
-def execute_script():
-    """Executes a shell script provided in the request."""
-    data = request.get_json()
-    script_to_run = data.get('script')
-    context = data.get('context', {})
-    display_var = context.get('display')
-    
-    if not script_to_run: return jsonify({"error": "No script provided."}), 400
-    logging.warning(f"[Execution] Preparing to run SHELL script: {script_to_run}")
-    
-    script_env = os.environ.copy()
-    if display_var: script_env['DISPLA
+def write_file(path: str, content: str) -> str:
+    """Writes content to a file. For self-modification, the path should be 'daemon.py'."""
+    logging.info(f"TOOL: Writing to file: {path}")
+    try:
+        # For self-modification, we need the full path
+        full_path = os.path.expanduser(f'~/aura-os/{path}')
+        with open(full_path, 'w') as f:
+            f.write(content)
+        return f"Successfully wrote to {path}."
+    except Exception as e:
+        return f"Error writing to file: {e}"
+
+def read_file(path: str) -> str:
+    """Reads the content of a file."""
+    logging.info(f"TOOL: Reading file: {path}")
+    try:
+        full_path = os.path.expanduser(f'~/aura-os/{path}')
+        with open(full_path, 'r') as f:
+            return f.read()
+    except Exception as e:
+        return f"Error reading file: {e}"
+
+AVAILABLE_TOOLS = {
+    "execute_shell": execute_shell,
+    "write_file": write_file,
+    "read_file": read_file,
+}
+
+# --- Core Agent Logic ---
+
+@app.route('/agent_task', methods=['POST'])
+def agent_task():
+    """Receives a user's intent and starts the ReAct loop."""
+    user_intent = request.json.get('intent')
+    history = [] # The agent's scratchpad for this task
+
+    for i in range(MAX_AGENT_LOOPS):
+        logging.info(f"\n--- Agent Loop {i+1}/{MAX_AGENT_LOOPS} ---")
+        
+        # 1. REASON: Ask the AI for the next action
+        system_prompt = f"""
+You are AuraOS, a reasoning agent. Your goal is to achieve the user's objective by thinking step-by-step and using tools.
+
+**Available Tools:**
+- `execute_shell(command: str)`: Executes a shell command.
+- `write_file(path: str, content: str)`: Writes to a file. To modify yourself, write to 'daemon.py'.
+- `read_file(path: str)`: Reads a file.
+- `finish(answer: str)`: Call this when the task is fully complete.
+
+**Your Thought Process:**
+1.  **Observation:** Review the history of previous actions and their results.
+2.  **Thought:** Based on the observation and the original goal, decide the next logical step. If a previous step failed, analyze the error and form a new plan.
+3.  **Action:** Choose ONE tool to execute. Your response MUST be a single, valid JSON object with "tool_name" and "tool_args" keys. Do not add any other text.
+
+**History of this task so far:**
+{json.dumps(history, indent=2)}
+
+**User's Objective:** {user_intent}
+"""
+        
+        headers = {"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"}
+        payload = {
+            "model": AGENT_MODEL, 
+            "messages": [{"role": "system", "content": system_prompt}],
+            "response_format": {"type": "json_object"}
+        }
+
+        try:
+            response = requests.post(OPENROUTER_API_URL, headers=headers, json=payload)
+            response.raise_for_status()
+            
+            tool_call = json.loads(response.json()['choices'][0]['message']['content'])
+            
+            tool_name = tool_call.get("tool_name")
+            tool_args = tool_call.get("tool_args", {})
+
+        except Exception as e:
+            logging.error(f"Failed to get or parse AI action: {e}")
+            observation = f"Error: The last AI response was not a valid JSON object. Error: {e}. Please respond with only a valid JSON object."
+            history.append({"action": "parse_ai_response", "observation": observation})
+            continue
+
+        # 2. ACT: Execute the chosen action
+        if tool_name == "finish":
+            logging.info("AI decided to finish the task.")
+            return jsonify({"answer": tool_args.get("answer", "Task complete.")})
+
+        if tool_name in AVAILABLE_TOOLS:
+            tool_function = AVAILABLE_TOOLS[tool_name]
+            observation = tool_function(**tool_args)
+        else:
+            observation = f"Error: Unknown tool '{tool_name}'. Please choose from the available tools."
+        
+        logging.info(f"Observation: {observation}")
+        history.append({"action": tool_call, "observation": observation})
+
+    return jsonify({"error": "Agent exceeded maximum loops."})
+
+if __name__ == '__main__':
+    logging.info("Starting AuraOS AI Daemon v9 (ReAct Agent)...")
+    app.run(host='0.0.0.0', port=5000, debug=False)

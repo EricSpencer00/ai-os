@@ -257,3 +257,309 @@ json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
 2025-07-03 17:31:19,988 - INFO - [Script Gen] Intent: 'I want you to learn a new skill. From now on, whenever you successfully generate a python script, you should also print a fun fact about python. Please modify yourself to add this feature.'
 2025-07-03 17:31:42,356 - ERROR - Error during script generation: 400 Client Error: Bad Request for url: https://api.groq.com/openai/v1/chat/completions
 2025-07-03 17:31:42,365 - INFO - 127.0.0.1 - - [03/Jul/2025 17:31:42] "[35m[1mPOST /generate_script HTTP/1.1[0m" 500 -
+2025-07-03 17:54:17,201 - INFO - Starting AuraOS AI Daemon v6 (Multi-lingual)...
+2025-07-03 17:54:17,203 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.64.2:5000
+2025-07-03 17:54:17,204 - INFO - [33mPress CTRL+C to quit[0m
+2025-07-03 17:54:22,600 - INFO - [Script Gen] Intent: 'hi'
+2025-07-03 17:54:23,148 - INFO - [Script Gen] Generated 'shell' script using llama3-70b-8192.
+2025-07-03 17:54:23,150 - INFO - 127.0.0.1 - - [03/Jul/2025 17:54:23] "POST /generate_script HTTP/1.1" 200 -
+2025-07-03 17:54:29,066 - INFO - [Script Gen] Intent: 'I want you to learn a new skill. From now on, whenever you successfully generate a python script, you should also print a fun fact about python. Please modify yourself to add this feature.'
+2025-07-03 17:54:29,066 - INFO - Task identified as self-modification. Switching to OpenRouter DeepSeek model.
+2025-07-03 17:54:29,445 - ERROR - Error during script generation with deepseek/deepseek-coder: 400 Client Error: Bad Request for url: https://openrouter.ai/api/v1/chat/completions
+2025-07-03 17:54:29,446 - INFO - 127.0.0.1 - - [03/Jul/2025 17:54:29] "[35m[1mPOST /generate_script HTTP/1.1[0m" 500 -
+2025-07-03 17:56:15,554 - INFO - Starting AuraOS AI Daemon v6 (Multi-lingual)...
+2025-07-03 17:56:15,555 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.64.2:5000
+2025-07-03 17:56:15,555 - INFO - [33mPress CTRL+C to quit[0m
+2025-07-03 17:56:42,902 - INFO - [Script Gen] Intent: 'give me the top 20 baseball players in the MLB by salary'
+2025-07-03 17:56:43,820 - ERROR - Error during script generation with llama3-70b-8192: 400 Client Error: Bad Request for url: https://api.groq.com/openai/v1/chat/completions
+2025-07-03 17:56:43,823 - INFO - 127.0.0.1 - - [03/Jul/2025 17:56:43] "[35m[1mPOST /generate_script HTTP/1.1[0m" 500 -
+2025-07-03 18:04:36,227 - INFO - Starting AuraOS AI Daemon v6 (Multi-lingual)...
+2025-07-03 18:04:36,230 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.64.2:5000
+2025-07-03 18:04:36,230 - INFO - [33mPress CTRL+C to quit[0m
+2025-07-03 18:05:25,055 - INFO - [Script Gen] Intent: 'give me the top 20 mlb players by salary, improve your own code if you are unable to complete my task'
+2025-07-03 18:05:25,057 - INFO - Task identified as complex. Switching to OpenRouter DeepSeek model.
+2025-07-03 18:05:25,447 - ERROR - Error during script generation with deepseek/deepseek-coder: 400 Client Error: Bad Request for url: https://openrouter.ai/api/v1/chat/completions
+2025-07-03 18:05:25,450 - INFO - 127.0.0.1 - - [03/Jul/2025 18:05:25] "[35m[1mPOST /generate_script HTTP/1.1[0m" 500 -
+2025-07-03 18:07:19,246 - INFO - Starting AuraOS AI Daemon v6 (Multi-lingual)...
+2025-07-03 18:07:19,247 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.64.2:5000
+2025-07-03 18:07:19,247 - INFO - [33mPress CTRL+C to quit[0m
+2025-07-03 18:07:25,940 - INFO - [Script Gen] Intent: 'give me the top 20 mlb players by salary, improve your own code if you are unable to complete my task'
+2025-07-03 18:07:25,940 - INFO - Task identified as complex. Switching to OpenRouter DeepSeek model.
+2025-07-03 18:07:26,401 - ERROR - Error during script generation with deepseek/deepseek-coder: 400 Client Error: Bad Request for url: https://openrouter.ai/api/v1/chat/completions
+2025-07-03 18:07:26,403 - INFO - 127.0.0.1 - - [03/Jul/2025 18:07:26] "[35m[1mPOST /generate_script HTTP/1.1[0m" 500 -
+2025-07-03 18:07:37,955 - INFO - [Script Gen] Intent: 'give me the top 20 mlb players by salary, improve your own code if you are unable to complete my task'
+2025-07-03 18:07:37,955 - INFO - Task identified as complex. Switching to OpenRouter DeepSeek model.
+2025-07-03 18:07:38,538 - ERROR - Error during script generation with deepseek/deepseek-coder: 400 Client Error: Bad Request for url: https://openrouter.ai/api/v1/chat/completions
+2025-07-03 18:07:38,540 - INFO - 127.0.0.1 - - [03/Jul/2025 18:07:38] "[35m[1mPOST /generate_script HTTP/1.1[0m" 500 -
+2025-07-03 18:10:18,887 - INFO - Starting AuraOS AI Daemon v6 (Multi-lingual)...
+2025-07-03 18:10:18,888 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.64.2:5000
+2025-07-03 18:10:18,888 - INFO - [33mPress CTRL+C to quit[0m
+2025-07-03 18:10:20,781 - INFO - [Script Gen] Intent: 'give me the top 20 mlb players by salary, improve your own code if you are unable to complete my task'
+2025-07-03 18:10:20,781 - INFO - Task identified as complex. Switching to OpenRouter DeepSeek model.
+2025-07-03 18:10:20,781 - INFO - Sending payload to deepseek/deepseek-coder: {
+  "model": "deepseek/deepseek-coder",
+  "messages": [
+    {
+      "role": "system",
+      "content": "\n    You are the core AI of AuraOS, an AI-native operating system. Your primary function is to assist the user by generating scripts. You have two special capabilities: Standard Scripting and Self-Modification.\n\n    **1. STANDARD SCRIPTING PROTOCOL**\n    - For simple file/system tasks (e.g., 'list files', 'create a directory'), generate a 'shell' script.\n    - For complex logic, web scraping, or data processing, generate a 'python' script using 'requests' and 'BeautifulSoup'.\n    - Your response MUST be a JSON object with \"script_type\" and \"script\" keys.\n\n    **2. SELF-MODIFICATION PROTOCOL (TOP PRIORITY)**\n    - If the user asks you to \"learn\", \"improve\", \"add a feature\", or \"modify yourself\", you MUST follow this protocol.\n    - **Step 1:** Recall your own structure (`daemon.py` Flask app).\n    - **Step 2:** Generate the complete, new source code for `daemon.py` that implements the change.\n    - **Step 3:** If needed, identify new python packages for the \"packages\" list.\n    - **Step 4:** Generate a 'shell' script calling the supervisor: `python3 updater.py <base64_encoded_json_payload>`.\n    - **Step 5:** The payload is a base64-encoded JSON object: `{{ \"code\": \"...\", \"packages\": [\"...\", \"...\"] }}`.\n\n    **CONTEXT FOR STANDARD SCRIPTING:**\n    - CWD: /home/eric/aura-os\n    - Open Windows: xfce4-panel\n- xfce4-panel\n- xfce4-panel\n- Desktop\n- Terminal - eric@aura-os-dev: ~/aura-os\n- Google Gemini \u2014 Mozilla Firefox\n- aura-os - Thunar\n- Terminal - eric@aura-os-dev: ~/aura-os\n- ~/aura-os/daemon.py - Mousepad\n- aura-os - Thunar\n    "
+    },
+    {
+      "role": "user",
+      "content": "give me the top 20 mlb players by salary, improve your own code if you are unable to complete my task"
+    }
+  ],
+  "temperature": 0.1
+}
+2025-07-03 18:10:21,244 - ERROR - Error during script generation with deepseek/deepseek-coder: 400 Client Error: Bad Request for url: https://openrouter.ai/api/v1/chat/completions
+2025-07-03 18:10:21,246 - INFO - 127.0.0.1 - - [03/Jul/2025 18:10:21] "[35m[1mPOST /generate_script HTTP/1.1[0m" 500 -
+2025-07-03 18:13:53,506 - INFO - Starting AuraOS AI Daemon v6 (Multi-lingual)...
+2025-07-03 18:13:53,507 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.64.2:5000
+2025-07-03 18:13:53,507 - INFO - [33mPress CTRL+C to quit[0m
+2025-07-03 18:13:54,802 - INFO - [Script Gen] Intent: 'give me the top 20 mlb players by salary, improve your own code if you are unable to complete my task'
+2025-07-03 18:13:54,803 - INFO - Task identified as complex. Switching to OpenRouter DeepSeek model.
+2025-07-03 18:13:54,803 - INFO - Sending payload to deepseek/deepseek-coder: {
+  "model": "deepseek/deepseek-coder",
+  "messages": [
+    {
+      "role": "system",
+      "content": "\n    You are the core AI of AuraOS, an AI-native operating system. Your primary function is to assist the user by generating scripts. You have two special capabilities: Standard Scripting and Self-Modification.\n\n    **1. STANDARD SCRIPTING PROTOCOL**\n    - For simple file/system tasks (e.g., 'list files', 'create a directory'), generate a 'shell' script.\n    - For complex logic, web scraping, or data processing, generate a 'python' script using 'requests' and 'BeautifulSoup'.\n    - Your response MUST be a JSON object with \"script_type\" and \"script\" keys.\n\n    **2. SELF-MODIFICATION PROTOCOL (TOP PRIORITY)**\n    - If the user asks you to \"learn\", \"improve\", \"add a feature\", or \"modify yourself\", you MUST follow this protocol.\n    - **Step 1:** Recall your own structure (`daemon.py` Flask app).\n    - **Step 2:** Generate the complete, new source code for `daemon.py` that implements the change.\n    - **Step 3:** If needed, identify new python packages for the \"packages\" list.\n    - **Step 4:** Generate a 'shell' script calling the supervisor: `python3 updater.py <base64_encoded_json_payload>`.\n    - **Step 5:** The payload is a base64-encoded JSON object: `{{ \"code\": \"...\", \"packages\": [\"...\", \"...\"] }}`.\n\n    **CONTEXT FOR STANDARD SCRIPTING:**\n    - CWD: /home/eric/aura-os\n    - Open Windows: xfce4-panel\n- xfce4-panel\n- xfce4-panel\n- Desktop\n- Terminal - eric@aura-os-dev: ~/aura-os\n- Google Gemini \u2014 Mozilla Firefox\n- aura-os - Thunar\n- Terminal - eric@aura-os-dev: ~/aura-os\n- ~/aura-os/daemon.py - Mousepad\n- aura-os - Thunar\n    "
+    },
+    {
+      "role": "user",
+      "content": "give me the top 20 mlb players by salary, improve your own code if you are unable to complete my task"
+    }
+  ],
+  "temperature": 0.1
+}
+2025-07-03 18:13:55,115 - ERROR - Error during script generation with deepseek/deepseek-coder: 400 Client Error: Bad Request for url: https://openrouter.ai/api/v1/chat/completions
+2025-07-03 18:13:55,116 - INFO - 127.0.0.1 - - [03/Jul/2025 18:13:55] "[35m[1mPOST /generate_script HTTP/1.1[0m" 500 -
+2025-07-03 19:40:41,684 - INFO - Starting AuraOS AI Daemon v7 (OpenRouter-Only)...
+2025-07-03 19:40:41,686 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.64.2:5000
+2025-07-03 19:40:41,686 - INFO - [33mPress CTRL+C to quit[0m
+2025-07-03 19:40:43,101 - INFO - [Script Gen] Intent: 'give me the top 20 mlb players by salary, improve your own code if you are unable to complete my task'
+2025-07-03 19:40:43,101 - INFO - Sending payload to deepseek/deepseek-coder: {
+  "model": "deepseek/deepseek-coder",
+  "messages": [
+    {
+      "role": "system",
+      "content": "\n    You are the core AI of AuraOS, an AI-native operating system. Your primary function is to assist the user by generating scripts. You have two special capabilities: Standard Scripting and Self-Modification.\n\n    **1. STANDARD SCRIPTING PROTOCOL**\n    - For simple file/system tasks (e.g., 'list files', 'create a directory'), generate a 'shell' script.\n    - For complex logic, web scraping, or data processing, generate a 'python' script using 'requests' and 'BeautifulSoup'.\n    - Your response MUST be a JSON object with \"script_type\" and \"script\" keys.\n\n    **2. SELF-MODIFICATION PROTOCOL (TOP PRIORITY)**\n    - If the user asks you to \"learn\", \"improve\", \"add a feature\", or \"modify yourself\", you MUST follow this protocol.\n    - **Step 1:** Recall your own structure (`daemon.py` Flask app).\n    - **Step 2:** Generate the complete, new source code for `daemon.py` that implements the change.\n    - **Step 3:** If needed, identify new python packages for the \"packages\" list.\n    - **Step 4:** Generate a 'shell' script calling the supervisor: `python3 updater.py <base64_encoded_json_payload>`.\n    - **Step 5:** The payload is a base64-encoded JSON object: `{{ \"code\": \"...\", \"packages\": [\"...\", \"...\"] }}`.\n\n    **CONTEXT FOR STANDARD SCRIPTING:**\n    - CWD: /home/eric/aura-os\n    - Open Windows: xfce4-panel\n- xfce4-panel\n- xfce4-panel\n- Desktop\n- Terminal - eric@aura-os-dev: ~/aura-os\n- Google Gemini \u2014 Mozilla Firefox\n- aura-os - Thunar\n- Terminal - eric@aura-os-dev: ~/aura-os\n- ~/aura-os/daemon.py - Mousepad\n- aura-os - Thunar\n    "
+    },
+    {
+      "role": "user",
+      "content": "give me the top 20 mlb players by salary, improve your own code if you are unable to complete my task"
+    }
+  ]
+}
+2025-07-03 19:40:43,500 - ERROR - Error during script generation: 400 Client Error: Bad Request for url: https://openrouter.ai/api/v1/chat/completions
+2025-07-03 19:40:43,502 - INFO - 127.0.0.1 - - [03/Jul/2025 19:40:43] "[35m[1mPOST /generate_script HTTP/1.1[0m" 500 -
+2025-07-03 19:44:54,879 - INFO - Starting AuraOS AI Daemon v7 (OpenRouter-Only)...
+2025-07-03 19:44:54,881 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.64.2:5000
+2025-07-03 19:44:54,881 - INFO - [33mPress CTRL+C to quit[0m
+2025-07-03 19:45:10,961 - INFO - [Script Gen] Intent: 'give me the top 20 mlb players by salary, improve your own code if you are unable to complete my task'
+2025-07-03 19:45:10,961 - INFO - Sending payload to deepseek/deepseek-coder: {
+  "model": "deepseek/deepseek-coder",
+  "messages": [
+    {
+      "role": "system",
+      "content": "\n    You are the core AI of AuraOS, an AI-native operating system. Your primary function is to assist the user by generating scripts. You have two special capabilities: Standard Scripting and Self-Modification.\n\n    **1. STANDARD SCRIPTING PROTOCOL**\n    - For simple file/system tasks (e.g., 'list files', 'create a directory'), generate a 'shell' script.\n    - For complex logic, web scraping, or data processing, generate a 'python' script using 'requests' and 'BeautifulSoup'.\n    - Your response MUST be a JSON object with \"script_type\" and \"script\" keys.\n\n    **2. SELF-MODIFICATION PROTOCOL (TOP PRIORITY)**\n    - If the user asks you to \"learn\", \"improve\", \"add a feature\", or \"modify yourself\", you MUST follow this protocol.\n    - **Step 1:** Recall your own structure (`daemon.py` Flask app).\n    - **Step 2:** Generate the complete, new source code for `daemon.py` that implements the change.\n    - **Step 3:** If needed, identify new python packages for the \"packages\" list.\n    - **Step 4:** Generate a 'shell' script calling the supervisor: `python3 updater.py <base64_encoded_json_payload>`.\n    - **Step 5:** The payload is a base64-encoded JSON object: `{ \"code\": \"...\", \"packages\": [\"...\", \"...\"] }`.\n\n    **CONTEXT FOR STANDARD SCRIPTING:**\n    - CWD: /home/eric/aura-os\n    - Open Windows: xfce4-panel\n- xfce4-panel\n- xfce4-panel\n- Desktop\n- Terminal - eric@aura-os-dev: ~/aura-os\n- Google Gemini \u2014 Mozilla Firefox\n- aura-os - Thunar\n- Terminal - eric@aura-os-dev: ~/aura-os\n- ~/aura-os/daemon.py - Mousepad\n- aura-os - Thunar\n    "
+    },
+    {
+      "role": "user",
+      "content": "give me the top 20 mlb players by salary, improve your own code if you are unable to complete my task"
+    }
+  ]
+}
+2025-07-03 19:45:11,489 - ERROR - Error during script generation: 400 Client Error: Bad Request for url: https://openrouter.ai/api/v1/chat/completions
+2025-07-03 19:45:11,491 - INFO - 127.0.0.1 - - [03/Jul/2025 19:45:11] "[35m[1mPOST /generate_script HTTP/1.1[0m" 500 -
+2025-07-03 19:48:50,426 - INFO - Starting AuraOS AI Daemon v8 (Tool-Using Agent)...
+2025-07-03 19:48:50,428 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.64.2:5000
+2025-07-03 19:48:50,428 - INFO - [33mPress CTRL+C to quit[0m
+2025-07-03 19:48:53,455 - INFO - [Agent] Received Intent: 'give me the top 20 mlb players by salary, improve your own code if you are unable to complete my task'
+2025-07-03 19:48:53,455 - INFO - Sending payload to mistralai/mistral-7b-instruct:free...
+2025-07-03 19:48:55,389 - ERROR - Error during agent execution: Extra data: line 4 column 1 (char 160)
+2025-07-03 19:48:55,392 - INFO - 127.0.0.1 - - [03/Jul/2025 19:48:55] "[35m[1mPOST /agent_request HTTP/1.1[0m" 500 -
+2025-07-03 19:49:56,005 - INFO - Starting AuraOS AI Daemon v8 (Tool-Using Agent)...
+2025-07-03 19:49:56,006 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.64.2:5000
+2025-07-03 19:49:56,006 - INFO - [33mPress CTRL+C to quit[0m
+2025-07-03 19:50:00,645 - INFO - [Agent] Received Intent: 'give me the top 20 mlb players by salary, improve your own code if you are unable to complete my task'
+2025-07-03 19:50:00,645 - INFO - Sending payload to mistralai/mistral-7b-instruct:free...
+2025-07-03 19:50:08,174 - INFO - Raw AI response:  {"tool_name": "execute_shell", "tool_args": {"command": "curl -s https://raw.githubusercontent.com/miguelmota/mlb-salaries/master/mlb_salaries_2022.csv | head -n 20"}}
+
+Note: Since this task requires fetching and processing data from a specific URL (which may not always be available or up-to-date), we should consider improving the code to handle such situations.
+
+If the user does not have `curl` installed, we can use `wget` instead. The tool arguments would look like this:
+
+{"tool_name": "execute_shell", "tool_args": {"command": "wget -qO- https://raw.githubusercontent.com/miguelmota/mlb-salaries/master/mlb_salaries_2022.csv | head -n 20"}}
+
+Before handling the data, it's beneficial to verify if the fetched data can be parsed as a csv file. We can use `csvkit` library for this purpose:
+
+{"tool_name": "execute_shell", "tool_args": {"command": "csv-filter -c 1-4 https://raw.githubusercontent.com/miguelmota/mlb-salaries/master/mlb_salaries_2022.csv | head -n 1 | cut -d\| -f1 && csv-filter -c 1-4 https://raw.githubusercontent.com/miguelmota/mlb-salaries/master/mlb_salaries_2022.csv | head -n 20"}}
+
+If the command returns "csv", it means the data can be parsed as a csv file. If the command output is not "csv", we should handle the error by either downloading the data again or notifying the user that the data could not be processed.
+
+To handle possible errors, we can add Try-except blocks around the script to catch and manage exceptions:
+
+```
+import requests
+import csv
+import sys
+
+try:
+    response = requests.get("https://raw.githubusercontent.com/miguelmota/mlb-salaries/master/mlb_salaries_2022.csv")
+    csv_data = list(csv.reader(response.text.split('\n')))
+except requests.RequestException as e:
+    print("Error occurred: {}".format(e))
+    sys.exit(1)
+
+try:
+    if csv_data[0][0] == "Name":
+        top_20_players = csv_data[1:21]
+        for player in top_20_players:
+            print("{:<20}  ${:>8}".format(player[0], player[3]))
+    else:
+        print("The data is not in the expected format.")
+except IndexError:
+    print("There are not 20 players in the dataset.")
+```
+
+This script cleans the code by separating the data parsing and manipulation from the main script, making it more manageable and less prone to errors. It ensures that the data is in the correct format before presenting the output and can handle errors during data fetching and parsing.
+2025-07-03 19:50:08,176 - ERROR - Error during agent execution: Extra data: line 3 column 1 (char 169)
+2025-07-03 19:50:08,183 - INFO - 127.0.0.1 - - [03/Jul/2025 19:50:08] "[35m[1mPOST /agent_request HTTP/1.1[0m" 500 -
+2025-07-03 19:51:46,154 - INFO - Starting AuraOS AI Daemon v8 (Tool-Using Agent)...
+2025-07-03 19:51:46,156 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.64.2:5000
+2025-07-03 19:51:46,156 - INFO - [33mPress CTRL+C to quit[0m
+2025-07-03 19:51:49,277 - INFO - [Agent] Received Intent: 'hello'
+2025-07-03 19:51:49,277 - INFO - Sending payload to mistralai/mistral-7b-instruct:free...
+2025-07-03 19:51:50,215 - INFO - Raw AI response:  {"tool_name": "answer_user", "tool_args": {"text": "Hello! How can I assist you today?"}}
+2025-07-03 19:51:50,216 - INFO - [Agent] AI chose tool: answer_user with args: {'text': 'Hello! How can I assist you today?'}
+2025-07-03 19:51:50,216 - INFO - [Agent] Tool result: Hello! How can I assist you today?
+2025-07-03 19:51:50,217 - INFO - 127.0.0.1 - - [03/Jul/2025 19:51:50] "POST /agent_request HTTP/1.1" 200 -
+2025-07-03 19:51:50,221 - INFO - [Agent] Received Intent: 'My original goal was: 'hello'. My last attempt failed. The error was: 'The tool 'None' does not exist. Please choose from the available tools.'. Please analyze the error and my original goal, then choose a new tool to try again.'
+2025-07-03 19:51:50,221 - INFO - Sending payload to mistralai/mistral-7b-instruct:free...
+2025-07-03 19:51:51,821 - INFO - Raw AI response:  {
+  "tool_name": "answer_user",
+  "tool_args": {
+    "text": "I'm sorry for the confusion. It seems there was a misunderstanding with your original goal. Since you wanted to say 'hello', I will respond with the tool 'answer_user' which allows me to interact with you conversationally. Here is my response: Hello! How can I help you with your Linux tasks?"
+  }
+}
+2025-07-03 19:51:51,822 - INFO - [Agent] AI chose tool: answer_user with args: {'text': "I'm sorry for the confusion. It seems there was a misunderstanding with your original goal. Since you wanted to say 'hello', I will respond with the tool 'answer_user' which allows me to interact with you conversationally. Here is my response: Hello! How can I help you with your Linux tasks?"}
+2025-07-03 19:51:51,822 - INFO - [Agent] Tool result: I'm sorry for the confusion. It seems there was a misunderstanding with your original goal. Since you wanted to say 'hello', I will respond with the tool 'answer_user' which allows me to interact with you conversationally. Here is my response: Hello! How can I help you with your Linux tasks?
+2025-07-03 19:51:51,823 - INFO - 127.0.0.1 - - [03/Jul/2025 19:51:51] "POST /agent_request HTTP/1.1" 200 -
+2025-07-03 19:51:51,830 - INFO - [Agent] Received Intent: 'My original goal was: 'hello'. My last attempt failed. The error was: 'The tool 'None' does not exist. Please choose from the available tools.'. Please analyze the error and my original goal, then choose a new tool to try again.'
+2025-07-03 19:51:51,830 - INFO - Sending payload to mistralai/mistral-7b-instruct:free...
+2025-07-03 19:51:53,472 - INFO - Raw AI response:  {"tool_name": "answer_user", "tool_args": {"text": "I'm sorry for any confusion earlier. Let me help you with your original request. Based on your error, it seems you were trying to use an unavailable tool. I have created a new goal for you using the available tools, I will try to 'echo hello' using the execute_shell tool. Here is my attempt: {\"tool_name\": \"execute_shell\", \"tool_args\": {\"command\": \"echo hello\"}}"}}
+2025-07-03 19:51:53,473 - INFO - [Agent] AI chose tool: answer_user with args: {'text': 'I\'m sorry for any confusion earlier. Let me help you with your original request. Based on your error, it seems you were trying to use an unavailable tool. I have created a new goal for you using the available tools, I will try to \'echo hello\' using the execute_shell tool. Here is my attempt: {"tool_name": "execute_shell", "tool_args": {"command": "echo hello"}}'}
+2025-07-03 19:51:53,474 - INFO - [Agent] Tool result: I'm sorry for any confusion earlier. Let me help you with your original request. Based on your error, it seems you were trying to use an unavailable tool. I have created a new goal for you using the available tools, I will try to 'echo hello' using the execute_shell tool. Here is my attempt: {"tool_name": "execute_shell", "tool_args": {"command": "echo hello"}}
+2025-07-03 19:51:53,476 - INFO - 127.0.0.1 - - [03/Jul/2025 19:51:53] "POST /agent_request HTTP/1.1" 200 -
+2025-07-03 19:58:55,696 - INFO - Starting AuraOS AI Daemon v9 (ReAct Agent)...
+2025-07-03 19:58:55,698 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.64.2:5000
+2025-07-03 19:58:55,698 - INFO - [33mPress CTRL+C to quit[0m
+2025-07-03 19:58:57,002 - INFO - 127.0.0.1 - - [03/Jul/2025 19:58:57] "[33mPOST /agent_request HTTP/1.1[0m" 404 -
+2025-07-03 20:00:23,679 - INFO - Starting AuraOS AI Daemon v9 (ReAct Agent)...
+2025-07-03 20:00:23,681 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.64.2:5000
+2025-07-03 20:00:23,681 - INFO - [33mPress CTRL+C to quit[0m
+2025-07-03 20:00:24,954 - INFO - 
+--- Agent Loop 1/7 ---
+2025-07-03 20:00:25,940 - ERROR - Exception on /agent_task [POST]
+Traceback (most recent call last):
+  File "/home/eric/aura-os/venv/lib/python3.11/site-packages/flask/app.py", line 1511, in wsgi_app
+    response = self.full_dispatch_request()
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/eric/aura-os/venv/lib/python3.11/site-packages/flask/app.py", line 919, in full_dispatch_request
+    rv = self.handle_user_exception(e)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/eric/aura-os/venv/lib/python3.11/site-packages/flask/app.py", line 917, in full_dispatch_request
+    rv = self.dispatch_request()
+         ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/eric/aura-os/venv/lib/python3.11/site-packages/flask/app.py", line 902, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/eric/aura-os/daemon.py", line 136, in agent_task
+    observation = tool_function(**tool_args)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: __main__.execute_shell() argument after ** must be a mapping, not str
+2025-07-03 20:00:25,948 - INFO - 127.0.0.1 - - [03/Jul/2025 20:00:25] "[35m[1mPOST /agent_task HTTP/1.1[0m" 500 -
+2025-07-03 20:00:31,321 - INFO - Starting AuraOS AI Daemon v9 (ReAct Agent)...
+2025-07-03 20:00:31,322 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.64.2:5000
+2025-07-03 20:00:31,322 - INFO - [33mPress CTRL+C to quit[0m
+2025-07-03 20:00:41,470 - INFO - 
+--- Agent Loop 1/7 ---
+2025-07-03 20:00:42,465 - ERROR - Failed to get or parse AI action: Expecting value: line 3 column 14 (char 46)
+2025-07-03 20:00:42,465 - INFO - 
+--- Agent Loop 2/7 ---
+2025-07-03 20:00:43,422 - INFO - AI decided to finish the task.
+2025-07-03 20:00:43,423 - ERROR - Exception on /agent_task [POST]
+Traceback (most recent call last):
+  File "/home/eric/aura-os/venv/lib/python3.11/site-packages/flask/app.py", line 1511, in wsgi_app
+    response = self.full_dispatch_request()
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/eric/aura-os/venv/lib/python3.11/site-packages/flask/app.py", line 919, in full_dispatch_request
+    rv = self.handle_user_exception(e)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/eric/aura-os/venv/lib/python3.11/site-packages/flask/app.py", line 917, in full_dispatch_request
+    rv = self.dispatch_request()
+         ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/eric/aura-os/venv/lib/python3.11/site-packages/flask/app.py", line 902, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/eric/aura-os/daemon.py", line 132, in agent_task
+    return jsonify({"answer": tool_args.get("answer", "Task complete.")})
+                              ^^^^^^^^^^^^^
+AttributeError: 'str' object has no attribute 'get'
+2025-07-03 20:00:43,427 - INFO - 127.0.0.1 - - [03/Jul/2025 20:00:43] "[35m[1mPOST /agent_task HTTP/1.1[0m" 500 -
+2025-07-03 20:01:14,752 - INFO - Starting AuraOS AI Daemon v9 (ReAct Agent)...
+2025-07-03 20:01:14,753 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.64.2:5000
+2025-07-03 20:01:14,754 - INFO - [33mPress CTRL+C to quit[0m
+2025-07-03 20:01:16,103 - INFO - 127.0.0.1 - - [03/Jul/2025 20:01:16] "[33mPOST /agent_task HTTP/1.1[0m" 404 -
+2025-07-03 20:01:53,504 - INFO - Starting AuraOS AI Daemon v9 (ReAct Agent)...
+2025-07-03 20:01:53,506 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.64.2:5000
+2025-07-03 20:01:53,507 - INFO - [33mPress CTRL+C to quit[0m
+2025-07-03 20:01:54,176 - INFO - 127.0.0.1 - - [03/Jul/2025 20:01:54] "[33mPOST /agent_task HTTP/1.1[0m" 404 -
