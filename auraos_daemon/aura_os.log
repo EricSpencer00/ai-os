@@ -396,3 +396,74 @@ AttributeError: 'str' object has no attribute 'get'
  * Running on http://192.168.1.36:5050
 2025-07-03 22:17:44,279 - INFO - [33mPress CTRL+C to quit[0m
 2025-07-03 22:17:46,561 - WARNING - [Self-Reflect] Sending self-improvement task to OpenRouter...
+2025-07-03 22:18:32,416 - WARNING - [Self-Reflect] Sending self-improvement task to OpenRouter...
+2025-07-03 22:18:44,272 - INFO - [Periodic Self-Reflect] Initiating self-reflection...
+2025-07-03 22:18:44,277 - WARNING - [Self-Reflect] Sending self-improvement task to OpenRouter...
+2025-07-03 22:18:59,276 - ERROR - [Periodic Self-Reflect] Error: HTTPConnectionPool(host='localhost', port=5050): Read timed out. (read timeout=15)
+2025-07-03 22:24:05,497 - WARNING - [Self-Reflect] LLM Raw Response: {
+  "id": "gen-1751599124-z2JmS8XbSOVQ80AgNwm0",
+  "provider": "Targon",
+  "model": "deepseek/deepseek-r1-0528:free",
+  "object": "chat.completion",
+  "created": 1751599130,
+  "choices": [
+    {
+      "logprobs": null,
+      "finish_reason": "stop",
+      "native_finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "```json\n{\n  \"code\": \"# daemon.py\\n# AuraOS Autonomous AI Daemon v7.1\\nimport os, json, requests, subprocess, logging, base64, re, threading, time\\nfrom flask import Flask, request, jsonify\\n\\napp = Flask(__name__)\\n\\n# Use absolute paths for config and log files\\nBASE_DIR = os.path.dirname(os.path.abspath(__file__))\\nCONFIG_PATH = os.path.join(BASE_DIR, \\\"config.json\\\")\\nLOG_PATH = os.path.join(BASE_DIR, \\\"aura_os.log\\\")\\nDAEMON_PATH = os.path.join(BASE_DIR, \\\"daemon.py\\\")\\nUPDATER_PATH = os.path.join(BASE_DIR, \\\"updater.py\\\")\\n\\nlogging.basicConfig(\\n    level=logging.INFO,\\n    fo...
+2025-07-03 22:24:05,500 - ERROR - [Self-Reflect] Error: 'str' object has no attribute 'get'
+Traceback (most recent call last):
+  File "/Users/ericspencer/GitHub/ai-os/auraos_daemon/daemon.py", line 229, in self_reflect
+    {"role": "user", "content": task}
+              ^^^^^^^^^^^
+AttributeError: 'str' object has no attribute 'get'
+2025-07-03 22:24:05,509 - INFO - 127.0.0.1 - - [03/Jul/2025 22:24:05] "[35m[1mPOST /self_reflect HTTP/1.1[0m" 500 -
+2025-07-03 22:26:59,709 - WARNING - [Self-Reflect] LLM Raw Response: {
+  "id": "gen-1751599067-4JGfQKv95MafG4wcoPhz",
+  "provider": "Chutes",
+  "model": "deepseek/deepseek-r1-0528:free",
+  "object": "chat.completion",
+  "created": 1751599081,
+  "choices": [
+    {
+      "logprobs": null,
+      "finish_reason": "stop",
+      "native_finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Based on the logs and source code analysis, I've made several critical improvements to address the observed errors and enhance functionality:\n\n1. Fixed JSON parsing errors by:\n   - Adding robust markdown code block extraction\n   - Implementing proper error handling for nested JSON parsing\n   - Ensuring consistent variable naming for parsed content\n\n2. Enhanced timeout handling:\n   - Increased OpenRouter timeout to 30s\n   - Increased periodic task timeout to 120s\n\n3. Improved intent handling:\n   - Added specific handler for file operations\n   - Enhanced routing logic for new file intent\n\n4. Security enhan...
+2025-07-03 22:26:59,710 - ERROR - [Self-Reflect] Error: 'str' object has no attribute 'get'
+Traceback (most recent call last):
+  File "/Users/ericspencer/GitHub/ai-os/auraos_daemon/daemon.py", line 229, in self_reflect
+    {"role": "user", "content": task}
+              ^^^^^^^^^^^
+AttributeError: 'str' object has no attribute 'get'
+2025-07-03 22:26:59,717 - INFO - 127.0.0.1 - - [03/Jul/2025 22:26:59] "[35m[1mPOST /self_reflect HTTP/1.1[0m" 500 -
+2025-07-03 22:27:23,721 - WARNING - [Self-Reflect] LLM Raw Response: {
+  "id": "gen-1751599112-ml6QeJOls9qF4ByfWKen",
+  "provider": "Chutes",
+  "model": "deepseek/deepseek-r1-0528:free",
+  "object": "chat.completion",
+  "created": 1751599112,
+  "choices": [
+    {
+      "logprobs": null,
+      "finish_reason": "stop",
+      "native_finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "I'll analyze the logs and source code to identify issues and implement improvements. The key problems are:\n1. JSON parsing errors in self_reflection endpoint\n2. Unhandled intent for opening text files\n3. Timeout issues in periodic self-reflection\n4. Error handling improvements\n\nHere's the enhanced daemon.py:\n\n```json\n{\n  \"code\": \"# daemon.py\\n# AuraOS Autonomous AI Daemon v7.2\\nimport os, json, requests, subprocess, logging, base64, re, threading, time\\nfrom flask import Flask, request, jsonify\\n\\napp = Flask(__name__)\\n\\n# Use absolute paths for config and log files\\nBASE_DIR = os.path.dirname(os....
+2025-07-03 22:27:23,722 - ERROR - [Self-Reflect] Error: 'str' object has no attribute 'get'
+Traceback (most recent call last):
+  File "/Users/ericspencer/GitHub/ai-os/auraos_daemon/daemon.py", line 229, in self_reflect
+    {"role": "user", "content": task}
+              ^^^^^^^^^^^
+AttributeError: 'str' object has no attribute 'get'
+2025-07-03 22:27:23,723 - INFO - 127.0.0.1 - - [03/Jul/2025 22:27:23] "[35m[1mPOST /self_reflect HTTP/1.1[0m" 500 -
+2025-07-03 22:31:57,930 - INFO - 127.0.0.1 - - [03/Jul/2025 22:31:57] "POST /generate_script HTTP/1.1" 200 -

@@ -41,6 +41,30 @@ COMPLEX_TASK_KEYWORDS = [
     "scrape", "list of", "find data", "get information on", "what are", "who are"
 ]
 
+# --- Local LLM via Ollama ---
+def query_ollama_llama3(messages, temperature=0.1):
+    """Query the local llama3 model via Ollama REST API."""
+    try:
+        response = requests.post(
+            "http://localhost:11434/v1/chat/completions",
+            json={
+                "model": "llama3",
+                "messages": messages,
+                "temperature": temperature
+            },
+            timeout=30
+        )
+        response.raise_for_status()
+        data = response.json()
+        msg = data["choices"][0]["message"]["content"]
+        match = re.search(r'\{.*\}', msg, re.DOTALL)
+        if not match:
+            raise ValueError("No valid JSON found in LLM response.")
+        return json.loads(match.group(0))
+    except Exception as e:
+        logging.error(f"[Ollama Llama3] Error: {e}")
+        raise
+
 @app.route("/generate_script", methods=["POST"])
 def generate_script():
     data = request.get_json(force=True)
@@ -69,38 +93,42 @@ def generate_script():
         - Open Windows: {window_list_str}
         """
         is_complex = any(k in user_intent.lower() for k in COMPLEX_TASK_KEYWORDS)
-        if is_complex:
-            model, api_key, api_url = OPENROUTER_DEEPSEEK_MODEL, OPENROUTER_API_KEY, OPENROUTER_API_URL
-            if not api_key:
-                return jsonify({"error": "OpenRouter API key missing"}), 500
-        else:
-            model, api_key, api_url = GROQ_MODEL, GROQ_API_KEY, GROQ_API_URL
-            if not api_key:
-                return jsonify({"error": "Groq API key missing"}), 500
-        payload = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_intent}
-            ],
-            "temperature": 0.1
-        }
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        }
         try:
-            response = requests.post(api_url, headers=headers, json=payload, timeout=15)
-            response.raise_for_status()
-            response_json = response.json()
-            if "error" in response_json:
-                raise ValueError(f"API Error: {response_json['error']}")
-            msg = response_json["choices"][0]["message"]["content"]
-            match = re.search(r'\{.*\}', msg, re.DOTALL)
-            if not match:
-                raise ValueError("No valid JSON found in LLM response.")
-            content = match.group(0)
-            return jsonify(json.loads(content)), 200
+            if is_complex:
+                # Use local llama3 via Ollama for complex tasks
+                messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_intent}
+                ]
+                result = query_ollama_llama3(messages)
+                return jsonify(result), 200
+            else:
+                model, api_key, api_url = GROQ_MODEL, GROQ_API_KEY, GROQ_API_URL
+                if not api_key:
+                    return jsonify({"error": "Groq API key missing"}), 500
+                payload = {
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_intent}
+                    ],
+                    "temperature": 0.1
+                }
+                headers = {
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json"
+                }
+                response = requests.post(api_url, headers=headers, json=payload, timeout=15)
+                response.raise_for_status()
+                response_json = response.json()
+                if "error" in response_json:
+                    raise ValueError(f"API Error: {response_json['error']}")
+                msg = response_json["choices"][0]["message"]["content"]
+                match = re.search(r'\{.*\}', msg, re.DOTALL)
+                if not match:
+                    raise ValueError("No valid JSON found in LLM response.")
+                content = match.group(0)
+                return jsonify(json.loads(content)), 200
         except Exception as e:
             logging.error(f"[Script Gen] Error: {e}")
             return jsonify({"error": "Failed to generate script.", "details": str(e)}), 500
