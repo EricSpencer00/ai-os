@@ -8,38 +8,45 @@ from core.decision_engine import DecisionEngine
 from core.self_improvement import SelfImprovement
 from core.config import load_config
 from core.ability_tree import AbilityTree
+from core.dependency_checker import check_and_install_dependencies
+from core.logger import init_logger
 
 class AuraOSDaemon:
     def __init__(self):
         self.config = load_config()
+        
+        # Initialize logger first
+        self.logger = init_logger(self.config)
+        
+        # Check for dependencies before initializing
+        check_and_install_dependencies()
+        
         self.app = Flask(__name__)
         self.plugin_manager = PluginManager(self.config)
         self.decision_engine = DecisionEngine(self.plugin_manager)
         self.self_improvement = SelfImprovement(self)
         self.ability_tree = self.self_improvement.ability_tree
         self._setup_routes()
-        self._setup_logging()
-
-    def _setup_logging(self):
-        logging.basicConfig(
-            level=logging.INFO,
-            format="%(asctime)s - %(levelname)s - %(message)s",
-        )
+        
+        logging.info("AuraOS Daemon initialized successfully")
 
     def _setup_routes(self):
         @self.app.route("/generate_script", methods=["POST"])
         def generate_script():
             # Use decision engine to select plugin/tool and generate script
+            logging.info("Received request to generate script")
             return self.decision_engine.handle_generate_script()
 
         @self.app.route("/execute_script", methods=["POST"])
         def execute_script():
             # Use plugin manager to safely execute script
+            logging.info("Received request to execute script")
             return self.plugin_manager.handle_execute_script()
 
         @self.app.route("/self_improve", methods=["POST"])
         def self_improve():
             # Trigger self-improvement
+            logging.info("Received request to self-improve")
             return self.self_improvement.handle_self_improve()
 
         @self.app.route("/report_missing_ability", methods=["POST"])
@@ -47,9 +54,17 @@ class AuraOSDaemon:
             data = request.get_json(force=True)
             ability = data.get("ability")
             if not ability:
+                logging.warning("Received report_missing_ability request with no ability specified")
                 return jsonify({"error": "No ability specified."}), 400
+            logging.info(f"Reporting missing ability: {ability}")
             self.ability_tree.report_missing(ability)
             return jsonify({"status": f"Reported missing ability: {ability}"}), 200
+            
+        @self.app.route("/self_reflect", methods=["POST"])
+        def self_reflect():
+            logging.info("Triggered self-reflection")
+            # This endpoint can be expanded with more complex self-reflection logic
+            return self.self_improvement.handle_self_improve()
 
     def run(self):
         logging.info("Starting AuraOS AI Daemon v8...")

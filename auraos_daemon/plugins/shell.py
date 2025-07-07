@@ -8,7 +8,10 @@ import requests
 import re
 import subprocess
 import shutil
+import time
 from flask import jsonify
+from core.security import sanitize_command, is_safe_url
+from core.memory import Memory
 
 # Load config for API keys
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -28,6 +31,10 @@ DOWNLOADS_DIR = os.path.expanduser('~/Downloads')
 
 class Plugin:
     name = "shell"
+    
+    def __init__(self):
+        self.memory = Memory()
+        
     def classify_intent(self, intent):
         """
         Classify the user intent as one of: [file_operation, web, system, script, chat, greeting, unknown]
@@ -53,8 +60,14 @@ class Plugin:
             return jsonify({"script_type": "chat", "script": "Hello! How can I help you today?"}), 200
         if category == "chat":
             return jsonify({"script_type": "chat", "script": "I'm AuraOS, your AI assistant!"}), 200
+            
+        # Get memory context for similar commands
+        memory_context = self.memory.get_context_for_intent(intent)
+        
+        # Build the system prompt with memory context
+        base_prompt = ""
         if category == "file_operation":
-            system_prompt = (
+            base_prompt = (
                 "You are a file assistant. Generate a bash shell script for the following file operation. "
                 "All new files must be created in the user's Downloads folder ($HOME/Downloads). "
                 "If you need to use or modify an existing file, make a copy in the Downloads folder first. "
@@ -62,30 +75,39 @@ class Plugin:
                 "Return only the script, no explanation."
             )
         elif category == "web":
-            system_prompt = (
+            base_prompt = (
                 "You are a web automation assistant. Generate a bash shell script for the following web task. "
                 "All downloads must go to the user's Downloads folder. "
                 "Return only the script, no explanation."
             )
         elif category == "system":
-            system_prompt = (
+            base_prompt = (
                 "You are a system info assistant. Generate a bash shell script for the following system info task. "
                 "Return only the script, no explanation."
             )
         elif category == "script":
-            system_prompt = (
+            base_prompt = (
                 "You are a script assistant. Generate a bash shell script for the following user intent. "
                 "All new files must be created in the user's Downloads folder ($HOME/Downloads). "
                 "Return only the script, no explanation."
             )
         else:
             # fallback to generic
-            system_prompt = (
+            base_prompt = (
                 "You are a helpful assistant. Generate a bash shell script for the following user intent. "
                 "All new files must be created in the user's Downloads folder ($HOME/Downloads). "
                 "If you need to use or modify an existing file, make a copy in the Downloads folder first. "
                 "You may look at (read) any file on the system, but never modify or delete originals. "
                 "Return only the script, no explanation."
+            )
+            
+        # Enhance with memory context if available
+        system_prompt = base_prompt
+        if memory_context:
+            system_prompt = (
+                f"{base_prompt}\n\n"
+                f"Here are some similar commands I've run before that might help you:\n{memory_context}\n"
+                f"Generate a script for the current request using this history as context."
             )
         payload = {
             "model": GROQ_MODEL,
@@ -100,12 +122,31 @@ class Plugin:
             "Content-Type": "application/json"
         }
         try:
-            response = requests.post(GROQ_API_URL, headers=headers, json=payload, timeout=60)
-            response.raise_for_status()
-            msg = response.json()["choices"][0]["message"]["content"]
-            # Remove code block markers if present
-            script = re.sub(r'```(bash|sh)?', '', msg, flags=re.IGNORECASE).replace('```', '').strip()
-            return jsonify({"script_type": "shell", "script": script}), 200
+            # Add retry mechanism for API calls
+            max_retries = 3
+            retry_count = 0
+            last_error = None
+            
+            while retry_count < max_retries:
+                try:
+                    response = requests.post(GROQ_API_URL, headers=headers, json=payload, timeout=60)
+                    response.raise_for_status()
+                    msg = response.json()["choices"][0]["message"]["content"]
+                    # Remove code block markers if present
+                    script = re.sub(r'```(bash|sh)?', '', msg, flags=re.IGNORECASE).replace('```', '').strip()
+                    return jsonify({"script_type": "shell", "script": script}), 200
+                except requests.exceptions.RequestException as req_e:
+                    retry_count += 1
+                    last_error = req_e
+                    if retry_count < max_retries:
+                        # Exponential backoff: wait 1, 2, 4 seconds between retries
+                        time.sleep(2 ** (retry_count - 1))
+                    else:
+                        break
+            
+            # If we're here, all retries failed
+            if last_error:
+                return jsonify({"error": f"Failed to generate script after {max_retries} attempts: {last_error}"}), 500
         except Exception as e:
             return jsonify({"error": f"Failed to generate script: {e}"}), 500
 
@@ -114,7 +155,14 @@ class Plugin:
         error_log_path = os.path.join(BASE_DIR, "last_error.log")
         debug_log_path = os.path.join(BASE_DIR, "ai_debug.log")
         try:
-            result = subprocess.run(script, shell=True, capture_output=True, text=True)
+            # Sanitize the script for security
+            sanitized_script = sanitize_command(script)
+            if sanitized_script is None:
+                with open(debug_log_path, "a") as dbg:
+                    dbg.write(f"[SECURITY] Blocked potentially dangerous command: {script}\n")
+                return jsonify({"error": "This command contains potentially harmful operations and has been blocked for security reasons."}), 403
+                
+            result = subprocess.run(sanitized_script, shell=True, capture_output=True, text=True)
             # Log all execution details
             with open(debug_log_path, "a") as dbg:
                 dbg.write(f"\n---\n[EXECUTE] Script: {script}\nReturn code: {result.returncode}\nStdout: {result.stdout}\nStderr: {result.stderr}\n")
@@ -122,6 +170,15 @@ class Plugin:
                 # On success, clear error log
                 if os.path.exists(error_log_path):
                     os.remove(error_log_path)
+                
+                # Record successful command in memory
+                if context and 'intent' in context:
+                    self.memory.add_command(
+                        intent=context['intent'],
+                        script=sanitized_script,
+                        result=result.stdout
+                    )
+                    
                 return jsonify({
                     "status": "success",
                     "return_code": result.returncode,
@@ -158,26 +215,62 @@ class Plugin:
                     os.system("git reset --hard HEAD~1")
                     os.system("git add daemon.py")
                     os.system("git commit -m '[ai] Rollback after repeated error' || true")
-                    os.system(f"curl -s -X POST http://localhost:5050/report_missing_ability -H 'Content-Type: application/json' -d '{{\"ability\": \"alternative_solution\"}}'")
-                    os.system("curl -s -X POST http://localhost:5050/self_reflect")
+                    try:
+                        requests.post("http://localhost:5050/report_missing_ability", 
+                                     headers={"Content-Type": "application/json"}, 
+                                     json={"ability": "alternative_solution"}, 
+                                     timeout=5)
+                        requests.post("http://localhost:5050/self_reflect", timeout=5)
+                    except Exception as req_err:
+                        with open(debug_log_path, "a") as dbg:
+                            dbg.write(f"[REQUEST ERROR] Failed to trigger self-improvement: {req_err}\n")
                     with open(debug_log_path, "a") as dbg:
                         dbg.write(f"[ROLLBACK] Repeated error. Rolled back and triggered self-reflect. Error: {error_output}\n")
+                    
+                    # Record failed command in memory
+                    if context and 'intent' in context:
+                        self.memory.add_command(
+                            intent=context['intent'],
+                            script=sanitized_script,
+                            error=f"Repeated error: {error_output}"
+                        )
+                    
                     return jsonify({"error": f"Repeated error detected. Rolled back and will try a different approach. Error: {error_output}"}), 500
                 else:
-                    os.system(f"curl -s -X POST http://localhost:5050/report_missing_ability -H 'Content-Type: application/json' -d '{{\"ability\": \"{error_output[:100]}\"}}'")
-                    os.system("curl -s -X POST http://localhost:5050/self_reflect")
+                    try:
+                        requests.post("http://localhost:5050/report_missing_ability", 
+                                     headers={"Content-Type": "application/json"}, 
+                                     json={"ability": error_output[:100]}, 
+                                     timeout=5)
+                        requests.post("http://localhost:5050/self_reflect", timeout=5)
+                    except Exception as req_err:
+                        with open(debug_log_path, "a") as dbg:
+                            dbg.write(f"[REQUEST ERROR] Failed to trigger self-improvement: {req_err}\n")
                     with open(debug_log_path, "a") as dbg:
                         dbg.write(f"[SELF-IMPROVE] Error occurred. Triggered self-reflect. Error: {error_output}\n")
+                    
+                    # Record error in memory
+                    if context and 'intent' in context:
+                        self.memory.add_command(
+                            intent=context['intent'],
+                            script=sanitized_script,
+                            error=error_output
+                        )
+                    
                     return jsonify({"error": f"Error occurred. Self-improvement triggered. Please retry. Error: {error_output}"}), 500
         except ImportError as e:
             ability = str(e).split('No module named ')[-1].replace("'", "").strip()
             try:
-                os.system(f"curl -s -X POST http://localhost:5050/report_missing_ability -H 'Content-Type: application/json' -d '{{\"ability\": \"{ability}\"}}'")
-                os.system("curl -s -X POST http://localhost:5050/self_reflect")
+                requests.post("http://localhost:5050/report_missing_ability", 
+                             headers={"Content-Type": "application/json"}, 
+                             json={"ability": ability}, 
+                             timeout=5)
+                requests.post("http://localhost:5050/self_reflect", timeout=5)
                 with open(debug_log_path, "a") as dbg:
                     dbg.write(f"[IMPORT ERROR] Missing ability: {ability}. Triggered self-reflect.\n")
-            except Exception:
-                pass
+            except Exception as req_err:
+                with open(debug_log_path, "a") as dbg:
+                    dbg.write(f"[REQUEST ERROR] Failed to trigger self-improvement: {req_err}\n")
             return jsonify({"error": f"Missing ability: {ability}. Self-improvement triggered. Please retry shortly."}), 500
         except Exception as e:
             with open(debug_log_path, "a") as dbg:

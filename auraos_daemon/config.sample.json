@@ -1,0 +1,47 @@
+{
+    "GROQ_API_KEY": "your-api-key-here",
+    "OPENAI_API_KEY": "your-openai-api-key-here",
+    "API_TIMEOUT": 60,
+    "MAX_RETRY_ATTEMPTS": 3,
+    "SECURITY": {
+        "STRICT_MODE": true,
+        "ALLOWED_DOMAINS": [
+            "github.com",
+            "stackoverflow.com",
+            "docs.python.org"
+        ],
+        "RESTRICTED_COMMANDS": [
+            "rm -rf",
+            "sudo",
+            "chmod 777"
+        ]
+    },
+    "PLUGINS": {
+        "shell": {
+            "enabled": true,
+            "max_execution_time": 30
+        },
+        "selenium_automation": {
+            "enabled": true,
+            "headless": true
+        },
+        "window_manager": {
+            "enabled": true
+        }
+    },
+    "SELF_IMPROVEMENT": {
+        "auto_install_packages": true,
+        "rollback_enabled": true,
+        "max_errors_before_rollback": 3
+    },
+    "MEMORY": {
+        "max_history_items": 100,
+        "similarity_threshold": 0.3
+    },
+    "LOGGING": {
+        "level": "INFO",
+        "file": "aura_os.log",
+        "max_size_mb": 10,
+        "backup_count": 3
+    }
+}
