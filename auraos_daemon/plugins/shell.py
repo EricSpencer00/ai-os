@@ -9,9 +9,12 @@ import re
 import subprocess
 import shutil
 import time
+import logging
 from flask import jsonify
 from core.security import sanitize_command, is_safe_url
 from core.memory import Memory
+from core.script_sanitizer import ScriptSanitizer
+from core.intent_mapper import IntentMapper
 
 # Load config for API keys
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -34,6 +37,8 @@ class Plugin:
     
     def __init__(self):
         self.memory = Memory()
+        self.sanitizer = ScriptSanitizer()
+        self.intent_mapper = IntentMapper()
         
     def classify_intent(self, intent):
         """
@@ -60,6 +65,12 @@ class Plugin:
             return jsonify({"script_type": "chat", "script": "Hello! How can I help you today?"}), 200
         if category == "chat":
             return jsonify({"script_type": "chat", "script": "I'm AuraOS, your AI assistant!"}), 200
+        
+        # First check if we have a pre-built command for this intent
+        pre_built_script = self.intent_mapper.get_command_for_intent(intent)
+        if pre_built_script:
+            logging.info(f"Using pre-built command for intent: {intent[:50]}...")
+            return jsonify({"script_type": "shell", "script": pre_built_script}), 200
             
         # Get memory context for similar commands
         memory_context = self.memory.get_context_for_intent(intent)
@@ -155,6 +166,20 @@ class Plugin:
         error_log_path = os.path.join(BASE_DIR, "last_error.log")
         debug_log_path = os.path.join(BASE_DIR, "ai_debug.log")
         try:
+            # Get intent from context if available
+            intent = context.get('intent', '') if context else ''
+            
+            # Pre-check script for compatibility issues and sanitize if needed
+            sanitize_result = self.sanitizer.sanitize(script, intent)
+            if sanitize_result['sanitized']:
+                with open(debug_log_path, "a") as dbg:
+                    dbg.write(f"[SANITIZE] Script sanitized. Issues: {sanitize_result['issues']}\n")
+                    dbg.write(f"[SANITIZE] Original: {script}\n")
+                    dbg.write(f"[SANITIZE] Sanitized: {sanitize_result['script']}\n")
+                
+                # Use the sanitized script
+                script = sanitize_result['script']
+            
             # Sanitize the script for security
             sanitized_script = sanitize_command(script)
             if sanitized_script is None:
@@ -166,6 +191,10 @@ class Plugin:
             # Log all execution details
             with open(debug_log_path, "a") as dbg:
                 dbg.write(f"\n---\n[EXECUTE] Script: {script}\nReturn code: {result.returncode}\nStdout: {result.stdout}\nStderr: {result.stderr}\n")
+            
+            # Get intent from context if available
+            intent = context.get('intent', '') if context else ''
+            
             if result.returncode == 0:
                 # On success, clear error log
                 if os.path.exists(error_log_path):
@@ -178,7 +207,59 @@ class Plugin:
                         script=sanitized_script,
                         result=result.stdout
                     )
+                
+                # Validate output to ensure it meets the user's intent
+                try:
+                    validation_response = requests.post(
+                        "http://localhost:5050/validate_output",
+                        headers={"Content-Type": "application/json"},
+                        json={
+                            "intent": intent,
+                            "script": sanitized_script,
+                            "output": result.stdout,
+                            "error": result.stderr
+                        },
+                        timeout=30
+                    )
                     
+                    if validation_response.status_code == 200:
+                        validation = validation_response.json()
+                        
+                        # If output is not valid, try to improve the script
+                        if not validation.get('valid', True):
+                            with open(debug_log_path, "a") as dbg:
+                                dbg.write(f"[VALIDATION] Output validation failed: {validation.get('issues', ['Unknown issue'])}\n")
+                            
+                            # Try to get an improved script
+                            improvement_response = requests.post(
+                                "http://localhost:5050/improve_script",
+                                headers={"Content-Type": "application/json"},
+                                json={
+                                    "intent": intent,
+                                    "script": sanitized_script,
+                                    "output": result.stdout,
+                                    "error": result.stderr
+                                },
+                                timeout=30
+                            )
+                            
+                            if improvement_response.status_code == 200:
+                                improvement = improvement_response.json()
+                                
+                                if improvement.get('improved', False):
+                                    # Log the improvement
+                                    with open(debug_log_path, "a") as dbg:
+                                        dbg.write(f"[IMPROVEMENT] Script improved: {improvement.get('explanation')}\n")
+                                        dbg.write(f"[IMPROVEMENT] New script: {improvement.get('script')}\n")
+                                    
+                                    # Execute the improved script recursively
+                                    return self.execute(improvement.get('script'), context)
+                    
+                except Exception as validation_err:
+                    with open(debug_log_path, "a") as dbg:
+                        dbg.write(f"[VALIDATION ERROR] Failed to validate output: {validation_err}\n")
+                
+                # Return the original result if validation passes or improvement fails
                 return jsonify({
                     "status": "success",
                     "return_code": result.returncode,
@@ -238,6 +319,37 @@ class Plugin:
                     return jsonify({"error": f"Repeated error detected. Rolled back and will try a different approach. Error: {error_output}"}), 500
                 else:
                     try:
+                        # First try to improve the script through validation
+                        if context and 'intent' in context:
+                            try:
+                                improvement_response = requests.post(
+                                    "http://localhost:5050/improve_script",
+                                    headers={"Content-Type": "application/json"},
+                                    json={
+                                        "intent": context['intent'],
+                                        "script": sanitized_script,
+                                        "output": result.stdout,
+                                        "error": error_output
+                                    },
+                                    timeout=30
+                                )
+                                
+                                if improvement_response.status_code == 200:
+                                    improvement = improvement_response.json()
+                                    
+                                    if improvement.get('improved', False):
+                                        # Log the improvement
+                                        with open(debug_log_path, "a") as dbg:
+                                            dbg.write(f"[IMPROVEMENT] Script improved after error: {improvement.get('explanation')}\n")
+                                            dbg.write(f"[IMPROVEMENT] New script: {improvement.get('script')}\n")
+                                        
+                                        # Execute the improved script recursively
+                                        return self.execute(improvement.get('script'), context)
+                            except Exception as improvement_err:
+                                with open(debug_log_path, "a") as dbg:
+                                    dbg.write(f"[IMPROVEMENT ERROR] Failed to improve script: {improvement_err}\n")
+                        
+                        # If improvement fails or no intent provided, fall back to self-reflection
                         requests.post("http://localhost:5050/report_missing_ability", 
                                      headers={"Content-Type": "application/json"}, 
                                      json={"ability": error_output[:100]}, 
