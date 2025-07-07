@@ -7,6 +7,7 @@ import json
 import requests
 import re
 import subprocess
+import shutil
 from flask import jsonify
 
 # Load config for API keys
@@ -23,6 +24,8 @@ except Exception:
     GROQ_API_URL = None
     GROQ_MODEL = None
 
+DOWNLOADS_DIR = os.path.expanduser('~/Downloads')
+
 class Plugin:
     name = "shell"
     def generate_script(self, intent, context):
@@ -30,6 +33,9 @@ class Plugin:
             return jsonify({"error": "Groq API key or URL missing."}), 500
         system_prompt = (
             "You are a helpful assistant. Generate a bash shell script for the following user intent. "
+            "All new files must be created in the user's Downloads folder ($HOME/Downloads). "
+            "If you need to use or modify an existing file, make a copy in the Downloads folder first. "
+            "You may look at (read) any file on the system, but never modify or delete originals. "
             "Return only the script, no explanation."
         )
         payload = {
