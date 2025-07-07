@@ -92,9 +92,10 @@ def generate_script():
         msg = response.json()["choices"][0]["message"]["content"]
 
         # Extract and parse JSON
-        match = re.search(r'\{.*\}', msg, re.DOTALL)
+        match = re.search(r'{.*}', msg, re.DOTALL)
         if not match:
             raise ValueError("No valid JSON found in LLM response.")
+
         content = match.group(0)
         return jsonify(json.loads(content)), 200
     except Exception as e:
@@ -172,9 +173,10 @@ def self_reflect():
                 raise ValueError("Response missing 'choices' key")
 
             msg = response_json["choices"][0]["message"]["content"]
-            match = re.search(r'\{.*\}', msg, re.DOTALL)
+            match = re.search(r'{.*}', msg, re.DOTALL)
             if not match:
                 raise ValueError("No valid JSON found in model output")
+
             content = match.group(0)
             update = json.loads(content)
             b64 = base64.b64encode(json.dumps(update).encode()).decode()
