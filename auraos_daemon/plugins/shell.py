@@ -28,16 +28,65 @@ DOWNLOADS_DIR = os.path.expanduser('~/Downloads')
 
 class Plugin:
     name = "shell"
+    def classify_intent(self, intent):
+        """
+        Classify the user intent as one of: [file_operation, web, system, script, chat, greeting, unknown]
+        """
+        lower_intent = intent.lower()
+        if any(word in lower_intent for word in ["hello", "hi", "hey", "greetings"]):
+            return "greeting"
+        if any(word in lower_intent for word in ["how are you", "who are you", "what is your name"]):
+            return "chat"
+        if any(word in lower_intent for word in ["list", "search", "find", "copy", "move", "delete", "file", "folder", "directory"]):
+            return "file_operation"
+        if any(word in lower_intent for word in ["open website", "fetch", "download", "web", "browser", "navigate"]):
+            return "web"
+        if any(word in lower_intent for word in ["system info", "cpu", "memory", "disk", "os version"]):
+            return "system"
+        if any(word in lower_intent for word in ["script", "run", "execute", "bash", "python", "shell"]):
+            return "script"
+        return "unknown"
+
     def generate_script(self, intent, context):
-        if not GROQ_API_KEY or not GROQ_API_URL:
-            return jsonify({"error": "Groq API key or URL missing."}), 500
-        system_prompt = (
-            "You are a helpful assistant. Generate a bash shell script for the following user intent. "
-            "All new files must be created in the user's Downloads folder ($HOME/Downloads). "
-            "If you need to use or modify an existing file, make a copy in the Downloads folder first. "
-            "You may look at (read) any file on the system, but never modify or delete originals. "
-            "Return only the script, no explanation."
-        )
+        category = self.classify_intent(intent)
+        if category == "greeting":
+            return jsonify({"script_type": "chat", "script": "Hello! How can I help you today?"}), 200
+        if category == "chat":
+            return jsonify({"script_type": "chat", "script": "I'm AuraOS, your AI assistant!"}), 200
+        if category == "file_operation":
+            system_prompt = (
+                "You are a file assistant. Generate a bash shell script for the following file operation. "
+                "All new files must be created in the user's Downloads folder ($HOME/Downloads). "
+                "If you need to use or modify an existing file, make a copy in the Downloads folder first. "
+                "You may look at (read) any file on the system, but never modify or delete originals. "
+                "Return only the script, no explanation."
+            )
+        elif category == "web":
+            system_prompt = (
+                "You are a web automation assistant. Generate a bash shell script for the following web task. "
+                "All downloads must go to the user's Downloads folder. "
+                "Return only the script, no explanation."
+            )
+        elif category == "system":
+            system_prompt = (
+                "You are a system info assistant. Generate a bash shell script for the following system info task. "
+                "Return only the script, no explanation."
+            )
+        elif category == "script":
+            system_prompt = (
+                "You are a script assistant. Generate a bash shell script for the following user intent. "
+                "All new files must be created in the user's Downloads folder ($HOME/Downloads). "
+                "Return only the script, no explanation."
+            )
+        else:
+            # fallback to generic
+            system_prompt = (
+                "You are a helpful assistant. Generate a bash shell script for the following user intent. "
+                "All new files must be created in the user's Downloads folder ($HOME/Downloads). "
+                "If you need to use or modify an existing file, make a copy in the Downloads folder first. "
+                "You may look at (read) any file on the system, but never modify or delete originals. "
+                "Return only the script, no explanation."
+            )
         payload = {
             "model": GROQ_MODEL,
             "messages": [
@@ -63,8 +112,12 @@ class Plugin:
     def execute(self, script, context):
         # Track error attempts in a file
         error_log_path = os.path.join(BASE_DIR, "last_error.log")
+        debug_log_path = os.path.join(BASE_DIR, "ai_debug.log")
         try:
             result = subprocess.run(script, shell=True, capture_output=True, text=True)
+            # Log all execution details
+            with open(debug_log_path, "a") as dbg:
+                dbg.write(f"\n---\n[EXECUTE] Script: {script}\nReturn code: {result.returncode}\nStdout: {result.stdout}\nStderr: {result.stderr}\n")
             if result.returncode == 0:
                 # On success, clear error log
                 if os.path.exists(error_log_path):
@@ -78,6 +131,9 @@ class Plugin:
             else:
                 # On error, log and handle retries
                 error_output = result.stderr.strip()
+                # If error_output is null/empty, do not return anything
+                if not error_output:
+                    return ("", 204)
                 # Read previous error log
                 error_count = 1
                 last_error = ""
@@ -99,28 +155,31 @@ class Plugin:
                     f.write(error_output + "\n" + str(error_count))
                 # If error repeats 3+ times, rollback and try a different approach
                 if error_count >= 3:
-                    # Rollback to previous system (git reset)
                     os.system("git reset --hard HEAD~1")
                     os.system("git add daemon.py")
                     os.system("git commit -m '[ai] Rollback after repeated error' || true")
-                    # Optionally, trigger self-improvement with a new approach
                     os.system(f"curl -s -X POST http://localhost:5050/report_missing_ability -H 'Content-Type: application/json' -d '{{\"ability\": \"alternative_solution\"}}'")
                     os.system("curl -s -X POST http://localhost:5050/self_reflect")
+                    with open(debug_log_path, "a") as dbg:
+                        dbg.write(f"[ROLLBACK] Repeated error. Rolled back and triggered self-reflect. Error: {error_output}\n")
                     return jsonify({"error": f"Repeated error detected. Rolled back and will try a different approach. Error: {error_output}"}), 500
                 else:
-                    # Pass error back to system for reiteration
                     os.system(f"curl -s -X POST http://localhost:5050/report_missing_ability -H 'Content-Type: application/json' -d '{{\"ability\": \"{error_output[:100]}\"}}'")
                     os.system("curl -s -X POST http://localhost:5050/self_reflect")
+                    with open(debug_log_path, "a") as dbg:
+                        dbg.write(f"[SELF-IMPROVE] Error occurred. Triggered self-reflect. Error: {error_output}\n")
                     return jsonify({"error": f"Error occurred. Self-improvement triggered. Please retry. Error: {error_output}"}), 500
         except ImportError as e:
-            # Report missing ability and trigger self-improvement
             ability = str(e).split('No module named ')[-1].replace("'", "").strip()
             try:
-                # Use curl to avoid dependency on requests
                 os.system(f"curl -s -X POST http://localhost:5050/report_missing_ability -H 'Content-Type: application/json' -d '{{\"ability\": \"{ability}\"}}'")
                 os.system("curl -s -X POST http://localhost:5050/self_reflect")
+                with open(debug_log_path, "a") as dbg:
+                    dbg.write(f"[IMPORT ERROR] Missing ability: {ability}. Triggered self-reflect.\n")
             except Exception:
                 pass
             return jsonify({"error": f"Missing ability: {ability}. Self-improvement triggered. Please retry shortly."}), 500
         except Exception as e:
+            with open(debug_log_path, "a") as dbg:
+                dbg.write(f"[EXCEPTION] {str(e)}\n")
             return jsonify({"error": str(e)}), 500
