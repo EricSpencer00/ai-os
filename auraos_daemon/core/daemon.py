@@ -10,6 +10,7 @@ from core.config import load_config
 from core.ability_tree import AbilityTree
 from core.dependency_checker import check_and_install_dependencies
 from core.logger import init_logger
+from core.output_validator import OutputValidator
 
 class AuraOSDaemon:
     def __init__(self):
@@ -26,6 +27,7 @@ class AuraOSDaemon:
         self.decision_engine = DecisionEngine(self.plugin_manager)
         self.self_improvement = SelfImprovement(self)
         self.ability_tree = self.self_improvement.ability_tree
+        self.output_validator = OutputValidator(self.config)
         self._setup_routes()
         
         logging.info("AuraOS Daemon initialized successfully")
@@ -65,6 +67,34 @@ class AuraOSDaemon:
             logging.info("Triggered self-reflection")
             # This endpoint can be expanded with more complex self-reflection logic
             return self.self_improvement.handle_self_improve()
+            
+        @self.app.route("/validate_output", methods=["POST"])
+        def validate_output():
+            """Validate script output and suggest improvements"""
+            data = request.get_json(force=True)
+            intent = data.get("intent", "")
+            script = data.get("script", "")
+            output = data.get("output", "")
+            error = data.get("error", "")
+            
+            logging.info(f"Validating output for intent: {intent[:50]}...")
+            
+            validation = self.output_validator.validate_output(intent, script, output, error)
+            return jsonify(validation), 200
+            
+        @self.app.route("/improve_script", methods=["POST"])
+        def improve_script():
+            """Automatically improve a script based on its output"""
+            data = request.get_json(force=True)
+            intent = data.get("intent", "")
+            script = data.get("script", "")
+            output = data.get("output", "")
+            error = data.get("error", "")
+            
+            logging.info(f"Improving script for intent: {intent[:50]}...")
+            
+            improvement = self.output_validator.auto_improve_script(intent, script, output, error)
+            return jsonify(improvement), 200
 
     def run(self):
         logging.info("Starting AuraOS AI Daemon v8...")

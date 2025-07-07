@@ -34,6 +34,12 @@
         "rollback_enabled": true,
         "max_errors_before_rollback": 3
     },
+    "OUTPUT_VALIDATION": {
+        "enabled": true,
+        "auto_improve": true,
+        "max_improvement_attempts": 3,
+        "improvement_timeout": 30
+    },
     "MEMORY": {
         "max_history_items": 100,
         "similarity_threshold": 0.3
