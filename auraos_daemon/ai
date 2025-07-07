@@ -1,8 +1,13 @@
 #!/bin/bash
-# ai: AuraOS CLI for /generate_script and /execute_script
+# ai: AuraOS CLI for /ai endpoint (unified chat + task)
 # Usage: ai <prompt>
 
 API_URL="http://localhost:5050"
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "[ai] Error: jq is required but not installed."
+  exit 3
+fi
 
 if [ $# -eq 0 ]; then
   echo "Usage: ai <prompt>"
@@ -19,11 +24,21 @@ if [ ! -f /usr/local/bin/ai ]; then
   echo "[ai installer] Installed. You can now use: ai <prompt>"
 fi
 
-# 1. Generate script from prompt
-RESPONSE=$(curl -s -X POST "$API_URL/generate_script" \
+# Unified AI endpoint: handles both chat and task
+RESPONSE=$(curl -s -X POST "$API_URL/ai" \
   -H "Content-Type: application/json" \
-  -d '{"intent": '"$(printf '%s' "$PROMPT" | jq -R .)"', "context": {}}')
+  -d '{"input": '"$(printf '%s' "$PROMPT" | jq -R .)"'}')
 
+TYPE=$(echo "$RESPONSE" | jq -r .type)
+
+if [ "$TYPE" = "chat" ]; then
+  ANSWER=$(echo "$RESPONSE" | jq -r .response)
+  echo "[ai] Chat Response:"
+  echo "$ANSWER"
+  exit 0
+fi
+
+# If not chat, treat as script task
 SCRIPT=$(echo "$RESPONSE" | jq -r .script)
 SCRIPT_TYPE=$(echo "$RESPONSE" | jq -r .script_type)
 
