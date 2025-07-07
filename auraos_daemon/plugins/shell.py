@@ -55,14 +55,57 @@ class Plugin:
             return jsonify({"error": f"Failed to generate script: {e}"}), 500
 
     def execute(self, script, context):
+        # Track error attempts in a file
+        error_log_path = os.path.join(BASE_DIR, "last_error.log")
         try:
             result = subprocess.run(script, shell=True, capture_output=True, text=True)
-            return jsonify({
-                "status": "success" if result.returncode == 0 else "error",
-                "return_code": result.returncode,
-                "output": result.stdout,
-                "error_output": result.stderr
-            })
+            if result.returncode == 0:
+                # On success, clear error log
+                if os.path.exists(error_log_path):
+                    os.remove(error_log_path)
+                return jsonify({
+                    "status": "success",
+                    "return_code": result.returncode,
+                    "output": result.stdout,
+                    "error_output": result.stderr
+                })
+            else:
+                # On error, log and handle retries
+                error_output = result.stderr.strip()
+                # Read previous error log
+                error_count = 1
+                last_error = ""
+                if os.path.exists(error_log_path):
+                    with open(error_log_path, "r") as f:
+                        lines = f.readlines()
+                        if len(lines) == 2:
+                            last_error = lines[0].strip()
+                            try:
+                                error_count = int(lines[1].strip())
+                            except Exception:
+                                error_count = 1
+                if error_output == last_error:
+                    error_count += 1
+                else:
+                    error_count = 1
+                # Save current error
+                with open(error_log_path, "w") as f:
+                    f.write(error_output + "\n" + str(error_count))
+                # If error repeats 3+ times, rollback and try a different approach
+                if error_count >= 3:
+                    # Rollback to previous system (git reset)
+                    os.system("git reset --hard HEAD~1")
+                    os.system("git add daemon.py")
+                    os.system("git commit -m '[ai] Rollback after repeated error' || true")
+                    # Optionally, trigger self-improvement with a new approach
+                    os.system(f"curl -s -X POST http://localhost:5050/report_missing_ability -H 'Content-Type: application/json' -d '{{\"ability\": \"alternative_solution\"}}'")
+                    os.system("curl -s -X POST http://localhost:5050/self_reflect")
+                    return jsonify({"error": f"Repeated error detected. Rolled back and will try a different approach. Error: {error_output}"}), 500
+                else:
+                    # Pass error back to system for reiteration
+                    os.system(f"curl -s -X POST http://localhost:5050/report_missing_ability -H 'Content-Type: application/json' -d '{{\"ability\": \"{error_output[:100]}\"}}'")
+                    os.system("curl -s -X POST http://localhost:5050/self_reflect")
+                    return jsonify({"error": f"Error occurred. Self-improvement triggered. Please retry. Error: {error_output}"}), 500
         except ImportError as e:
             # Report missing ability and trigger self-improvement
             ability = str(e).split('No module named ')[-1].replace("'", "").strip()
