@@ -219,6 +219,46 @@ def periodic_self_reflect():
 
 threading.Thread(target=periodic_self_reflect, daemon=True).start()
 
+# Conversational AI: Use a local model for simple Q&A/chat
+@app.route("/chat", methods=["POST"])
+def chat():
+    data = request.get_json(force=True)
+    user_message = data.get("message", "")
+    # Simple local model stub (replace with llama.cpp/ollama integration)
+    response = local_conversational_ai(user_message)
+    return jsonify({"response": response})
+
+# Intent classification: decide if input is chat or task
+
+def classify_intent(user_input):
+    # Simple heuristic: if question is short and not requesting a list, dataset, or script, treat as chat
+    if len(user_input.split()) < 12 and not any(word in user_input.lower() for word in ["list", "top", "dataset", "script", "find", "scrape", "download", "search", "generate", "feature", "improve", "add", "update"]):
+        return "chat"
+    return "task"
+
+def local_conversational_ai(message):
+    # Stub: Replace with call to local LLM (llama.cpp, ollama, etc.)
+    # For now, just echo or use a simple lookup
+    factoids = {
+        "who is the 44th president?": "Barack Obama was the 44th President of the United States.",
+        "what is the capital of france?": "Paris is the capital of France."
+    }
+    return factoids.get(message.strip().lower(), "I'm a local AI and can answer simple questions. Please ask!")
+
+# Unified AI endpoint: routes to chat or script generation
+@app.route("/ai", methods=["POST"])
+def ai():
+    data = request.get_json(force=True)
+    user_input = data.get("input", "")
+    intent_type = classify_intent(user_input)
+    if intent_type == "chat":
+        response = local_conversational_ai(user_input)
+        return jsonify({"type": "chat", "response": response})
+    else:
+        # Forward to script generation logic
+        # Reuse generate_script logic
+        return generate_script()
+
 if __name__ == "__main__":
     logging.info("Starting AuraOS AI Daemon v8.4...")
     app.run(host="0.0.0.0", port=5050)
