@@ -3,6 +3,27 @@
     "OPENAI_API_KEY": "your-openai-api-key-here",
     "API_TIMEOUT": 60,
     "MAX_RETRY_ATTEMPTS": 3,
+    "OLLAMA": {
+        "enabled": false,
+        "host": "localhost",
+        "port": 11434,
+        "model": "gemma:2b",
+        "comment": "Set enabled to true after installing Ollama and pulling a model"
+    },
+    "LLM_ROUTING": {
+        "prefer_local": true,
+        "complexity_threshold": 50,
+        "fallback_to_cloud": true,
+        "comment": "prefer_local: Use Ollama first when available. complexity_threshold: 0-100, higher = prefer cloud for complex tasks"
+    },
+    "VM": {
+        "headless": true,
+        "default_memory": "2048",
+        "default_cpus": "2",
+        "ssh_user": "auraos",
+        "ssh_password": "auraos123",
+        "comment": "VM settings for QEMU ARM64 virtual machines"
+    },
     "SECURITY": {
         "STRICT_MODE": true,
         "ALLOWED_DOMAINS": [
@@ -23,10 +44,16 @@
         },
         "selenium_automation": {
             "enabled": true,
-            "headless": true
+            "headless": false,
+            "browser": "chrome",
+            "comment": "browser options: chrome, firefox"
         },
         "window_manager": {
             "enabled": true
+        },
+        "vm_manager": {
+            "enabled": true,
+            "comment": "Requires QEMU to be installed: brew install qemu"
         }
     },
     "SELF_IMPROVEMENT": {
