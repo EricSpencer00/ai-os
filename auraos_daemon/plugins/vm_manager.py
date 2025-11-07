@@ -128,6 +128,10 @@ class Plugin:
             return self._generate_list_vms_script(intent, context)
         elif any(k in intent_lower for k in ["execute in vm", "run in vm", "vm execute"]):
             return self._generate_vm_execute_script(intent, context)
+        elif any(k in intent_lower for k in ["bootstrap vm", "setup vm", "initialize vm"]):
+            return self._generate_bootstrap_script(intent, context)
+        elif any(k in intent_lower for k in ["get user data", "vm user data", "vm settings"]):
+            return self._generate_get_user_data_script(intent, context)
         else:
             # Default: provide VM help
             help_text = """
@@ -135,6 +139,8 @@ VM Manager Commands:
 - create vm <name> [ubuntu/debian/alpine] - Create new VM
 - start vm <name> - Start existing VM
 - stop vm <name> - Stop running VM
+- bootstrap vm <name> - Install setup screen in VM
+- get user data from vm <name> - Get VM user preferences
 - list vms - Show all VMs
 - execute in vm <name>: <command> - Run command in VM
 """
@@ -214,6 +220,31 @@ echo "  - VNC on port 5900"
             "vm_command": command
         }), 200
     
+    def _generate_bootstrap_script(self, intent, context):
+        """Generate script to bootstrap a VM"""
+        parts = intent.lower().replace("bootstrap vm", "").replace("initialize vm", "").replace("setup vm", "").strip().split()
+        vm_name = parts[0] if parts else "auraos-vm-1"
+        
+        script = f"echo 'Bootstrapping VM: {vm_name}'"
+        return jsonify({
+            "script_type": "vm_bootstrap",
+            "script": script,
+            "vm_name": vm_name
+        }), 200
+    
+    def _generate_get_user_data_script(self, intent, context):
+        """Generate script to get user data from VM"""
+        parts = intent.lower().replace("get user data from vm", "").replace("vm user data", "").replace("vm settings", "").strip().split()
+        vm_name = parts[0] if parts else "auraos-vm-1"
+        
+        script = f"echo 'Getting user data from VM: {vm_name}'"
+        return jsonify({
+            "script_type": "vm_get_user_data",
+            "script": script,
+            "vm_name": vm_name
+        }), 200
+        }), 200
+    
     def execute(self, script, context):
         """Execute VM management commands"""
         # Extract action from context or script
@@ -229,6 +260,12 @@ echo "  - VNC on port 5900"
             vm_name = context.get('vm_name', 'auraos-vm-1')
             command = context.get('vm_command', '')
             return self._execute_in_vm(vm_name, command)
+        elif script_type == "vm_bootstrap":
+            vm_name = context.get('vm_name', 'auraos-vm-1')
+            return self._bootstrap_vm(vm_name)
+        elif script_type == "vm_get_user_data":
+            vm_name = context.get('vm_name', 'auraos-vm-1')
+            return self._get_user_data(vm_name)
         elif script_type == "info":
             return jsonify({"output": script}), 200
         else:
@@ -397,6 +434,147 @@ echo "  - VNC on port 5900"
                     "error": f"SSH connection error: {str(e)}",
                     "hint": "VM may still be booting. Wait a few minutes and try again."
                 }), 500
+                
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+    
+    def _bootstrap_vm(self, vm_name):
+        """Bootstrap a VM with the AuraOS setup screen"""
+        try:
+            if vm_name not in self.running_vms:
+                return jsonify({"error": f"VM {vm_name} is not running"}), 400
+            
+            vm = self.running_vms[vm_name]
+            
+            logging.info(f"Bootstrapping VM {vm_name} with setup screen...")
+            
+            # Path to bootstrap script
+            bootstrap_script = os.path.join(BASE_DIR, '..', 'vm_resources', 'bootstrap.sh')
+            setup_screen_script = os.path.join(BASE_DIR, '..', 'vm_resources', 'setup_screen.py')
+            
+            # Create SSH client
+            ssh = paramiko.SSHClient()
+            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            
+            try:
+                # Connect to VM
+                ssh.connect(
+                    'localhost',
+                    port=vm.ssh_port,
+                    username=VM_SSH_USER,
+                    password=VM_SSH_PASSWORD,
+                    timeout=10
+                )
+                
+                # Use SCP to transfer files
+                from scp import SCPClient
+                
+                with SCPClient(ssh.get_transport()) as scp:
+                    # Transfer bootstrap script
+                    if os.path.exists(bootstrap_script):
+                        scp.put(bootstrap_script, '/tmp/bootstrap.sh')
+                        logging.info("Bootstrap script transferred")
+                    
+                    # Transfer setup screen
+                    if os.path.exists(setup_screen_script):
+                        scp.put(setup_screen_script, '/tmp/setup_screen.py')
+                        logging.info("Setup screen transferred")
+                
+                # Execute bootstrap script
+                stdin, stdout, stderr = ssh.exec_command('sudo bash /tmp/bootstrap.sh', get_pty=True)
+                
+                # Send password if needed
+                stdin.write(f'{VM_SSH_PASSWORD}\n')
+                stdin.flush()
+                
+                # Wait for completion (with timeout)
+                output = ""
+                error = ""
+                
+                # Read output with timeout
+                import select
+                channel = stdout.channel
+                channel.settimeout(120)  # 2 minute timeout
+                
+                while not channel.exit_status_ready():
+                    if channel.recv_ready():
+                        output += channel.recv(1024).decode()
+                    if channel.recv_stderr_ready():
+                        error += channel.recv_stderr(1024).decode()
+                    time.sleep(0.1)
+                
+                # Get final output
+                output += stdout.read().decode()
+                error += stderr.read().decode()
+                
+                exit_status = channel.recv_exit_status()
+                ssh.close()
+                
+                if exit_status == 0:
+                    return jsonify({
+                        "output": "VM bootstrapped successfully! Setup screen installed.",
+                        "vm_name": vm_name,
+                        "details": output[-500:]  # Last 500 chars
+                    }), 200
+                else:
+                    return jsonify({
+                        "error": "Bootstrap script failed",
+                        "output": output[-500:],
+                        "stderr": error[-500:]
+                    }), 500
+                    
+            except Exception as e:
+                ssh.close()
+                return jsonify({
+                    "error": f"Bootstrap error: {str(e)}",
+                    "hint": "Ensure VM is fully booted and SSH is accessible"
+                }), 500
+                
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+    
+    def _get_user_data(self, vm_name):
+        """Get user data from VM's setup screen"""
+        try:
+            if vm_name not in self.running_vms:
+                return jsonify({"error": f"VM {vm_name} is not running"}), 400
+            
+            vm = self.running_vms[vm_name]
+            
+            # SSH and read the user data file
+            ssh = paramiko.SSHClient()
+            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            
+            try:
+                ssh.connect(
+                    'localhost',
+                    port=vm.ssh_port,
+                    username=VM_SSH_USER,
+                    password=VM_SSH_PASSWORD,
+                    timeout=10
+                )
+                
+                # Read user data
+                stdin, stdout, stderr = ssh.exec_command('cat /var/auraos/user_data.json')
+                user_data_json = stdout.read().decode()
+                
+                ssh.close()
+                
+                if user_data_json:
+                    user_data = json.loads(user_data_json)
+                    return jsonify({
+                        "vm_name": vm_name,
+                        "user_data": user_data
+                    }), 200
+                else:
+                    return jsonify({
+                        "error": "No user data found",
+                        "hint": "Run 'auraos-setup' inside the VM first"
+                    }), 404
+                    
+            except Exception as e:
+                ssh.close()
+                return jsonify({"error": f"Failed to read user data: {str(e)}"}), 500
                 
         except Exception as e:
             return jsonify({"error": str(e)}), 500
