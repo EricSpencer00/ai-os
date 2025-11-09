@@ -14,6 +14,8 @@ VNC_LOCAL_PORT=5901
 VNC_REMOTE_PORT=5900
 AGENT_LOCAL_PORT=8765
 AGENT_REMOTE_PORT=8765
+NOVNC_LOCAL_PORT=6080
+NOVNC_REMOTE_PORT=6080
 
 usage() {
   cat <<EOF
@@ -30,6 +32,7 @@ It will:
   - copy your public SSH key into the VM if missing
   - start SSH tunnels for VNC and agent (background)
   - open vnc://localhost:${VNC_LOCAL_PORT}
+  - open http://localhost:${NOVNC_LOCAL_PORT} (noVNC) or vnc://localhost:${VNC_LOCAL_PORT}
 
 EOF
 }
@@ -130,6 +133,21 @@ ensure_vnc_password_in_vm
 # Start VNC tunnel
 start_ssh_tunnel ${VNC_LOCAL_PORT} ${VNC_REMOTE_PORT}
 
+# Try to set up noVNC tunnel (browser-based access) if the VM provides it
+start_novnc_tunnel() {
+  local LPORT=$1
+  local RPORT=$2
+  if lsof -iTCP:"${LPORT}" -sTCP:LISTEN >/dev/null 2>&1; then
+    echo "Local port ${LPORT} already listening — skipping noVNC tunnel."
+    return 0
+  fi
+  echo "Starting SSH tunnel for noVNC: localhost:${LPORT} -> ${INSTANCE}:localhost:${RPORT}"
+  ssh -f -N -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=no -L ${LPORT}:localhost:${RPORT} ${VM_USER}@${IP} || true
+  sleep 0.2
+}
+
+start_novnc_tunnel ${NOVNC_LOCAL_PORT} ${NOVNC_REMOTE_PORT}
+
 if [[ "$NO_AGENT" -eq 0 ]]; then
   start_ssh_tunnel ${AGENT_LOCAL_PORT} ${AGENT_REMOTE_PORT}
 fi
@@ -150,7 +168,11 @@ if [[ "$NO_OPEN" -eq 0 ]]; then
   elif open -a "TigerVNC Viewer.app" --args localhost:${VNC_LOCAL_PORT} >/dev/null 2>&1; then
     open -a "TigerVNC Viewer.app" --args localhost:${VNC_LOCAL_PORT} || true
   else
-    # fallback to default vnc: URL handler (Screen Sharing)
+    # fallback: try opening noVNC in the default browser, then VNC URL handler
+    if which open >/dev/null 2>&1; then
+      echo "Opening noVNC in browser: http://localhost:${NOVNC_LOCAL_PORT}"
+      open "http://localhost:${NOVNC_LOCAL_PORT}" || true
+    fi
     open "vnc://localhost:${VNC_LOCAL_PORT}" || echo "Use your VNC client to connect to vnc://localhost:${VNC_LOCAL_PORT}";
   fi
 fi
