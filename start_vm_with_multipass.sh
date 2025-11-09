@@ -5,7 +5,16 @@
 set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+# default bootstrap
 BOOTSTRAP="$SCRIPT_DIR/vm_resources/bootstrap.sh"
+# support a --gui flag to use the GUI bootstrap which installs XFCE/VNC/agent
+USE_GUI=0
+if [ "${1-}" = "--gui" ]; then
+  USE_GUI=1
+  BOOTSTRAP="$SCRIPT_DIR/vm_resources/gui-bootstrap.sh"
+  # shift so other args (if any) are preserved (none currently)
+  shift
+fi
 NAME="auraos-multipass"
 MEM=8G
 CPUS=4
