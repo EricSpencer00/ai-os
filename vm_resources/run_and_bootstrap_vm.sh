@@ -70,6 +70,19 @@ if [ ! -f "$BOOTSTRAP_LOCAL" ]; then
   die "bootstrap.sh not found at $BOOTSTRAP_LOCAL — put your bootstrap script there"
 fi
 
+# Choose the best available accelerator for QEMU to reduce hiccups.
+# On macOS use HVF, on Linux prefer KVM if /dev/kvm exists, otherwise fall back to TCG.
+ACCEL_ARG=""
+if [ "$IS_DARWIN" = true ]; then
+  ACCEL_ARG="-accel hvf"
+else
+  if [ -c /dev/kvm ] || [ -w /dev/kvm ] 2>/dev/null; then
+    ACCEL_ARG="-accel kvm"
+  else
+    ACCEL_ARG="-accel tcg"
+  fi
+fi
+
 current_step=$((current_step + 1))
 progress_bar $current_step $steps
 
@@ -214,10 +227,11 @@ echo "[6/8] Starting QEMU (background) — logs: $QEMU_LOG"
 QEMU_CMD=(qemu-system-aarch64
   -machine virt,highmem=on
   -cpu cortex-a72
-  -accel hvf
+  ${ACCEL_ARG}
   -m $VM_RAM
   -smp $VM_CPUS
   -drive if=virtio,file="$ABS_VM_DISK",discard=unmap,cache=writeback
+  # Attach the cloud-init seed ISO as a virtio-backed block device (cidata)
   -drive if=none,file="$ABS_SEED_ISO",id=cidata,format=raw
   -device virtio-blk-device,drive=cidata
   -netdev user,id=net0,hostfwd=tcp::${SSH_PORT}-:22
@@ -232,8 +246,11 @@ QEMU_CMD=(qemu-system-aarch64
 
 # Decide how to attach the serial port
 if [ "${DEBUG:-}" = "1" ] || [ "${DEBUG:-}" = "true" ]; then
-  # Attach the QEMU serial/monitor to stdio so we can see the VM console live.
-  SERIAL_ARG=( -serial mon:stdio -nographic )
+  # In DEBUG mode write the serial console to the serial log file and expose
+  # the QEMU monitor on a local telnet port so we don't steal the controlling
+  # terminal. This avoids QEMU holding the terminal's stdio (which happened
+  # under sudo/nohup) while still providing an interactive monitor.
+  SERIAL_ARG=( -serial "file:$SERIAL_LOG" -monitor telnet:127.0.0.1:4444,server,nowait -nographic )
 else
   SERIAL_ARG=( -serial "file:$SERIAL_LOG" )
 fi
