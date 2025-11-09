@@ -6,7 +6,7 @@ export DISPLAY=:1
 echo "[$(date)] Starting Xvfb + XFCE + x11vnc..."
 
 # Start Xvfb if not running
-if ! pgrep -f "Xvfb :1" >/dev/null 2>&1; then
+if ! pgrep -x "Xvfb" >/dev/null 2>&1; then
   echo "Starting Xvfb :1..."
   nohup Xvfb :1 -screen 0 1280x720x24 >/var/log/xvfb.log 2>&1 &
   sleep 2
@@ -18,31 +18,54 @@ fi
 su - $USER -c "xauth generate :1 . trusted 2>/dev/null || xauth list :1 >/dev/null 2>&1 || true"
 chown $USER:$USER /home/$USER/.Xauthority 2>/dev/null || true
 
-# Start XFCE session if not running
-if ! su - $USER -c "pgrep -u $USER -f xfce4-session >/dev/null 2>&1"; then
+# Check if XFCE session is actually running (use -x for exact match to avoid matching xfconfd)
+XFCE_RUNNING=0
+if pgrep -x -u $USER xfce4-session >/dev/null 2>&1; then
+  # Double check that key XFCE processes exist
+  if pgrep -x -u $USER xfwm4 >/dev/null 2>&1 && pgrep -x -u $USER xfce4-panel >/dev/null 2>&1; then
+    echo "XFCE session already running (xfce4-session, xfwm4, xfce4-panel all present)"
+    XFCE_RUNNING=1
+  else
+    echo "WARNING: xfce4-session found but xfwm4/panel missing - will restart XFCE" >&2
+    # Kill incomplete session
+    pkill -u $USER -x xfce4-session || true
+    sleep 1
+  fi
+fi
+
+if [ $XFCE_RUNNING -eq 0 ]; then
   echo "Starting XFCE session for $USER on DISPLAY :1..."
-  # Use a more robust startup that waits for the session to be ready
+  
+  # Clean up any stale XFCE processes first
+  pkill -u $USER -x xfce4-session || true
+  pkill -u $USER -x xfwm4 || true
+  pkill -u $USER -x xfce4-panel || true
+  pkill -u $USER -x xfdesktop || true
+  pkill -u $USER -x xfce4-screensaver || true
+  sleep 1
+  
+  # Start fresh XFCE session
   su - $USER -c "DISPLAY=:1 dbus-launch --exit-with-session startxfce4 >/home/$USER/xfce_start.log 2>&1 &"
   
   # Wait up to 30 seconds for XFCE to fully initialize
   for i in {1..30}; do
-    if su - $USER -c "pgrep -u $USER -f 'xfce4-session|xfwm4|xfce4-panel' >/dev/null 2>&1"; then
-      echo "XFCE session started (waited ${i}s)"
-      # Give panel and window manager a moment to settle
+    if pgrep -x -u $USER xfce4-session >/dev/null 2>&1 && \
+       pgrep -x -u $USER xfwm4 >/dev/null 2>&1 && \
+       pgrep -x -u $USER xfce4-panel >/dev/null 2>&1; then
+      echo "XFCE session started successfully (waited ${i}s)"
+      # Give it a moment to settle
       sleep 2
       break
     fi
     sleep 1
   done
   
-  # Verify critical XFCE processes
-  if su - $USER -c "pgrep -u $USER -f xfce4-session >/dev/null 2>&1"; then
+  # Final verification
+  if pgrep -x -u $USER xfce4-session >/dev/null 2>&1; then
     echo "XFCE session confirmed running"
   else
-    echo "WARNING: XFCE session may not have started properly" >&2
+    echo "ERROR: XFCE session failed to start - check /home/$USER/xfce_start.log" >&2
   fi
-else
-  echo "XFCE session already running"
 fi
 
 # Final check before starting x11vnc

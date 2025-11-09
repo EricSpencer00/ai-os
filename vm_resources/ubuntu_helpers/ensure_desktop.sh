@@ -8,14 +8,22 @@ DISPLAY=:1
 
 echo "[$(date)] Checking XFCE desktop session..."
 
-# Check if XFCE session is running
-if su - $USER -c "pgrep -u $USER -f xfce4-session >/dev/null 2>&1"; then
+# Check if XFCE session is running (use -x for exact match to avoid matching xfconfd)
+if pgrep -x -u $USER xfce4-session >/dev/null 2>&1 && \
+   pgrep -x -u $USER xfwm4 >/dev/null 2>&1 && \
+   pgrep -x -u $USER xfce4-panel >/dev/null 2>&1; then
   echo "✓ XFCE session is running"
-  su - $USER -c "ps aux | grep -E 'xfce4-session|xfwm4|xfce4-panel' | grep -v grep" || true
+  ps aux | grep -E 'xfce4-session|xfwm4|xfce4-panel' | grep -v grep || true
   exit 0
 fi
 
 echo "✗ XFCE session not found - starting it now..."
+
+# Clean up stale processes
+pkill -u $USER -x xfce4-session || true
+pkill -u $USER -x xfwm4 || true
+pkill -u $USER -x xfce4-panel || true
+sleep 1
 
 # Ensure Xvfb is running first
 if ! pgrep -f "Xvfb :1" >/dev/null 2>&1; then
@@ -34,10 +42,12 @@ su - $USER -c "DISPLAY=:1 dbus-launch --exit-with-session startxfce4 >/home/$USE
 
 # Wait for session
 for i in {1..30}; do
-  if su - $USER -c "pgrep -u $USER -f xfce4-session >/dev/null 2>&1"; then
+  if pgrep -x -u $USER xfce4-session >/dev/null 2>&1 && \
+     pgrep -x -u $USER xfwm4 >/dev/null 2>&1 && \
+     pgrep -x -u $USER xfce4-panel >/dev/null 2>&1; then
     echo "✓ XFCE session started (waited ${i}s)"
     sleep 1
-    su - $USER -c "ps aux | grep -E 'xfce4-session|xfwm4|xfce4-panel' | grep -v grep" || true
+    ps aux | grep -E 'xfce4-session|xfwm4|xfce4-panel' | grep -v grep || true
     exit 0
   fi
   sleep 1
