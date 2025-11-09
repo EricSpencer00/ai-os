@@ -157,6 +157,62 @@ if [[ "$NO_AGENT" -eq 0 ]]; then
   echo "Agent API available at http://localhost:${AGENT_LOCAL_PORT} (tunneled)"
 fi
 
+# Helper: wait for agent health (if tunneled) and try to restart services on VM if screenshots fail.
+wait_for_agent() {
+  local retries=8
+  local i=0
+  while (( i < retries )); do
+    if curl -sSf -m 3 "http://localhost:${AGENT_LOCAL_PORT}/health" >/dev/null 2>&1; then
+      echo "Agent responded on http://localhost:${AGENT_LOCAL_PORT}/health"
+      return 0
+    fi
+    i=$((i+1))
+    sleep 1
+  done
+  echo "Agent did not respond on http://localhost:${AGENT_LOCAL_PORT} after ${retries}s"
+  return 1
+}
+
+fetch_screenshot() {
+  local outfile="$1"
+  if ! curl -sS -m 6 "http://localhost:${AGENT_LOCAL_PORT}/screenshot" -o "${outfile}"; then
+    return 1
+  fi
+  # basic sanity: file must exist and be non-empty
+  if [[ ! -s "${outfile}" ]]; then
+    return 1
+  fi
+  return 0
+}
+
+try_restart_x11vnc() {
+  echo "Attempting to restart auraos-x11vnc.service inside the VM to refresh the framebuffer..."
+  multipass exec "$INSTANCE" -- sudo systemctl restart auraos-x11vnc.service || true
+  # give it a moment to settle
+  sleep 2
+}
+
+# If the agent is present try a quick screenshot check; if it fails try restarting the VNC service
+if [[ "$NO_AGENT" -eq 0 ]]; then
+  if wait_for_agent; then
+    TMPIMG=$(mktemp -t auraos_screenshot_XXXX.png)
+    if fetch_screenshot "${TMPIMG}"; then
+      echo "Screenshot saved to ${TMPIMG} — looks OK (size: $(wc -c <"${TMPIMG}") bytes)"
+    else
+      echo "Initial screenshot failed or was empty. Restarting x11vnc service and retrying."
+      try_restart_x11vnc
+      sleep 2
+      if fetch_screenshot "${TMPIMG}"; then
+        echo "Screenshot after restart saved to ${TMPIMG} — size: $(wc -c <"${TMPIMG}") bytes"
+      else
+        echo "Screenshot still failing after restart. You may need to check VM desktop session (startxfce4) or view logs: multipass exec ${INSTANCE} -- sudo journalctl -u auraos-x11vnc.service -n 200" >&2
+      fi
+    fi
+  else
+    echo "Agent not reachable; skipping screenshot check. You can try running './auraos.sh restart' or inspect the VM logs." >&2
+  fi
+fi
+
 if [[ "$NO_OPEN" -eq 0 ]]; then
   echo "Opening VNC client..."
   # Prefer TigerVNC viewer if installed (try a few common app names), otherwise fall back to macOS Screen Sharing

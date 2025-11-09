@@ -1,0 +1,11 @@
+[Unit]
+Description=Check XFCE desktop session every 5 minutes
+Requires=auraos-desktop-check.service
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

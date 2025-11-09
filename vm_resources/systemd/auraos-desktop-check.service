@@ -1,0 +1,9 @@
+[Unit]
+Description=Check and restart XFCE desktop if needed
+After=auraos-x11vnc.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/auraos/bin/ensure_desktop.sh
+StandardOutput=journal
+StandardError=journal
