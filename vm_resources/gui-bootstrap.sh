@@ -9,7 +9,7 @@ apt-get update -qq
 echo "[gui-bootstrap] Installing packages (xfce4, tigervnc, OCR, tools)..."
 apt-get install -y -qq \
     xfce4 xfce4-goodies \
-    tigervnc-standalone-server \
+    x11vnc xvfb \
     xdotool scrot tesseract-ocr \
     python3-venv python3-pip \
     espeak-ng orca || true
@@ -35,27 +35,24 @@ printf "auraos123\n" | vncpasswd -f > "$USER_HOME/.vnc/passwd" || true
 chown ubuntu:ubuntu "$USER_HOME/.vnc/passwd" || true
 chmod 600 "$USER_HOME/.vnc/passwd" || true
 
-echo "[gui-bootstrap] Creating systemd service for tigervnc (display :1)"
-cat > /etc/systemd/system/tigervnc.service <<'TUNIT'
+echo "[gui-bootstrap] Creating systemd service for Xvfb + x11vnc (display :1)"
+cat > /etc/systemd/system/auraos-x11vnc.service <<'X11UNIT'
 [Unit]
-Description=TigerVNC server for ubuntu
+Description=AuraOS Xvfb + x11vnc virtual desktop
 After=network.target
 
 [Service]
-Type=forking
-User=ubuntu
-PAMName=login
-PIDFile=/home/ubuntu/.vnc/%H:1.pid
-ExecStartPre=-/usr/bin/vncserver -kill :1
-ExecStart=/usr/bin/vncserver :1 -geometry 1280x720 -localhost
-ExecStop=/usr/bin/vncserver -kill :1
+Type=simple
+User=root
+ExecStart=/bin/bash -lc 'Xvfb :1 -screen 0 1280x720x24 & sleep 1; export DISPLAY=:1; su - ubuntu -c "dbus-launch startxfce4" & sleep 1; /usr/bin/x11vnc -display :1 -rfbauth /home/ubuntu/.vnc/passwd -forever -shared'
+Restart=on-failure
 
 [Install]
 WantedBy=multi-user.target
-TUNIT
+X11UNIT
 
 systemctl daemon-reload
-systemctl enable --now tigervnc.service || true
+systemctl enable --now auraos-x11vnc.service || true
 
 echo "[gui-bootstrap] Installing GUI automation agent into $AGENT_DIR"
 mkdir -p "$AGENT_DIR"
