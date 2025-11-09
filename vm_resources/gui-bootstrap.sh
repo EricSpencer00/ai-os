@@ -28,6 +28,13 @@ XSTART
 chmod +x "$USER_HOME/.vnc/xstartup"
 chown -R ubuntu:ubuntu "$USER_HOME/.vnc"
 
+# Create a VNC password for the ubuntu user so tigervnc can start non-interactively
+echo "[gui-bootstrap] Setting VNC password for ubuntu user"
+mkdir -p "$USER_HOME/.vnc"
+printf "auraos123\n" | vncpasswd -f > "$USER_HOME/.vnc/passwd" || true
+chown ubuntu:ubuntu "$USER_HOME/.vnc/passwd" || true
+chmod 600 "$USER_HOME/.vnc/passwd" || true
+
 echo "[gui-bootstrap] Creating systemd service for tigervnc (display :1)"
 cat > /etc/systemd/system/tigervnc.service <<'TUNIT'
 [Unit]
