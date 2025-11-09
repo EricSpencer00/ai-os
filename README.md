@@ -63,6 +63,7 @@ Default credentials and endpoints (temporary)
 - VNC password (bootstrap default): `auraos123` — stored in the VM at `/home/ubuntu/.vnc/passwd` (encoded format used by x11vnc).
 - GUI agent (Flask) endpoint (tunneled): `http://localhost:8765` on host after running `open_vm_gui.sh`.
 - noVNC (browser): `http://localhost:6080` on host after running `open_vm_gui.sh`.
+ - GUI agent API key (default, change for production): `auraos_dev_key`. State-changing endpoints require the `X-API-Key` header.
 
 Verify desktop is visible
 
