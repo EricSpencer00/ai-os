@@ -44,7 +44,7 @@ After=network.target
 [Service]
 Type=simple
 User=root
-ExecStart=/bin/bash -lc 'Xvfb :1 -screen 0 1280x720x24 & sleep 1; export DISPLAY=:1; su - ubuntu -c "dbus-launch startxfce4" & sleep 1; /usr/bin/x11vnc -display :1 -rfbauth /home/ubuntu/.vnc/passwd -forever -shared'
+ExecStart=/bin/bash -lc 'Xvfb :1 -screen 0 1280x720x24 & sleep 1; export DISPLAY=:1; su - ubuntu -c "dbus-launch startxfce4" & sleep 1; /usr/bin/x11vnc -display :1 -rfbauth /home/ubuntu/.vnc/passwd -forever -shared -noxdamage -nowf -ncache 10'
 Restart=on-failure
 
 [Install]
