@@ -7,7 +7,7 @@ set -euo pipefail
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 BOOTSTRAP="$SCRIPT_DIR/vm_resources/bootstrap.sh"
 NAME="auraos-multipass"
-MEM=8192
+MEM=8G
 CPUS=4
 DISK=20G
 IMAGE="jammy" # Ubuntu 22.04 LTS
@@ -54,7 +54,8 @@ runcmd:
 YAML
 
 echo "Launching multipass instance $NAME (this may take a minute)..."
-multipass launch --name "$NAME" --mem "$MEM" --disk "$DISK" --cpus "$CPUS" --cloud-init "$USER_DATA" "$IMAGE"
+# use --memory with an explicit size suffix (e.g. 8G) for compatibility across multipass versions
+multipass launch --name "$NAME" --memory "$MEM" --disk "$DISK" --cpus "$CPUS" --cloud-init "$USER_DATA" "$IMAGE"
 
 echo "Waiting for instance to be ready..."
 multipass exec "$NAME" -- sudo cloud-init status --wait
