@@ -227,35 +227,64 @@ Analyze the screenshot and provide the X,Y coordinates to click. Respond ONLY wi
         """Analyze with local Ollama LLaVA"""
         ollama_config = self.km.get_ollama_config()
         base_url = ollama_config.get("base_url", "http://localhost:11434")
+        model = ollama_config.get("vision_model", "llava:13b")
         
-        prompt = f"""Task: {task}
+        # Read and base64 encode the image for Ollama
+        with open(screenshot_path, 'rb') as f:
+            image_b64 = base64.b64encode(f.read()).decode('utf-8')
+        
+        prompt = f"""You are a desktop automation assistant analyzing a screenshot.
 
-Analyze this desktop screenshot and provide click coordinates. Respond with JSON only:
-{{"action": "click", "x": 100, "y": 200, "confidence": 0.9, "explanation": "..."}}"""
+Task: {task}
+
+Look at the screenshot carefully. Identify the UI element mentioned in the task and provide its pixel coordinates.
+The coordinate system has origin (0,0) at the top-left corner. X increases to the right, Y increases downward.
+
+Respond with ONLY a valid JSON object in this exact format:
+{{"action": "click", "x": 100, "y": 200, "confidence": 0.9, "explanation": "Found Firefox icon in top-left area"}}
+
+If you cannot find the element or complete the task, respond:
+{{"action": "none", "confidence": 0.0, "explanation": "Element not visible in screenshot"}}
+
+Remember: Provide ONLY the JSON object, no other text."""
         
         try:
-            # Ollama vision API
+            # Ollama vision API (v1.0+ format)
             response = requests.post(
                 f"{base_url}/api/generate",
                 json={
-                    "model": "llava",
+                    "model": model,
                     "prompt": prompt,
-                    "images": [screenshot_path],
-                    "stream": False
+                    "images": [image_b64],
+                    "stream": False,
+                    "options": {
+                        "temperature": 0.1,  # Lower temperature for more deterministic coordinates
+                        "num_predict": 200
+                    }
                 },
-                timeout=60
+                timeout=90
             )
             
             if response.status_code == 200:
                 result = response.json()
-                content = result.get("response", "")
+                content = result.get("response", "").strip()
+                print(f"Ollama response: {content[:200]}...")
+                
                 # Try to extract JSON from response
                 if "{" in content and "}" in content:
                     json_start = content.index("{")
                     json_end = content.rindex("}") + 1
-                    return json.loads(content[json_start:json_end])
-            
-            print(f"Ollama API error: {response.status_code}")
+                    parsed = json.loads(content[json_start:json_end])
+                    return parsed
+                else:
+                    print("No JSON found in Ollama response")
+                    return None
+            else:
+                print(f"Ollama API error: {response.status_code} - {response.text}")
+                return None
+        except json.JSONDecodeError as e:
+            print(f"JSON parse error: {e}")
+            print(f"Content was: {content}")
             return None
         except Exception as e:
             print(f"Error calling Ollama: {e}")
