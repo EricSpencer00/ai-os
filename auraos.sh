@@ -245,17 +245,50 @@ PY
     fi
     echo ""
     
-    # Check 7: Web Server
+    # Check 7: Web Server (with automated recovery)
     echo -e "${YELLOW}[7/7]${NC} Web Server"
-    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:6080/vnc.html 2>&1)
+    # Use a short timeout so check is responsive
+    HTTP_CODE=$(curl -s -m 10 -o /dev/null -w "%{http_code}" http://localhost:6080/vnc.html 2>&1 || echo "000")
+
     if [ "$HTTP_CODE" = "200" ]; then
         echo -e "${GREEN}✓ noVNC web server responding${NC}"
     else
         echo -e "${RED}✗ Web server returned: $HTTP_CODE${NC}"
-        return 1
+        echo -e "${YELLOW}→ Attempting automated recovery: restart forwarders, then GUI reset${NC}"
+
+        # Try restarting host forwarders first
+        set +e
+        echo "-> Restarting port forwarders..."
+        cmd_forward stop >/dev/null 2>&1 || true
+        sleep 0.5
+        cmd_forward start >/dev/null 2>&1 || true
+        sleep 1
+
+        # Re-check endpoint
+        HTTP_CODE=$(curl -s -m 10 -o /dev/null -w "%{http_code}" http://localhost:6080/vnc.html 2>&1 || echo "000")
+        if [ "$HTTP_CODE" = "200" ]; then
+            echo -e "${GREEN}✓ Recovered: noVNC web server responding after forwarder restart${NC}"
+        else
+            echo -e "${YELLOW}→ Forwarder restart did not recover web UI; running GUI reset as fallback...${NC}"
+            # Run gui-reset which restarts x11vnc and noVNC inside VM
+            cmd_gui_reset >/dev/null 2>&1 || true
+            sleep 3
+
+            # Final re-check
+            HTTP_CODE=$(curl -s -m 10 -o /dev/null -w "%{http_code}" http://localhost:6080/vnc.html 2>&1 || echo "000")
+            if [ "$HTTP_CODE" = "200" ]; then
+                echo -e "${GREEN}✓ Recovered: noVNC web server responding after GUI reset${NC}"
+            else
+                echo -e "${RED}✗ Web server still returning: $HTTP_CODE${NC}"
+                echo -e "${RED}✗ Automated recovery failed; please inspect logs or run './auraos.sh gui-reset' manually.${NC}"
+                set -e
+                return 1
+            fi
+        fi
+        set -e
     fi
     echo ""
-    
+
     # Summary
     echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
     echo -e "${GREEN}✓ All systems operational!${NC}"
