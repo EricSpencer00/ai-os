@@ -137,3 +137,71 @@ def is_command_safe(command):
             return False, f"Program '{first}' not in allowlist"
     except Exception as e:
         return False, f"Parse error: {e}"
+
+
+def sanitize_command(command_text):
+    """Sanitize a multi-line command response from an LLM.
+
+    - Splits on newlines
+    - Strips whitespace
+    - Blocks obviously suspicious tokens like '..' in paths
+    - Returns a list of cleaned command lines or None if blocked
+    """
+    if not command_text or not isinstance(command_text, str):
+        return None
+
+    lines = command_text.strip().split('\n')
+    cleaned = []
+    for line in lines:
+        ln = line.strip()
+        if not ln:
+            continue
+        # block path traversal
+        if '..' in ln:
+            return None
+        cleaned.append(ln)
+
+    return cleaned if cleaned else None
+
+
+def run_command(commands, shell=True):
+    """Execute a list of commands sequentially.
+
+    Returns (stdout_combined, stderr_combined, exit_code).
+    This function is a conservative executor: it runs each command using
+    subprocess and aggregates output. If shell=True, commands are run
+    through the shell; otherwise run as args list.
+    """
+    import subprocess
+    all_out = []
+    all_err = []
+    exit_code = 0
+
+    for cmd in commands:
+        try:
+            if shell:
+                p = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            else:
+                # accept list form or string
+                if isinstance(cmd, str):
+                    import shlex
+                    parts = shlex.split(cmd)
+                else:
+                    parts = cmd
+                p = subprocess.run(parts, capture_output=True, text=True)
+
+            if p.stdout:
+                all_out.append(p.stdout)
+            if p.stderr:
+                all_err.append(p.stderr)
+            exit_code = p.returncode
+            # If a command fails, stop executing further commands
+            if p.returncode != 0:
+                break
+
+        except Exception as e:
+            all_err.append(str(e))
+            exit_code = 1
+            break
+
+    return "\n".join(all_out).strip(), "\n".join(all_err).strip(), exit_code
