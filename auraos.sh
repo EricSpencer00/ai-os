@@ -686,6 +686,36 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 
+# Create XFCE startup script
+cat > /tmp/start-xfce4-session.sh << 'XFCE_SCRIPT'
+#!/bin/bash
+export DISPLAY=:99
+export HOME=/home/${AURAOS_USER}
+export XDG_RUNTIME_DIR=/run/user/1000
+exec xfce4-session
+XFCE_SCRIPT
+chmod +x /tmp/start-xfce4-session.sh
+
+# Create XFCE Desktop systemd service
+cat > /etc/systemd/system/auraos-desktop.service << 'EOF'
+[Unit]
+Description=AuraOS XFCE Desktop Environment
+After=auraos-x11vnc.service
+
+[Service]
+Type=simple
+User=${AURAOS_USER}
+Environment=DISPLAY=:99
+Environment=HOME=/home/${AURAOS_USER}
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+ExecStart=/tmp/start-xfce4-session.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
 # Create GUI agent service
 cat > /etc/systemd/system/auraos-gui-agent.service << 'EOF'
 [Unit]
@@ -733,9 +763,11 @@ chown -R ${AURAOS_USER}:${AURAOS_USER} /home/${AURAOS_USER}/.vnc
 chmod 600 /home/${AURAOS_USER}/.vnc/passwd
 
 # Start services
-systemctl enable auraos-x11vnc.service auraos-novnc.service
+systemctl enable auraos-x11vnc.service auraos-desktop.service auraos-novnc.service
 systemctl start auraos-x11vnc.service
-sleep 3
+sleep 2
+systemctl start auraos-desktop.service
+sleep 2
 systemctl start auraos-novnc.service
 VNC_START
 
@@ -1643,9 +1675,12 @@ BRANDING
     echo -e "  Browser: ${BLUE}http://localhost:6080/vnc.html${NC}"
     echo -e "  Password: ${BLUE}auraos123${NC}"
     echo ""
+    echo -e "${YELLOW}Starting port forwarding...${NC}"
+    cmd_forward start
+    echo ""
     echo -e "${YELLOW}Commands:${NC}"
-    echo -e "  ${BLUE}./auraos.sh health${NC}        - System health check"
-    echo -e "  ${BLUE}./auraos.sh forward start${NC} - Start port forwarders"
+    echo -e "  ${BLUE}./auraos.sh health${NC}    - System health check"
+    echo -e "  ${BLUE}./auraos.sh status${NC}    - Quick status"
     echo ""
 }
 
