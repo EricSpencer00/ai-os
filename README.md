@@ -21,6 +21,8 @@ AuraOS provides AI-powered automation for Ubuntu desktop environments through vi
 
 That's it! Your Ubuntu desktop is now accessible at: **http://localhost:6080/vnc.html** (password: `auraos123`)
 
+🖥️ **Desktop boots directly to XFCE** - No login screen, ready to use immediately!
+
 ## Usage Examples
 
 ### AI Automation
@@ -123,6 +125,7 @@ multipass restart auraos-multipass
 
 - Run `./auraos.sh help` for all commands
 - `QUICKSTART.md` - Fast setup guide
+- `DESKTOP_ACCESS.md` - **NEW:** Desktop access methods and troubleshooting
 - `SETUP_VERIFICATION.md` - Detailed system verification results
 - `VM_SETUP.md` - VM details
 - `IMPLEMENTATION.md` - Technical docs
