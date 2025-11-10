@@ -131,3 +131,27 @@ TypeError: cannot unpack non-iterable Response object
 2025-11-07 12:42:23 - INFO - [decision_engine] - Routing to shell plugin (default)
 2025-11-07 12:42:23 - WARNING - [intent_mapper] - Mapped command not found: /Users/eric/GitHub/ai-os/auraos_daemon/commands/file/list.sh
 2025-11-07 12:42:27 - INFO - [_internal] - 127.0.0.1 - - [07/Nov/2025 12:42:27] "[35m[1mPOST /generate_script HTTP/1.1[0m" 500 -
+2025-11-09 19:18:42 - INFO - [logger] - Logging system initialized
+2025-11-09 19:18:45 - INFO - [plugin_manager] - Loaded plugin: window_manager
+2025-11-09 19:18:45 - INFO - [plugin_manager] - Loaded plugin: selenium_automation
+2025-11-09 19:18:45 - INFO - [plugin_manager] - Loaded plugin: shell
+2025-11-09 19:18:45 - ERROR - [plugin_manager] - Failed to load plugin vm_manager: unmatched '}' (vm_manager.py, line 246)
+2025-11-09 19:18:45 - INFO - [daemon] - AuraOS Daemon initialized successfully
+2025-11-09 19:18:45 - INFO - [daemon] - Starting AuraOS AI Daemon v8...
+2025-11-09 19:18:45 - INFO - [_internal] - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5050
+ * Running on http://10.0.0.106:5050
+2025-11-09 19:18:45 - INFO - [_internal] - [33mPress CTRL+C to quit[0m
+2025-11-09 19:20:13 - INFO - [logger] - Logging system initialized
+2025-11-09 19:20:13 - INFO - [plugin_manager] - Loaded plugin: window_manager
+2025-11-09 19:20:13 - INFO - [plugin_manager] - Loaded plugin: selenium_automation
+2025-11-09 19:20:13 - INFO - [plugin_manager] - Loaded plugin: shell
+2025-11-09 19:20:13 - INFO - [plugin_manager] - Loaded plugin: vm_manager
+2025-11-09 19:20:13 - INFO - [daemon] - AuraOS Daemon initialized successfully
+2025-11-09 19:20:13 - INFO - [daemon] - Starting AuraOS AI Daemon v8...
+2025-11-09 19:20:13 - INFO - [_internal] - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5050
+ * Running on http://10.0.0.106:5050
+2025-11-09 19:20:13 - INFO - [_internal] - [33mPress CTRL+C to quit[0m

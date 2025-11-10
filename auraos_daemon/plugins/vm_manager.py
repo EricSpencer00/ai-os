@@ -243,7 +243,6 @@ echo "  - VNC on port 5900"
             "script": script,
             "vm_name": vm_name
         }), 200
-        }), 200
     
     def execute(self, script, context):
         """Execute VM management commands"""
