@@ -13,6 +13,9 @@ import json
 import shlex
 import urllib.request
 import urllib.error
+import getpass
+
+from . import key_store
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
@@ -24,7 +27,21 @@ def call_ai_system(user_prompt, system_prompt=None, model=DEFAULT_MODEL, timeout
 
     If OPENAI_API_KEY is not set or the network call fails, return None.
     """
-    if not OPENAI_API_KEY:
+    # Determine provider and key: prefer explicit provider in env, then key_store default
+    provider = os.environ.get("PROVIDER", None)
+    if not provider:
+        provider = key_store.get_default_provider()
+
+    # If provider-specific key exists in key_store, use it; otherwise fall back to env var
+    api_key = None
+    if provider:
+        api_key = key_store.get_key(provider)
+
+    if not api_key:
+        # legacy: use OPENAI_API_KEY env var
+        api_key = OPENAI_API_KEY
+
+    if not api_key:
         return None
 
     messages = []
@@ -40,9 +57,42 @@ def call_ai_system(user_prompt, system_prompt=None, model=DEFAULT_MODEL, timeout
     }
 
     data = json.dumps(payload).encode("utf-8")
+    # If provider is openrouter or openai, prefer using the OpenAI python SDK (openai.OpenAI)
+    provider_l = provider.lower() if provider else "openai"
+    if provider_l in ("openrouter", "openai"):
+        try:
+            # Lazy import the OpenAI client (the package name is `openai` which provides OpenAI)
+            from openai import OpenAI as _OpenAI
+
+            base_url = "https://api.openai.com/v1"
+            if provider_l == "openrouter":
+                base_url = "https://openrouter.ai/api/v1"
+
+            client = _OpenAI(api_key=api_key, base_url=base_url)
+            response = client.chat.completions.create(
+                model=model,
+                messages=([{"role": "system", "content": system_prompt}] if system_prompt else []) + [{"role": "user", "content": user_prompt}],
+                temperature=0.0,
+                max_tokens=512,
+                # NOTE: some SDKs may reject unknown kwargs; keep minimal
+            )
+            # SDK returns choices[0].message.content or choices[0].delta.content for streams
+            try:
+                return response.choices[0].message.content
+            except Exception:
+                # Fallback to dict-style access
+                j = json.loads(response._response.text) if hasattr(response, "_response") else None
+                if j:
+                    return j.get("choices", [])[0].get("message", {}).get("content")
+                return None
+        except Exception:
+            # Fall back to direct HTTP POST below
+            pass
+
+    # Fallback: generic HTTP POST to OpenAI-compatible endpoint (uses api_key)
     req = urllib.request.Request(OPENAI_API_URL, data=data, method="POST")
     req.add_header("Content-Type", "application/json")
-    req.add_header("Authorization", f"Bearer {OPENAI_API_KEY}")
+    req.add_header("Authorization", f"Bearer {api_key}")
 
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
