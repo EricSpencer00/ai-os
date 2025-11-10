@@ -24,6 +24,17 @@ scp>=0.14.0
 # Local LLM support
 ollama>=0.1.0
 
+# Screen diff detection and delta encoding
+pillow>=9.0.0
+numpy>=1.21.0
+
+# Fast local planner + WebSocket agent
+websockets>=12.0
+websocket-client>=1.3.0
+
+# Image processing for OCR and visual analysis
+pytesseract>=0.3.10
+
 # macOS automation support
 pyobjc-framework-Cocoa>=9.0; sys_platform == 'darwin'
 pyobjc-framework-Quartz>=9.0; sys_platform == 'darwin'
