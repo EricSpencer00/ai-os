@@ -843,28 +843,35 @@ class AuraOSTerminal:
         commands_text.pack(fill='both', expand=True, padx=10, pady=10)
         
         commands_help = """Built-in Commands:
-  help      Show this
+  help      Show this help
   clear     Clear screen
   history   Show history
   exit      Close app
 
-Shell Commands:
-  ls        List files
-  pwd       Current dir
-  cd        Change dir
-  cat       View file
-  echo      Print text
-  ps        Show processes
-  kill      Stop process
-  curl      Download
-  grep      Search text
-  pipe      | chain commands
+AI Agent Mode:
+  Describe any task in plain language
+  and the terminal will:
+  → Generate the right commands
+  → Handle missing tools (install)
+  → Chain tasks intelligently
+  → Fallback on failures
+  → Keep trying to complete goal
 
-Examples:
-  ls -la
-  cat file.txt
-  ps aux | grep python
-  echo "Hello"
+Examples (try these!):
+  "open excel and create a 
+   spreadsheet with Q3 data"
+  
+  "find all modified files in
+   home and backup to /tmp"
+  
+  "install python deps and
+   run the test suite"
+  
+  "compress logs older than 30
+   days and archive to storage"
+
+Each task is logged with full
+execution details & timestamps.
 
 Press ☰ to hide
 """
@@ -945,9 +952,64 @@ Press ☰ to hide
         self.append_output("\n", "output")
     
     def show_help(self):
-        """Display help text"""
-        help_text = "Built-in Commands:\n  help      - Show this message\n  clear     - Clear screen\n  history   - Show history\n  exit      - Close terminal\n\nAll standard shell commands supported.\nClick ☰ for more command reference.\n\n"
-        self.append_output(help_text, "info")
+                """Display help text"""
+                help_text = """
+⚡ AuraOS Terminal - AI Agent Interface
+
+What makes this different from a normal shell?
+
+🤖 INTELLIGENT TASK COMPLETION
+   Describe what you want to accomplish in natural language.
+   The terminal understands task intent and can:
+   
+   • Generate multi-step command sequences
+   • Detect missing tools and install them automatically
+   • Handle failures gracefully with intelligent fallbacks
+   • Chain operations to complete your goal
+   
+   Example: "open excel and create a Q3 data spreadsheet"
+   → Checks if Excel/LibreOffice is installed
+   → If missing, installs it or finds alternative (calc, python+pandas)
+   → Creates the spreadsheet with your data structure
+   → Never gives up; always finds a way to complete the task
+
+🔄 COMMAND GENERATION & VALIDATION
+   • Type tasks in plain English, not shell syntax
+   • Get command explanations before they run
+   • Commands are validated for safety before execution
+   • History shows both your intent AND what commands ran
+
+📊 FULL EXECUTION LOGGING
+   • Every command logged with: timestamp, PID, exit code, stdout, stderr
+   • Logs saved to: /tmp/auraos_launcher.log
+   • Perfect for debugging failed tasks or understanding what happened
+   • Timeout protection (30s default) prevents runaway processes
+
+💬 ASYNC & RESPONSIVE
+   • Commands run in background, UI stays interactive
+   • Color-coded output: green=success, red=errors, blue=info
+   • Press ↑/↓ to navigate command history
+   • Chat-style interface: your prompts + results in one view
+
+What you can do with it:
+
+  [AI TASKS]
+   → "download and process the latest CSV data files"
+   → "restart the auraos services and verify they're running"
+   → "find and move all large files (>100MB) to archive"
+   → "install python packages and run unit tests"
+   → "backup modified configs from the last 7 days"
+  
+  [DIRECT COMMANDS]
+   You can also use normal shell commands:
+   → ls -la /opt/auraos
+   → ps aux | grep python
+   → tail -f /tmp/auraos_launcher.log
+
+👉 TIP: Use the ☰ Commands menu for examples and common patterns.
+   Try typing: "help" to see this again, "history" to see past commands.
+"""
+                self.append_output(help_text, "info")
     
     def show_history(self):
         """Display command history"""
