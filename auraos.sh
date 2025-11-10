@@ -659,7 +659,7 @@ Type=simple
 User=${AURAOS_USER}
 Environment=DISPLAY=:99
 Environment=HOME=/home/${AURAOS_USER}
-ExecStartPre=/usr/bin/Xvfb :99 -screen 0 1280x720x24 -ac -nolisten tcp &
+ExecStartPre=/bin/bash -c 'Xvfb :99 -screen 0 1280x720x24 -ac -nolisten tcp &'
 ExecStart=/usr/bin/x11vnc -display :99 -forever -shared -rfbauth /home/${AURAOS_USER}/.vnc/passwd -rfbport 5900
 Restart=on-failure
 RestartSec=5
