@@ -306,8 +306,8 @@ VNC_PASSWORD_EOF
     
     # Step 4: Fix noVNC service configuration
     echo -e "${YELLOW}[4/7]${NC} Configuring noVNC service..."
-    multipass exec "$VM_NAME" -- sudo bash << 'SERVICE_EOF' 2>/dev/null
-cat > /etc/systemd/system/auraos-novnc.service << "CONFIG_EOF"
+    multipass exec "$VM_NAME" -- sudo bash << SERVICE_EOF 2>/dev/null
+cat > /etc/systemd/system/auraos-novnc.service << 'CONFIG_EOF'
 [Unit]
 Description=AuraOS noVNC web proxy
 After=network.target auraos-x11vnc.service
