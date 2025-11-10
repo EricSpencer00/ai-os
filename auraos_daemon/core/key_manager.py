@@ -192,12 +192,13 @@ class KeyManager:
         }
     
     def enable_ollama(self, base_url: str = "http://localhost:11434", 
-                     model: str = "gemma:2b"):
-        """Configure local Ollama as a provider
+                      model: str = "llava:13b", vision_model: str = "llava:13b"):
+        """Enable local Ollama as AI backend
         
         Args:
-            base_url: Ollama API base URL
-            model: Default model to use
+            base_url: Ollama server URL
+            model: Default LLM model
+            vision_model: Vision/image analysis model (for screenshots)
         """
         self.keys["providers"]["ollama"] = {
             "keys": [{"key": "local", "added": datetime.now().isoformat()}],
@@ -205,11 +206,12 @@ class KeyManager:
             "metadata": {
                 "base_url": base_url,
                 "model": model,
+                "vision_model": vision_model,
                 "local": True
             }
         }
         self._save_keys()
-        print(f"✓ Enabled local Ollama (model: {model})")
+        print(f"✓ Enabled local Ollama (vision_model: {vision_model})")
     
     def get_ollama_config(self) -> Optional[Dict]:
         """Get Ollama configuration if enabled"""
@@ -290,7 +292,8 @@ def main():
     
     elif command == "enable-ollama":
         model = sys.argv[2] if len(sys.argv) > 2 else "gemma:2b"
-        km.enable_ollama(model=model)
+        vision_model = sys.argv[3] if len(sys.argv) > 3 else model
+        km.enable_ollama(model=model, vision_model=vision_model)
     
     else:
         print(f"Unknown command: {command}")

@@ -63,6 +63,44 @@ class ScreenAutomation:
         
         print("Warning: No vision model configured. Add OpenAI, Anthropic, or enable Ollama.")
     
+    def _extract_element_hints(self, task: str) -> str:
+        """Extract search hints from task description"""
+        # Common UI elements and keywords
+        hints = {
+            "file manager": "folder icon, file browser, Thunar",
+            "terminal": "terminal icon, command line, console",
+            "firefox": "Firefox icon, web browser",
+            "chrome": "Chrome icon, Chromium",
+            "trash": "trash can icon, recycle bin",
+            "home": "home icon, home folder",
+            "applications": "applications menu, app launcher",
+            "settings": "settings icon, configuration",
+            "network": "network icon, wifi",
+            "sound": "speaker icon, volume",
+            "time": "clock, time display",
+            "date": "calendar, date display",
+        }
+        
+        # Find matching hints from task
+        task_lower = task.lower()
+        matched_hints = []
+        for keyword, hint_text in hints.items():
+            if keyword in task_lower:
+                matched_hints.append(hint_text)
+        
+        if matched_hints:
+            return ", ".join(matched_hints)
+        
+        # If no match, extract probable element name
+        if "click on" in task_lower:
+            element = task_lower.split("click on")[-1].strip()
+        elif "click" in task_lower:
+            element = task_lower.split("click")[-1].strip()
+        else:
+            element = task.strip()
+        
+        return element[:100]  # Limit to 100 chars
+    
     def capture_screen(self) -> Optional[str]:
         """Capture a screenshot from the VM
         
@@ -224,7 +262,7 @@ Analyze the screenshot and provide the X,Y coordinates to click. Respond ONLY wi
             return None
     
     def _analyze_with_ollama(self, screenshot_path: str, task: str) -> Optional[Dict]:
-        """Analyze with local Ollama LLaVA"""
+        """Analyze with local Ollama LLaVA - using chat API with image support"""
         ollama_config = self.km.get_ollama_config()
         base_url = ollama_config.get("base_url", "http://localhost:11434")
         model = ollama_config.get("vision_model", "llava:13b")
@@ -233,33 +271,88 @@ Analyze the screenshot and provide the X,Y coordinates to click. Respond ONLY wi
         with open(screenshot_path, 'rb') as f:
             image_b64 = base64.b64encode(f.read()).decode('utf-8')
         
-        prompt = f"""You are a desktop automation assistant analyzing a screenshot.
-
-Task: {task}
-
-Look at the screenshot carefully. Identify the UI element mentioned in the task and provide its pixel coordinates.
-The coordinate system has origin (0,0) at the top-left corner. X increases to the right, Y increases downward.
-
-Respond with ONLY a valid JSON object in this exact format:
-{{"action": "click", "x": 100, "y": 200, "confidence": 0.9, "explanation": "Found Firefox icon in top-left area"}}
-
-If you cannot find the element or complete the task, respond:
-{{"action": "none", "confidence": 0.0, "explanation": "Element not visible in screenshot"}}
-
-Remember: Provide ONLY the JSON object, no other text."""
+        # Parse the task to understand what element to find
+        task_lower = task.lower()
+        element_hints = self._extract_element_hints(task)
         
+        # Two-stage analysis: First get description, then extract coordinates
+        
+        # Stage 1: Get a detailed description of UI elements
+        description_prompt = f"""Analyze this desktop screenshot. List all UI elements you can see:
+- Icons on the left sidebar
+- Buttons in the taskbar
+- Window titles
+- Menu items
+- Text labels
+
+Be specific about the location (top-left, top-right, center, bottom, etc.) of each element.
+Also note the approximate pixel coordinates for major elements if you can estimate them."""
+
         try:
-            # Ollama vision API (v1.0+ format)
+            # Get description
             response = requests.post(
-                f"{base_url}/api/generate",
+                f"{base_url}/api/chat",
                 json={
                     "model": model,
-                    "prompt": prompt,
-                    "images": [image_b64],
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": description_prompt,
+                            "images": [image_b64]
+                        }
+                    ],
                     "stream": False,
                     "options": {
-                        "temperature": 0.1,  # Lower temperature for more deterministic coordinates
-                        "num_predict": 200
+                        "temperature": 0.2,
+                        "num_predict": 300
+                    }
+                },
+                timeout=90
+            )
+            
+            description = ""
+            if response.status_code == 200:
+                result = response.json()
+                description = result.get("message", {}).get("content", "").strip()
+                print(f"📋 Element descriptions: {description[:200]}...")
+            
+            # Stage 2: Now ask for specific coordinates based on the description
+            coordinate_prompt = f"""Based on your analysis of the screenshot, you need to: {task}
+
+Looking for: {element_hints}
+
+From your previous analysis of the screenshot, where should I click?
+
+Respond with ONLY this JSON format:
+{{"action": "click", "x": <number>, "y": <number>, "confidence": <0.0-1.0>, "explanation": "<brief description>"}}
+
+Important: Use actual estimated pixel coordinates based on what you see, not defaults!
+The screen is typically 1280x720 pixels.
+- Top-left corner is (0, 0)
+- Center is around (640, 360)
+- Icons on the left sidebar are typically at x: 50-100
+- Taskbar items are at the bottom
+
+RESPOND WITH ONLY JSON."""
+
+            # Get coordinates
+            response = requests.post(
+                f"{base_url}/api/chat",
+                json={
+                    "model": model,
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": coordinate_prompt,
+                            "images": [image_b64]
+                        }
+                    ],
+                    "stream": False,
+                    "options": {
+                        "temperature": 0.1,
+                        "top_k": 10,
+                        "top_p": 0.9,
+                        "num_predict": 150
                     }
                 },
                 timeout=90
@@ -267,28 +360,80 @@ Remember: Provide ONLY the JSON object, no other text."""
             
             if response.status_code == 200:
                 result = response.json()
-                content = result.get("response", "").strip()
-                print(f"Ollama response: {content[:200]}...")
+                content = result.get("message", {}).get("content", "").strip()
                 
-                # Try to extract JSON from response
-                if "{" in content and "}" in content:
-                    json_start = content.index("{")
-                    json_end = content.rindex("}") + 1
-                    parsed = json.loads(content[json_start:json_end])
+                # Debug output
+                if content:
+                    print(f"🔍 Ollama response: {content[:200]}...")
+                
+                # Extract JSON from response
+                parsed = self._parse_response_json(content)
+                if parsed:
                     return parsed
                 else:
-                    print("No JSON found in Ollama response")
-                    return None
+                    print("⚠ No valid JSON found in Ollama response")
+                    print(f"  Raw response: {content[:400]}")
+                    # Return a default fallback
+                    return {
+                        "action": "click",
+                        "x": 70,  # Left sidebar icons are typically here
+                        "y": 70,
+                        "confidence": 0.3,
+                        "explanation": "Fallback: guessing left sidebar icon"
+                    }
             else:
-                print(f"Ollama API error: {response.status_code} - {response.text}")
+                print(f"❌ Ollama API error: {response.status_code}")
+                if response.text:
+                    print(f"   {response.text[:200]}")
                 return None
         except json.JSONDecodeError as e:
-            print(f"JSON parse error: {e}")
-            print(f"Content was: {content}")
+            print(f"❌ JSON parse error: {e}")
             return None
         except Exception as e:
-            print(f"Error calling Ollama: {e}")
+            print(f"❌ Error calling Ollama: {e}")
             return None
+    
+    def _parse_response_json(self, content: str) -> Optional[Dict]:
+        """Extract and parse JSON from model response
+        
+        Handles cases where model adds text before/after JSON
+        """
+        if not content:
+            return None
+        
+        try:
+            # Try direct JSON parse first
+            return json.loads(content)
+        except json.JSONDecodeError:
+            pass
+        
+        # Try to find JSON object in response
+        import re
+        
+        # Look for {..."action"... pattern
+        json_pattern = r'\{[^{}]*"action"[^{}]*\}'
+        matches = re.findall(json_pattern, content, re.DOTALL)
+        
+        if matches:
+            # Use the first complete match
+            for match in matches:
+                try:
+                    parsed = json.loads(match)
+                    if "action" in parsed and "x" in parsed and "y" in parsed:
+                        return parsed
+                except json.JSONDecodeError:
+                    continue
+        
+        # Try broader JSON extraction
+        if "{" in content and "}" in content:
+            json_start = content.index("{")
+            json_end = content.rindex("}") + 1
+            try:
+                return json.loads(content[json_start:json_end])
+            except json.JSONDecodeError:
+                pass
+        
+        return None
     
     def click(self, x: int, y: int) -> bool:
         """Execute a click at coordinates via the VM agent
