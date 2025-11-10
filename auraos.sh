@@ -281,40 +281,32 @@ cmd_gui_reset() {
     
     # Step 2: Kill orphaned processes
     echo -e "${YELLOW}[2/7]${NC} Cleaning up orphaned processes..."
-    multipass exec "$VM_NAME" -- bash -c '
-      sudo pkill -9 x11vnc 2>/dev/null || true
-      sudo pkill -9 Xvfb 2>/dev/null || true
-      sudo pkill -9 websockify 2>/dev/null || true
-      sudo pkill -9 novnc_proxy 2>/dev/null || true
-    ' 2>/dev/null
+        multipass exec "$VM_NAME" -- bash -c '
+            sudo pkill -9 x11vnc 2>/dev/null || true
+            sudo pkill -9 Xvfb 2>/dev/null || true
+            sudo pkill -9 websockify 2>/dev/null || true
+            sudo pkill -9 novnc_proxy 2>/dev/null || true
+        ' 2>/dev/null &
     sleep 2
     
     # Step 3: Setup VNC password
     echo -e "${YELLOW}[3/7]${NC} Setting up VNC authentication..."
-        multipass exec "$VM_NAME" -- sudo bash <<VNC_PASSWORD_EOF 2>/dev/null
-            mkdir -p /home/${AURAOS_USER}/.vnc
-            rm -f /home/${AURAOS_USER}/.vnc/passwd
-      
-            expect << 'EXPECT_EOF'
-                set timeout 5
-                spawn x11vnc -storepasswd /home/${AURAOS_USER}/.vnc/passwd
-                expect "Enter VNC password:"
-                send "auraos123\r"
-                expect "Verify password:"
-                send "auraos123\r"
-                expect "Write password"
-                send "y\r"
-                expect eof
-EXPECT_EOF
-      
-            chown ${AURAOS_USER}:${AURAOS_USER} /home/${AURAOS_USER}/.vnc/passwd
-            chmod 600 /home/${AURAOS_USER}/.vnc/passwd
-            echo "✓ Password file created at /home/${AURAOS_USER}/.vnc/passwd"
+    multipass exec "$VM_NAME" -- sudo bash << 'VNC_PASSWORD_EOF' 2>/dev/null
+        mkdir -p /home/${AURAOS_USER}/.vnc
+        rm -f /home/${AURAOS_USER}/.vnc/passwd
+        printf 'auraos123\nauraos123\ny\n' | x11vnc -storepasswd /home/${AURAOS_USER}/.vnc/passwd >/dev/null 2>&1 || true
+        chown ${AURAOS_USER}:${AURAOS_USER} /home/${AURAOS_USER}/.vnc/passwd || true
+        chmod 600 /home/${AURAOS_USER}/.vnc/passwd || true
+        echo "✓ Password file created"
 VNC_PASSWORD_EOF
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}✗ VNC password setup failed${NC}"
+        return 1
+    fi
     
     # Step 4: Fix noVNC service configuration
     echo -e "${YELLOW}[4/7]${NC} Configuring noVNC service..."
-    multipass exec "$VM_NAME" -- sudo bash <<SERVICE_EOF 2>/dev/null
+    multipass exec "$VM_NAME" -- sudo bash << 'SERVICE_EOF' 2>/dev/null
 cat > /etc/systemd/system/auraos-novnc.service << "CONFIG_EOF"
 [Unit]
 Description=AuraOS noVNC web proxy
@@ -335,10 +327,17 @@ CONFIG_EOF
 systemctl daemon-reload
 echo "✓ noVNC service configured"
 SERVICE_EOF
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}✗ noVNC service configuration failed${NC}"
+        return 1
+    fi
     
     # Step 5: Start x11vnc
     echo -e "${YELLOW}[5/7]${NC} Starting x11vnc and Xvfb..."
-    multipass exec "$VM_NAME" -- sudo systemctl start auraos-x11vnc.service
+    if ! multipass exec "$VM_NAME" -- sudo systemctl start auraos-x11vnc.service; then
+        echo -e "${RED}✗ Failed to start x11vnc service${NC}"
+        return 1
+    fi
     sleep 5
     
     # Step 6: Verify x11vnc is listening (robust host-driven check)
@@ -359,15 +358,18 @@ SERVICE_EOF
     else
         echo -e "${RED}✗ x11vnc did not appear on port 5900 after 10s${NC}"
         echo -e "${YELLOW}Gathering diagnostic information...${NC}"
-        multipass exec "$VM_NAME" -- sudo systemctl status auraos-x11vnc.service --no-pager || true
-        multipass exec "$VM_NAME" -- sudo journalctl -u auraos-x11vnc.service -n 80 --no-pager || true
+        multipass exec "$VM_NAME" -- sudo systemctl status auraos-x11vnc.service --no-pager 2>/dev/null || true
+        multipass exec "$VM_NAME" -- sudo journalctl -u auraos-x11vnc.service -n 80 --no-pager 2>/dev/null || true
         echo -e "${YELLOW}You can inspect the VM logs or retry the GUI reset.${NC}"
         return 1
     fi
     
     # Step 7: Start noVNC
     echo -e "${YELLOW}[7/7]${NC} Starting noVNC web server..."
-    multipass exec "$VM_NAME" -- sudo systemctl start auraos-novnc.service
+    if ! multipass exec "$VM_NAME" -- sudo systemctl start auraos-novnc.service; then
+        echo -e "${RED}✗ Failed to start noVNC service${NC}"
+        return 1
+    fi
     sleep 4
     
     # Verify noVNC (host-driven check)
@@ -385,8 +387,8 @@ SERVICE_EOF
     else
         echo -e "${RED}✗ noVNC did not appear on port 6080 after 10s${NC}"
         echo -e "${YELLOW}Gathering diagnostic information...${NC}"
-        multipass exec "$VM_NAME" -- sudo systemctl status auraos-novnc.service --no-pager || true
-        multipass exec "$VM_NAME" -- sudo journalctl -u auraos-novnc.service -n 80 --no-pager || true
+        multipass exec "$VM_NAME" -- sudo systemctl status auraos-novnc.service --no-pager 2>/dev/null || true
+        multipass exec "$VM_NAME" -- sudo journalctl -u auraos-novnc.service -n 80 --no-pager 2>/dev/null || true
         return 1
     fi
     
@@ -1487,7 +1489,6 @@ AURAOS_APPS
 # Set hostname
 echo "auraos" > /etc/hostname
 sed -i 's/ubuntu-multipass/auraos/g' /etc/hosts
-sed -i 's/ubuntu/auraos/g' /etc/hosts
 
 # Configure desktop for ${AURAOS_USER} user
 sudo -u ${AURAOS_USER} bash << 'USER_CONFIG'
