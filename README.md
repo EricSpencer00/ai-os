@@ -25,6 +25,22 @@ That's it! Your Ubuntu desktop is now accessible at: **http://localhost:6080/vnc
 
 ## Usage Examples
 
+### AuraOS Terminal (New!)
+
+```bash
+# Launch ChatGPT-style terminal
+auraos-terminal
+
+# Or use CLI mode
+auraos-terminal --cli
+
+# Example commands:
+help              # Show available commands
+ls                # List files
+whoami            # Current user
+date              # Show date/time
+```
+
 ### AI Automation
 
 ```bash
@@ -125,7 +141,8 @@ multipass restart auraos-multipass
 
 - Run `./auraos.sh help` for all commands
 - `QUICKSTART.md` - Fast setup guide
-- `DESKTOP_ACCESS.md` - **NEW:** Desktop access methods and troubleshooting
+- `AURAOS_TERMINAL.md` - **NEW:** ChatGPT-style terminal with voice & text commands
+- `DESKTOP_ACCESS.md` - Desktop access methods and troubleshooting
 - `SETUP_VERIFICATION.md` - Detailed system verification results
 - `VM_SETUP.md` - VM details
 - `IMPLEMENTATION.md` - Technical docs
