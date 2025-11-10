@@ -77,13 +77,20 @@ cmd_keys() {
         echo -e "${GREEN}Setting Ollama: model=$MODEL, vision_model=$VISION_MODEL${NC}"
         python core/key_manager.py enable-ollama "$MODEL" "$VISION_MODEL"
     else
-        echo -e "${YELLOW}Usage: $0 keys <list|add|ollama>${NC}"
+        echo -e "${YELLOW}Usage: $0 keys <list|add|onboard|ollama>${NC}"
         echo -e "${YELLOW}  keys list                  - List all configured keys${NC}"
         echo -e "${YELLOW}  keys add <provider> <key>  - Add API key${NC}"
+        echo -e "${YELLOW}  keys onboard               - Interactive API key onboarding (new system)${NC}"
         echo -e "${YELLOW}  keys ollama [model] [vision_model] - Configure Ollama${NC}"
         echo -e "${YELLOW}Example: $0 keys ollama llava:13b qwen2.5-coder:7b${NC}"
         exit 1
     fi
+}
+
+cmd_keys_onboard() {
+    echo -e "${GREEN}Starting interactive API key onboarding...${NC}"
+    cd "$SCRIPT_DIR"
+    python3 -m core.api_key_cli
 }
 
 cmd_automate() {
@@ -1918,6 +1925,7 @@ cmd_help() {
     echo "  forward            - Manage port forwarders: forward <start|stop|status>"
     echo "  screenshot         - Capture current VM screen"
     echo "  automate \"<task>\" - Run AI-powered automation task"
+    echo "  keys onboard       - Interactive API key onboarding (openrouter/openai/huggingface/other)"
     echo "  keys list          - List configured API keys"
     echo "  keys add           - Add API key: keys add <provider> <key>"
     echo "  keys ollama        - Configure Ollama models"
@@ -1965,7 +1973,14 @@ case "$1" in
         ;;
     keys)
         shift
-        cmd_keys "$@"
+        if [ "$1" == "onboard" ]; then
+            cmd_keys_onboard
+        else
+            cmd_keys "$@"
+        fi
+        ;;
+    onboard)
+        cmd_keys_onboard
         ;;
     automate)
         shift

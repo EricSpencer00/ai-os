@@ -187,3 +187,19 @@ TypeError: cannot unpack non-iterable Response object
  * Running on http://127.0.0.1:5050
  * Running on http://10.0.0.106:5050
 2025-11-10 13:08:59 - INFO - [_internal] - [33mPress CTRL+C to quit[0m
+2025-11-10 17:10:41 - INFO - [logger] - Logging system initialized
+2025-11-10 17:10:41 - INFO - [plugin_manager] - Loaded plugin: window_manager
+2025-11-10 17:10:41 - INFO - [plugin_manager] - Loaded plugin: selenium_automation
+2025-11-10 17:10:41 - INFO - [plugin_manager] - Loaded plugin: shell
+2025-11-10 17:10:42 - INFO - [plugin_manager] - Loaded plugin: vm_manager
+2025-11-10 17:10:42 - INFO - [llm_router] - LLM Router initialized:
+2025-11-10 17:10:42 - INFO - [llm_router] -   - Ollama: Not available
+2025-11-10 17:10:42 - INFO - [llm_router] -   - Groq: Available
+2025-11-10 17:10:42 - INFO - [daemon] - LLM Router initialized: True
+2025-11-10 17:10:42 - INFO - [daemon] - AuraOS Daemon initialized successfully
+2025-11-10 17:10:42 - INFO - [daemon] - Starting AuraOS AI Daemon v8...
+2025-11-10 17:10:42 - INFO - [_internal] - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5050
+ * Running on http://10.24.158.125:5050
+2025-11-10 17:10:42 - INFO - [_internal] - [33mPress CTRL+C to quit[0m
