@@ -676,21 +676,27 @@ sleep 3
 systemctl start auraos-novnc.service
 VNC_START
 
-    echo -e "${YELLOW}[6/7]${NC} Installing AuraOS applications..."
+    echo -e "${YELLOW}[6/7]${NC} Installing AuraOS applications (with error logging)..."
     multipass exec "$VM_NAME" -- sudo bash << 'AURAOS_APPS'
 # Install dependencies for AuraOS apps
-apt-get install -y python3-tk python3-pip portaudio19-dev >/dev/null 2>&1
+apt-get update -qq && apt-get install -y python3-tk python3-pip portaudio19-dev firefox >/dev/null 2>&1
 pip3 install speech_recognition pyaudio >/dev/null 2>&1
 
 # Create AuraOS bin directory
 mkdir -p /opt/auraos/bin
 
-# Install AuraOS Terminal
+# Initialize launcher log
+cat > /tmp/auraos_launcher.log << 'LOG_INIT'
+# AuraOS Launcher Log
+# Created at installation time
+LOG_INIT
+
+# Install ChatGPT-style AuraOS Terminal with Hamburger Menu
 cat > /opt/auraos/bin/auraos_terminal.py << 'TERMINAL_EOF'
 #!/usr/bin/env python3
-"""AuraOS Terminal - AI-Powered Command Interface"""
+"""AuraOS Terminal - ChatGPT-Style AI Command Interface"""
 import tkinter as tk
-from tkinter import scrolledtext
+from tkinter import scrolledtext, messagebox
 import subprocess
 import threading
 import sys
@@ -703,88 +709,198 @@ class AuraOSTerminal:
         if not cli_mode:
             self.root = root
             self.root.title("AuraOS Terminal")
-            self.root.geometry("900x600")
-            self.root.configure(bg='#1e1e1e')
+            self.root.geometry("1000x700")
+            self.root.configure(bg='#0a0e27')
             self.command_history = []
             self.history_index = -1
+            self.show_command_panel = False
             self.create_widgets()
+            self.log_event("STARTUP", "Terminal initialized")
         else:
             self.run_cli_mode()
     
+    def log_event(self, action, message):
+        """Log events to file"""
+        try:
+            with open("/tmp/auraos_launcher.log", "a") as f:
+                ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+                f.write(f"[{ts}] {action}: {message}\n")
+        except:
+            pass
+    
     def create_widgets(self):
-        # Output area
-        self.output_area = scrolledtext.ScrolledText(
-            self.root, wrap=tk.WORD, bg='#1e1e1e', fg='#d4d4d4',
-            font=('Consolas', 11), insertbackground='#00d4ff',
-            relief='flat', padx=10, pady=10
-        )
-        self.output_area.pack(fill='both', expand=True, padx=10, pady=(10,0))
+        # Top bar with hamburger menu
+        top_frame = tk.Frame(self.root, bg='#1a1e37', height=50)
+        top_frame.pack(fill='x')
         
-        # Input frame
-        input_frame = tk.Frame(self.root, bg='#1e1e1e')
-        input_frame.pack(fill='x', padx=10, pady=10)
+        menu_btn = tk.Button(
+            top_frame, text="☰ Commands", command=self.toggle_command_panel,
+            bg='#00d4ff', fg='#0a0e27', font=('Arial', 10, 'bold'),
+            relief='flat', cursor='hand2', padx=10, pady=8
+        )
+        menu_btn.pack(side='left', padx=10, pady=8)
+        
+        title = tk.Label(
+            top_frame, text="⚡ AuraOS Terminal", font=('Arial', 14, 'bold'),
+            fg='#00d4ff', bg='#1a1e37'
+        )
+        title.pack(side='left', padx=20, pady=8)
+        
+        # Main container
+        main_frame = tk.Frame(self.root, bg='#0a0e27')
+        main_frame.pack(fill='both', expand=True)
+        
+        # Command panel (hidden by default)
+        self.cmd_panel = tk.Frame(main_frame, bg='#1a1e37', width=250)
+        self.cmd_panel_visible = False
+        
+        # Chat-style output area (main focus)
+        self.output_area = scrolledtext.ScrolledText(
+            main_frame, wrap=tk.WORD, bg='#0a0e27', fg='#d4d4d4',
+            font=('Menlo', 11), insertbackground='#00d4ff',
+            relief='flat', padx=15, pady=15
+        )
+        self.output_area.pack(fill='both', expand=True, padx=0, pady=0)
+        self.output_area.config(state='disabled')
+        
+        # Configure tags for rich output
+        self.output_area.tag_config("system", foreground="#00d4ff", font=('Menlo', 11, 'bold'))
+        self.output_area.tag_config("user", foreground="#4ec9b0", font=('Menlo', 11, 'bold'))
+        self.output_area.tag_config("output", foreground="#d4d4d4", font=('Menlo', 10))
+        self.output_area.tag_config("error", foreground="#f48771", font=('Menlo', 10, 'bold'))
+        self.output_area.tag_config("success", foreground="#6db783", font=('Menlo', 10, 'bold'))
+        self.output_area.tag_config("info", foreground="#9cdcfe", font=('Menlo', 10))
+        
+        # Welcome message
+        self.append_output("⚡ AuraOS Terminal v2.0\n", "system")
+        self.append_output("AI-Powered Command Interface\n\n", "system")
+        self.append_output("Type your commands below. Use ☰ Commands menu for advanced options.\n\n", "info")
+        
+        # Input frame (bottom)
+        input_frame = tk.Frame(self.root, bg='#1a1e37', height=80)
+        input_frame.pack(fill='x', padx=0, pady=0)
+        
+        # Prompt indicator
+        prompt_label = tk.Label(
+            input_frame, text="→ ", font=('Menlo', 12, 'bold'),
+            fg='#00d4ff', bg='#1a1e37'
+        )
+        prompt_label.pack(side='left', padx=(15, 0), pady=10)
         
         # Input field
         self.input_field = tk.Entry(
-            input_frame, bg='#2d2d2d', fg='#ffffff',
-            font=('Consolas', 11), insertbackground='#00d4ff',
-            relief='flat'
+            input_frame, bg='#2d3547', fg='#ffffff',
+            font=('Menlo', 12), insertbackground='#00d4ff',
+            relief='flat', bd=0
         )
-        self.input_field.pack(side='left', fill='x', expand=True, ipady=8, padx=(0,10))
+        self.input_field.pack(side='left', fill='both', expand=True, ipady=10, padx=(5, 10), pady=10)
         self.input_field.bind('<Return>', lambda e: self.execute_command())
         self.input_field.bind('<Up>', self.history_up)
         self.input_field.bind('<Down>', self.history_down)
+        self.input_field.bind('<Escape>', lambda e: self.input_field.delete(0, tk.END))
+        self.input_field.focus()
         
-        # Buttons
-        btn_frame = tk.Frame(input_frame, bg='#1e1e1e')
-        btn_frame.pack(side='right')
+        # Button frame
+        btn_frame = tk.Frame(input_frame, bg='#1a1e37')
+        btn_frame.pack(side='right', padx=10, pady=10)
         
         self.execute_btn = tk.Button(
-            btn_frame, text="Execute", command=self.execute_command,
-            bg='#00d4ff', fg='#1e1e1e', font=('Arial', 10, 'bold'),
-            relief='flat', cursor='hand2', padx=15, pady=5
+            btn_frame, text="Send", command=self.execute_command,
+            bg='#00d4ff', fg='#0a0e27', font=('Arial', 10, 'bold'),
+            relief='flat', cursor='hand2', padx=12, pady=6
         )
         self.execute_btn.pack(side='left', padx=5)
-        
-        self.clear_btn = tk.Button(
-            btn_frame, text="Clear", command=self.clear_output,
-            bg='#2d2d2d', fg='#ffffff', font=('Arial', 10),
-            relief='flat', cursor='hand2', padx=15, pady=5
-        )
-        self.clear_btn.pack(side='left')
-        
-        # Welcome message
-        self.write_output("⚡ AuraOS Terminal v1.0\n", "system")
-        self.write_output("AI-Powered Command Interface\n\n", "system")
-        self.write_output("Type 'help' for available commands\n\n", "info")
-        
-        self.input_field.focus()
     
-    def write_output(self, text, tag="output"):
+    def toggle_command_panel(self):
+        """Show/hide command panel"""
+        if self.cmd_panel_visible:
+            self.cmd_panel.pack_forget()
+            self.cmd_panel_visible = False
+            self.output_area.pack(fill='both', expand=True, padx=0, pady=0)
+        else:
+            self.create_command_panel()
+            self.cmd_panel.pack(side='left', fill='y', before=self.output_area, padx=0, pady=0)
+            self.cmd_panel_visible = True
+            self.output_area.pack(fill='both', expand=True, padx=0, pady=0)
+    
+    def create_command_panel(self):
+        """Create command reference panel"""
+        self.cmd_panel.destroy()
+        self.cmd_panel = tk.Frame(self.root.winfo_children()[1], bg='#1a1e37', width=250)
+        
+        # Title
+        title = tk.Label(
+            self.cmd_panel, text="Commands", font=('Arial', 12, 'bold'),
+            fg='#00d4ff', bg='#1a1e37'
+        )
+        title.pack(padx=10, pady=10, fill='x')
+        
+        # Command list
+        commands_text = scrolledtext.ScrolledText(
+            self.cmd_panel, wrap=tk.WORD, bg='#0a0e27', fg='#d4d4d4',
+            font=('Menlo', 9), height=30, width=25, relief='flat'
+        )
+        commands_text.pack(fill='both', expand=True, padx=10, pady=10)
+        
+        commands_help = """Built-in Commands:
+  help      Show this
+  clear     Clear screen
+  history   Show history
+  exit      Close app
+
+Shell Commands:
+  ls        List files
+  pwd       Current dir
+  cd        Change dir
+  cat       View file
+  echo      Print text
+  ps        Show processes
+  kill      Stop process
+  curl      Download
+  grep      Search text
+  pipe      | chain commands
+
+Examples:
+  ls -la
+  cat file.txt
+  ps aux | grep python
+  echo "Hello"
+
+Press ☰ to hide
+"""
+        commands_text.insert(tk.END, commands_help)
+        commands_text.config(state='disabled')
+    
+    def append_output(self, text, tag="output"):
+        """Append text to output area"""
+        self.output_area.config(state='normal')
         self.output_area.insert(tk.END, text, tag)
-        self.output_area.tag_config("system", foreground="#00d4ff", font=('Consolas', 11, 'bold'))
-        self.output_area.tag_config("input", foreground="#4ec9b0")
-        self.output_area.tag_config("output", foreground="#d4d4d4")
-        self.output_area.tag_config("error", foreground="#f48771")
-        self.output_area.tag_config("info", foreground="#9cdcfe")
         self.output_area.see(tk.END)
+        self.output_area.config(state='disabled')
+        self.root.update_idletasks()
     
     def execute_command(self):
+        """Execute user command"""
         command = self.input_field.get().strip()
         if not command:
             return
         
         self.command_history.append(command)
         self.history_index = len(self.command_history)
+        
+        # Show user command
+        self.append_output(f"→ {command}\n", "user")
         self.input_field.delete(0, tk.END)
         
-        self.write_output(f"$ {command}\n", "input")
-        
+        # Handle built-in commands
         if command.lower() in ['exit', 'quit']:
+            self.log_event("EXIT", "User closed terminal")
             self.root.quit()
             return
         elif command.lower() == 'clear':
-            self.clear_output()
+            self.output_area.config(state='normal')
+            self.output_area.delete(1.0, tk.END)
+            self.output_area.config(state='disabled')
             return
         elif command.lower() == 'help':
             self.show_help()
@@ -793,56 +909,65 @@ class AuraOSTerminal:
             self.show_history()
             return
         
+        # Run shell command asynchronously
         threading.Thread(target=self.run_command, args=(command,), daemon=True).start()
     
     def run_command(self, command):
+        """Run shell command and display output"""
         try:
+            self.append_output("⟳ Running...\n", "info")
             result = subprocess.run(
                 command, shell=True, capture_output=True,
                 text=True, timeout=30, cwd=os.path.expanduser('~')
             )
+            
             if result.stdout:
-                self.write_output(result.stdout, "output")
-            if result.stderr:
-                self.write_output(result.stderr, "error")
-            if result.returncode != 0:
-                self.write_output(f"\nExit code: {result.returncode}\n", "error")
+                self.append_output(result.stdout, "output")
+            
+            if result.returncode == 0 and not result.stdout:
+                self.append_output("✓ Success\n", "success")
+            elif result.returncode != 0:
+                if result.stderr:
+                    self.append_output(result.stderr, "error")
+                else:
+                    self.append_output(f"✗ Exit code: {result.returncode}\n", "error")
+            
+            self.append_output("\n", "output")
+            self.log_event("COMMAND", f"Executed: {command} (exit: {result.returncode})")
+            
         except subprocess.TimeoutExpired:
-            self.write_output("\nCommand timed out (30s limit)\n", "error")
+            self.append_output("✗ Command timed out (30s limit)\n", "error")
+            self.log_event("TIMEOUT", f"Command exceeded 30s: {command}")
         except Exception as e:
-            self.write_output(f"\nError: {str(e)}\n", "error")
-        self.write_output("\n", "output")
+            self.append_output(f"✗ Error: {str(e)}\n", "error")
+            self.log_event("ERROR", f"Exception: {str(e)}")
+        
+        self.append_output("\n", "output")
     
     def show_help(self):
-        help_text = """
-Built-in Commands:
-  help      - Show this help message
-  clear     - Clear the terminal
-  history   - Show command history
-  exit/quit - Exit the terminal
-
-All standard shell commands are supported.
-Examples: ls, pwd, date, whoami, cat, echo, etc.
-
-"""
-        self.write_output(help_text, "info")
+        """Display help text"""
+        help_text = "Built-in Commands:\n  help      - Show this message\n  clear     - Clear screen\n  history   - Show history\n  exit      - Close terminal\n\nAll standard shell commands supported.\nClick ☰ for more command reference.\n\n"
+        self.append_output(help_text, "info")
     
     def show_history(self):
+        """Display command history"""
         if not self.command_history:
-            self.write_output("No command history\n", "info")
+            self.append_output("No history yet.\n\n", "info")
             return
-        self.write_output("Command History:\n", "info")
-        for i, cmd in enumerate(self.command_history, 1):
-            self.write_output(f"  {i}. {cmd}\n", "output")
-        self.write_output("\n", "output")
+        self.append_output("Command History:\n", "info")
+        for i, cmd in enumerate(self.command_history[-20:], max(1, len(self.command_history)-19)):
+            self.append_output(f"  {i}. {cmd}\n", "output")
+        self.append_output("\n", "output")
     
     def history_up(self, event):
+        """Navigate command history up"""
         if self.command_history and self.history_index > 0:
             self.history_index -= 1
             self.input_field.delete(0, tk.END)
             self.input_field.insert(0, self.command_history[self.history_index])
     
     def history_down(self, event):
+        """Navigate command history down"""
         if self.history_index < len(self.command_history) - 1:
             self.history_index += 1
             self.input_field.delete(0, tk.END)
@@ -851,20 +976,17 @@ Examples: ls, pwd, date, whoami, cat, echo, etc.
             self.history_index = len(self.command_history)
             self.input_field.delete(0, tk.END)
     
-    def clear_output(self):
-        self.output_area.delete(1.0, tk.END)
-        self.write_output("⚡ AuraOS Terminal\n\n", "system")
-    
     def run_cli_mode(self):
+        """CLI mode for headless execution"""
         print("⚡ AuraOS Terminal (CLI Mode)")
         print("Type 'exit' to quit\n")
         while True:
             try:
-                command = input("$ ").strip()
+                command = input("→ ").strip()
                 if command.lower() in ['exit', 'quit']:
                     break
                 if command:
-                    result = subprocess.run(command, shell=True, cwd=os.path.expanduser('~'))
+                    subprocess.run(command, shell=True, cwd=os.path.expanduser('~'))
             except (EOFError, KeyboardInterrupt):
                 print("\nExiting...")
                 break
@@ -878,14 +1000,26 @@ if __name__ == "__main__":
         root.mainloop()
 TERMINAL_EOF
 
-# Install AuraOS Home Screen
+# Install Improved AuraOS Home Screen with Error Logging
 cat > /opt/auraos/bin/auraos_homescreen.py << 'HOMESCREEN_EOF'
 #!/usr/bin/env python3
-"""AuraOS Home Screen - Dashboard and Launcher"""
+"""AuraOS Home Screen - Dashboard and Launcher with Error Logging"""
 import tkinter as tk
 import subprocess
 import os
+import threading
 from datetime import datetime
+
+LOG_FILE = "/tmp/auraos_launcher.log"
+
+def log_event(action, message, level="INFO"):
+    """Log app launch events"""
+    try:
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+        with open(LOG_FILE, "a") as f:
+            f.write(f"[{timestamp}] [{level}] {action}: {message}\n")
+    except:
+        pass
 
 class AuraOSHomeScreen:
     def __init__(self, root):
@@ -893,6 +1027,7 @@ class AuraOSHomeScreen:
         self.root.title("AuraOS")
         self.root.geometry("800x600")
         self.root.configure(bg='#0a0e27')
+        log_event("STARTUP", "Homescreen initialized")
         self.create_widgets()
         
     def create_widgets(self):
@@ -922,73 +1057,160 @@ class AuraOSHomeScreen:
             ("⚙️ Settings", "System Settings", self.launch_settings),
         ]
         
-        for idx, (icon, label, command) in enumerate(actions):
-            row = idx // 2
-            col = idx % 2
-            btn_frame = tk.Frame(actions_frame, bg='#1a1e37', relief='raised', bd=2)
-            btn_frame.grid(row=row, column=col, padx=15, pady=15, sticky='nsew')
-            btn = tk.Button(btn_frame, text=f"{icon}\n{label}", font=('Arial', 16),
-                           bg='#1a1e37', fg='#ffffff', activebackground='#2a2e47',
-                           activeforeground='#00d4ff', command=command, relief='flat',
-                           cursor='hand2', width=15, height=4)
-            btn.pack(fill='both', expand=True, padx=10, pady=10)
-            btn.bind('<Enter>', lambda e, b=btn: b.config(bg='#2a2e47', fg='#00d4ff'))
-            btn.bind('<Leave>', lambda e, b=btn: b.config(bg='#1a1e37', fg='#ffffff'))
+        for emoji, label, handler in actions:
+            btn = tk.Button(
+                actions_frame,
+                text=emoji,
+                command=handler,
+                width=15,
+                height=3,
+                bg='#1a3a52',
+                fg='#00d4ff',
+                font=('Arial', 14, 'bold'),
+                relief='raised',
+                cursor='hand2',
+                activebackground='#00d4ff',
+                activeforeground='#0a0e27'
+            )
+            btn.pack(pady=10, fill='x')
+            
+            label_widget = tk.Label(
+                actions_frame,
+                text=label,
+                font=('Arial', 10),
+                fg='#888888',
+                bg='#0a0e27'
+            )
+            label_widget.pack()
         
         # Status bar
-        status_frame = tk.Frame(self.root, bg='#0a0e27', height=50)
-        status_frame.pack(side='bottom', fill='x', padx=20, pady=10)
+        self.status_bar = tk.Label(
+            self.root,
+            text="Ready",
+            font=('Arial', 9),
+            fg='#666666',
+            bg='#0a0e27',
+            justify='left'
+        )
+        self.status_bar.pack(side='bottom', fill='x', padx=20, pady=10)
         
-        self.status_label = tk.Label(status_frame, text=self.get_system_info(),
-                                     font=('Arial', 10), fg='#666666', bg='#0a0e27', anchor='w')
-        self.status_label.pack(side='left')
-        
-        self.clock_label = tk.Label(status_frame, text="", font=('Arial', 12, 'bold'),
-                                    fg='#00d4ff', bg='#0a0e27', anchor='e')
-        self.clock_label.pack(side='right')
+        # Clock
+        self.clock_label = tk.Label(
+            self.root,
+            text="",
+            font=('Arial', 12),
+            fg='#00d4ff',
+            bg='#0a0e27'
+        )
+        self.clock_label.pack(side='bottom', pady=5)
         self.update_clock()
-        
-    def get_system_info(self):
+    
+    def set_status(self, message):
+        """Update status bar"""
         try:
-            hostname = subprocess.check_output(['hostname'], text=True).strip()
-            return f"🖥️  {hostname}"
+            self.status_bar.config(text=message)
+            self.root.update_idletasks()
         except:
-            return "🖥️  AuraOS"
+            pass
     
     def update_clock(self):
-        now = datetime.now()
-        time_str = now.strftime("%I:%M %p")
-        date_str = now.strftime("%A, %B %d, %Y")
-        self.clock_label.config(text=f"{time_str}\n{date_str}")
-        self.root.after(1000, self.update_clock)
+        """Update clock display"""
+        try:
+            now = datetime.now()
+            time_str = now.strftime("%I:%M %p")
+            date_str = now.strftime("%A, %B %d, %Y")
+            self.clock_label.config(text=f"{time_str}\n{date_str}")
+            self.root.after(1000, self.update_clock)
+        except:
+            pass
+    
+    def launch_app(self, app_name, command_list, fallback_list=None, success_exit_codes=None):
+        """Generic app launcher with error logging"""
+        if success_exit_codes is None:
+            success_exit_codes = [0]
+        
+        def _launch():
+            log_event("LAUNCH", f"Starting {app_name}")
+            self.set_status(f"Starting {app_name}...")
+            
+            try:
+                p = subprocess.Popen(
+                    command_list,
+                    start_new_session=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE
+                )
+                log_event("LAUNCH", f"{app_name} launched with PID {p.pid}")
+                self.set_status(f"{app_name} started")
+                threading.Timer(0.5, lambda: self._check_process(p, app_name, fallback_list, success_exit_codes)).start()
+                
+            except Exception as e:
+                log_event("ERROR", f"Failed to launch {app_name}: {str(e)}", "ERROR")
+                
+                if fallback_list:
+                    log_event("FALLBACK", f"Trying fallback for {app_name}")
+                    try:
+                        p = subprocess.Popen(fallback_list, start_new_session=True,
+                                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                        log_event("FALLBACK", f"Fallback launched with PID {p.pid}")
+                        self.set_status(f"{app_name} (fallback) started")
+                    except Exception as fe:
+                        log_event("ERROR", f"Fallback failed: {str(fe)}", "ERROR")
+                        self.set_status(f"Failed to start {app_name}")
+                else:
+                    self.set_status(f"Failed to start {app_name}")
+        
+        threading.Thread(target=_launch, daemon=True).start()
+    
+    def _check_process(self, process, app_name, fallback_list=None, success_exit_codes=None):
+        """Check if process exited"""
+        if success_exit_codes is None:
+            success_exit_codes = [0]
+        
+        try:
+            returncode = process.poll()
+            if returncode is not None:
+                if returncode in success_exit_codes:
+                    log_event("SUCCESS", f"{app_name} launched successfully (exit {returncode})")
+                    self.set_status(f"{app_name} running")
+                else:
+                    stdout, stderr = process.communicate()
+                    error_msg = stderr.decode() if stderr else ""
+                    log_event("ERROR", f"{app_name} exited with code {returncode}: {error_msg[:100]}", "ERROR")
+                    
+                    if fallback_list:
+                        log_event("FALLBACK", f"Process failed, trying fallback")
+                        self.launch_app(app_name, fallback_list, None, success_exit_codes)
+                    else:
+                        self.set_status(f"{app_name} process exited")
+        except Exception as e:
+            log_event("ERROR", f"Process check failed: {str(e)}", "ERROR")
     
     def launch_terminal(self):
-        subprocess.Popen(['auraos-terminal'], start_new_session=True,
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.launch_app("Terminal", ['auraos-terminal'], ['xfce4-terminal'])
     
     def launch_files(self):
-        subprocess.Popen(['thunar'], start_new_session=True,
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.launch_app("File Manager", ['thunar'], ['xfce4-file-manager'], success_exit_codes=[0])
     
     def launch_browser(self):
-        subprocess.Popen(['firefox'], start_new_session=True,
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.launch_app("Browser", ['firefox'], ['chromium'])
     
     def launch_settings(self):
-        subprocess.Popen(['xfce4-settings-manager'], start_new_session=True,
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.launch_app("Settings", ['xfce4-settings-manager'], None)
 
 if __name__ == "__main__":
     root = tk.Tk()
     app = AuraOSHomeScreen(root)
+    log_event("UI", "Homescreen displayed")
     root.mainloop()
 HOMESCREEN_EOF
 
-# Make scripts executable
+# Make scripts executable and set permissions
 chmod +x /opt/auraos/bin/auraos_terminal.py
 chmod +x /opt/auraos/bin/auraos_homescreen.py
+chown -R ubuntu:ubuntu /opt/auraos
 
-# Create command launchers
+# Create/update command launchers
 cat > /usr/local/bin/auraos-terminal << 'TERM_LAUNCHER'
 #!/bin/bash
 cd /opt/auraos/bin
@@ -1004,7 +1226,15 @@ HOME_LAUNCHER
 chmod +x /usr/local/bin/auraos-terminal
 chmod +x /usr/local/bin/auraos-home
 
-echo "✓ AuraOS applications installed"
+# Change terminal launcher to not use env var
+cat > /opt/auraos/bin/auraos-terminal << 'TERMINAL_SCRIPT'
+#!/bin/bash
+cd /opt/auraos/bin
+exec python3 auraos_terminal.py "$@"
+TERMINAL_SCRIPT
+chmod +x /opt/auraos/bin/auraos-terminal
+
+echo "✓ AuraOS applications installed with error logging"
 AURAOS_APPS
 
     echo -e "${YELLOW}[7/7]${NC} Configuring AuraOS branding..."
