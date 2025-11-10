@@ -1,0 +1,2 @@
+# Large VM images are ignored; if you want to track them use Git LFS
+# Example (install git-lfs and run: git lfs track "images/*.img")
