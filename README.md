@@ -97,6 +97,23 @@ curl http://localhost:5050/health | jq
 
 The `/health` endpoint reports whether the local Ollama router is available and lists loaded plugins. This is useful for smoke tests and CI.
 
+## Preventing the VM from locking the screen (5-minute lock)
+
+If your VM goes to a lock screen after a short idle time (e.g. 5 minutes), run the helper script included in the repo to disable session blanking and common locker daemons inside the VM.
+
+To apply the fix (from the host):
+
+```bash
+# Copy the helper into the VM and run it as root (replace VM name and user if different)
+multipass transfer vm_resources/disable_screensaver.sh auraos-multipass:/tmp/disable_screensaver.sh
+multipass exec auraos-multipass -- sudo bash /tmp/disable_screensaver.sh ubuntu
+
+# Alternatively (pipe it directly):
+#sudo multipass exec auraos-multipass -- bash -s ubuntu < vm_resources/disable_screensaver.sh
+```
+
+Re-login to the VM desktop (or reboot) for autostart changes to fully apply. This helper creates a small autostart entry that runs xset to disable blanking and DPMS and attempts to stop common locker daemons (light-locker, xscreensaver, xss-lock).
+
 ## All Commands
 
 Run `./auraos.sh help` for full command list. Key commands:

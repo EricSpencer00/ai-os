@@ -400,6 +400,68 @@ SERVICE_EOF
     echo -e "  Password: ${GREEN}auraos123${NC}"
 }
 
+cmd_disable_screensaver() {
+        VM_NAME="${1:-auraos-multipass}"
+        USER_NAME="${2:-$AURAOS_USER}"
+
+        echo -e "${BLUE}Disabling screensaver/lock inside VM '$VM_NAME' for user '$USER_NAME'...${NC}"
+
+        multipass exec "$VM_NAME" -- sudo bash -s "$USER_NAME" <<'DISABLE_EOF'
+#!/usr/bin/env bash
+set -e
+USER_NAME="$1"
+HOME_DIR="/home/$USER_NAME"
+
+echo "Applying session-level disable settings for $USER_NAME"
+
+# Disable X blanking and DPMS (if X available)
+export DISPLAY=:0
+xset s off 2>/dev/null || true
+xset s noblank 2>/dev/null || true
+xset -dpms 2>/dev/null || true
+
+# Kill common locker daemons
+pkill light-locker 2>/dev/null || true
+pkill xscreensaver 2>/dev/null || true
+pkill xss-lock 2>/dev/null || true
+
+# Create autostart to re-apply settings on login
+AUTOSTART_DIR="$HOME_DIR/.config/autostart"
+mkdir -p "$AUTOSTART_DIR"
+cat > "$AUTOSTART_DIR/disable-screensaver.desktop" <<'DESK'
+[Desktop Entry]
+Type=Application
+Name=Disable Screensaver
+Exec=/usr/local/bin/disable-screensaver-session.sh
+X-GNOME-Autostart-enabled=true
+NoDisplay=true
+DESK
+
+# Create session helper
+cat > /usr/local/bin/disable-screensaver-session.sh <<'SH'
+#!/usr/bin/env bash
+export DISPLAY=:0
+xset s off 2>/dev/null || true
+xset s noblank 2>/dev/null || true
+xset -dpms 2>/dev/null || true
+pkill light-locker 2>/dev/null || true
+pkill xscreensaver 2>/dev/null || true
+SH
+
+chmod +x /usr/local/bin/disable-screensaver-session.sh || true
+chown -R "$USER_NAME:$USER_NAME" "$AUTOSTART_DIR" || true
+chown root:root /usr/local/bin/disable-screensaver-session.sh || true
+
+# Disable light-locker autostart if present
+if [ -f "$HOME_DIR/.config/autostart/light-locker.desktop" ]; then
+    sed -i.bak 's/X-GNOME-Autostart-enabled=true/X-GNOME-Autostart-enabled=false/' "$HOME_DIR/.config/autostart/light-locker.desktop" || true
+    chown "$USER_NAME:$USER_NAME" "$HOME_DIR/.config/autostart/light-locker.desktop" || true
+fi
+
+echo "Done. Re-login or reboot the VM for all changes to take effect."
+DISABLE_EOF
+}
+
 cmd_install() {
     echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
     echo -e "${BLUE}║   AuraOS Installation Script v1.0      ║${NC}"
@@ -1886,6 +1948,7 @@ cmd_help() {
     echo "  keys list          - List configured API keys"
     echo "  keys add           - Add API key: keys add <provider> <key>"
     echo "  keys ollama        - Configure Ollama models"
+    echo "  disable-screensaver - Disable VM screensaver/lock (usage: disable-screensaver [vm-name] [user])"
     echo "  logs               - Show GUI agent logs"
     echo "  restart            - Restart all VM services"
     echo "  help               - Show this help"
@@ -1940,6 +2003,10 @@ case "$1" in
         ;;
     gui-reset)
         cmd_gui_reset
+        ;;
+    disable-screensaver)
+        shift
+        cmd_disable_screensaver "$@"
         ;;
     screenshot)
         cmd_screenshot
