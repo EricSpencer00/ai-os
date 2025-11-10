@@ -83,6 +83,20 @@ date              # Show date/time
 
 **Pipeline Timing:** ~15-20 seconds per task (mostly vision analysis)
 
+## Health check (MVP)
+
+After starting the daemon you can verify the service and LLM availability with:
+
+```bash
+# start the daemon (from repo root) — this helper will create/activate the venv if needed
+./auraos_daemon/run.sh &
+
+# then check health
+curl http://localhost:5050/health | jq
+```
+
+The `/health` endpoint reports whether the local Ollama router is available and lists loaded plugins. This is useful for smoke tests and CI.
+
 ## All Commands
 
 Run `./auraos.sh help` for full command list. Key commands:

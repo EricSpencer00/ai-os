@@ -1,6 +1,7 @@
 {
     "GROQ_API_KEY": "your-api-key-here",
     "OPENAI_API_KEY": "your-openai-api-key-here",
+    "MVP_NOTE": "For the local MVP: install Ollama (./install.sh) and set OLLAMA.enabled to true to run LLMs locally; prefer gemma:2b for low-resource hosts.",
     "API_TIMEOUT": 60,
     "MAX_RETRY_ATTEMPTS": 3,
     "OLLAMA": {
