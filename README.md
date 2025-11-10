@@ -72,6 +72,7 @@ Run `./auraos.sh help` for full command list. Key commands:
 - `install` - Install all dependencies
 - `vm-setup` - Create Ubuntu VM
 - `health` - System health check
+- `forward start|stop|status` - Manage port forwarders
 - `automate "<task>"` - AI automation
 - `screenshot` - Capture desktop
 - `gui-reset` - Reset VNC/noVNC
@@ -85,6 +86,16 @@ Run `./auraos.sh help` for full command list. Key commands:
 ⚠️ **Security Note:** Development defaults - change for production use
 
 ## Troubleshooting
+
+### Port Forwarders Not Working
+```bash
+# Check forwarder status
+./auraos.sh forward status
+
+# Restart forwarders
+./auraos.sh forward stop
+./auraos.sh forward start
+```
 
 ### VNC Not Working
 ```bash
@@ -112,6 +123,7 @@ multipass restart auraos-multipass
 
 - Run `./auraos.sh help` for all commands
 - `QUICKSTART.md` - Fast setup guide
+- `SETUP_VERIFICATION.md` - Detailed system verification results
 - `VM_SETUP.md` - VM details
 - `IMPLEMENTATION.md` - Technical docs
 

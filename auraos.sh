@@ -689,6 +689,97 @@ VNC_START
     echo ""
 }
 
+cmd_forward() {
+    if [ -z "$1" ] || [ "$1" == "start" ]; then
+        echo -e "${GREEN}Starting port forwarders...${NC}"
+        VM_IP=$(multipass info auraos-multipass 2>/dev/null | grep IPv4 | cut -d: -f2 | tr -d ' ')
+        if [ -z "$VM_IP" ]; then
+            echo -e "${RED}Could not get VM IP address${NC}"
+            return 1
+        fi
+        echo "VM IP: $VM_IP"
+
+        # Create forwarder script if missing
+        if [ ! -f /tmp/auraos_port_forward.py ]; then
+            cat > /tmp/auraos_port_forward.py << 'PY'
+#!/usr/bin/env python3
+import sys, socket, threading
+if len(sys.argv)<4:
+    print('Usage: auraos_port_forward.py <local_port> <remote_host> <remote_port>')
+    sys.exit(1)
+local_port=int(sys.argv[1]); remote_host=sys.argv[2]; remote_port=int(sys.argv[3])
+server=socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+server.bind(('127.0.0.1', local_port))
+server.listen(5)
+def handle(client_sock):
+    try:
+        remote=socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        remote.connect((remote_host, remote_port))
+    except Exception:
+        client_sock.close(); return
+    def forward(src,dst):
+        try:
+            while True:
+                data=src.recv(4096)
+                if not data: break
+                dst.sendall(data)
+        except Exception: pass
+        try: dst.shutdown(socket.SHUT_RDWR)
+        except Exception: pass
+    t1=threading.Thread(target=forward, args=(client_sock,remote), daemon=True)
+    t2=threading.Thread(target=forward, args=(remote,client_sock), daemon=True)
+    t1.start(); t2.start(); t1.join(); t2.join()
+    client_sock.close(); remote.close()
+try:
+    while True:
+        client,addr=server.accept()
+        t=threading.Thread(target=handle, args=(client,), daemon=True)
+        t.start()
+except KeyboardInterrupt:
+    server.close()
+PY
+            chmod +x /tmp/auraos_port_forward.py
+        fi
+
+        # Start forwarders for 5901, 6080, 8765
+        for PORT in 5901 6080 8765; do
+            REMOTE_PORT=$PORT
+            [ $PORT -eq 5901 ] && REMOTE_PORT=5900  # VNC is on 5900 inside VM
+            
+            # Check if already running
+            if lsof -iTCP -sTCP:LISTEN -P -n 2>/dev/null | grep -q ":$PORT "; then
+                echo -e "${YELLOW}→ Forwarder already running on $PORT${NC}"
+            else
+                nohup /usr/bin/env python3 /tmp/auraos_port_forward.py $PORT "$VM_IP" $REMOTE_PORT >/tmp/forward_${PORT}.log 2>&1 &
+                echo $! > /tmp/forward_${PORT}.pid
+                sleep 0.2
+                if lsof -iTCP -sTCP:LISTEN -P -n 2>/dev/null | grep -q ":$PORT "; then
+                    echo -e "${GREEN}✓ Forwarder started on localhost:$PORT${NC}"
+                else
+                    echo -e "${RED}✗ Failed to start forwarder on $PORT${NC}"
+                fi
+            fi
+        done
+
+    elif [ "$1" == "stop" ]; then
+        echo -e "${GREEN}Stopping port forwarders...${NC}"
+        pkill -f /tmp/auraos_port_forward.py || true
+        sleep 0.2
+        echo -e "${GREEN}✓ Forwarders stopped${NC}"
+
+    elif [ "$1" == "status" ]; then
+        echo -e "${YELLOW}Port forwarder status:${NC}"
+        lsof -iTCP -sTCP:LISTEN -P -n 2>/dev/null | grep -E '5901|6080|8765' || echo "No forwarders running"
+        echo
+        echo -e "${YELLOW}Forwarder processes:${NC}"
+        ps aux | grep auraos_port_forward | grep -v grep || echo "No forwarder processes"
+    else
+        echo -e "${YELLOW}Usage: $0 forward <start|stop|status>${NC}"
+        exit 1
+    fi
+}
+
 cmd_help() {
     print_header
     echo ""
@@ -700,6 +791,7 @@ cmd_help() {
     echo "  status             - Show VM and service status"
     echo "  health             - Run comprehensive system health check"
     echo "  gui-reset          - Complete clean restart of VNC/noVNC services"
+    echo "  forward            - Manage port forwarders: forward <start|stop|status>"
     echo "  screenshot         - Capture current VM screen"
     echo "  automate \"<task>\" - Run AI-powered automation task"
     echo "  keys list          - List configured API keys"
@@ -713,6 +805,16 @@ cmd_help() {
     echo "  $0 install                                   # First-time setup"
     echo "  $0 vm-setup                                  # Create Ubuntu VM"
     echo "  $0 health                                    # Check all systems"
+    echo "  $0 gui-reset                                 # Reset VNC/noVNC from scratch"
+    echo "  $0 screenshot                                # Capture desktop"
+    echo "  $0 automate \"click on file manager\"        # AI automation"
+    echo "  $0 keys ollama llava:13b llava:13b          # Configure vision model"
+    echo ""
+    echo "Examples:"
+    echo "  $0 install                                   # First-time setup"
+    echo "  $0 vm-setup                                  # Create Ubuntu VM"
+    echo "  $0 health                                    # Check all systems"
+    echo "  $0 forward start                             # Start port forwarders"
     echo "  $0 gui-reset                                 # Reset VNC/noVNC from scratch"
     echo "  $0 screenshot                                # Capture desktop"
     echo "  $0 automate \"click on file manager\"        # AI automation"
@@ -733,6 +835,10 @@ case "$1" in
         ;;
     vm-setup)
         cmd_vm_setup
+        ;;
+    forward)
+        shift
+        cmd_forward "$@"
         ;;
     status)
         cmd_status
