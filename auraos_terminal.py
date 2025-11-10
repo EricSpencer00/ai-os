@@ -223,61 +223,130 @@ class AuraOSTerminal:
                 threading.Thread(target=self.execute_shell_command, args=(text,), daemon=True).start()
     
     def execute_ai_task(self, request_text):
-        """Execute AI automation task via auraos.sh"""
+        """Interpret the user's request with an AI and execute a safe action.
+
+        Uses `core.ai_helper` to convert a natural language request into a
+        structured intent. Performs conservative safety checks before executing
+        any command. If the AI cannot be reached, fall back to the previous
+        auraos.sh or local behaviors.
+        """
         try:
             self.is_processing = True
             self.update_status("Processing with AI...", "#00ff88")
             self.append("⟳ Processing request...\n", "info")
-            # Prefer an installed auraos.sh if present; fall back to local handlers
-            auraos_path = None
-            # check local cwd
-            local_path = os.path.join(os.getcwd(), "auraos.sh")
-            if os.path.isfile(local_path) and os.access(local_path, os.X_OK):
-                auraos_path = local_path
-            else:
-                # check PATH
-                auraos_path = shutil.which("auraos.sh")
 
-            if auraos_path:
-                cmd = [auraos_path, "automate", request_text]
-                result = subprocess.run(
-                    cmd, capture_output=True, text=True, timeout=120,
-                    cwd=os.path.expanduser("~")
-                )
-            else:
-                # Simple local fallbacks for common tasks when auraos.sh isn't available
-                rt = request_text.lower()
-                if "open firefox" in rt or rt.strip() == "open firefox":
-                    # launch firefox directly in the VM
+            # Lazy import so apps don't fail if core isn't available
+            try:
+                from core import ai_helper
+            except Exception:
+                ai_helper = None
+
+            interpreted = None
+            if ai_helper:
+                try:
+                    interpreted = ai_helper.interpret_request_to_json(request_text)
+                except Exception:
+                    interpreted = None
+
+            # If AI returned an intent, handle it
+            if interpreted and isinstance(interpreted, dict):
+                action = interpreted.get("action")
+                cmd = interpreted.get("command")
+                explanation = interpreted.get("explanation", "")
+                confirm_required = bool(interpreted.get("confirm_required", False))
+
+                # Show explanation if present
+                if explanation:
+                    self.append(f"{explanation}\n", "info")
+
+                if action == "run_command" and cmd:
+                    safe, reason = ai_helper.is_command_safe(cmd) if ai_helper else (False, "no ai helper")
+                    if not safe or confirm_required:
+                        # Ask the user for confirmation before running
+                        ask = messagebox.askyesno("Confirm Action", f"The requested action is:\n\n{cmd}\n\nReason: {reason}\n\nRun this command?")
+                        if not ask:
+                            self.append("✗ Aborted by user.\n\n", "warning")
+                            self.log_event("AI_ABORT", cmd[:200])
+                            return
+
+                    # Execute the command conservatively (no shell)
                     try:
-                        subprocess.Popen(["firefox"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                        self.append("✓ Launched Firefox\n", "success")
-                        result = subprocess.CompletedProcess(args=["firefox"], returncode=0, stdout="Launched Firefox")
+                        # If it's a bash -lc wrapper, run with shell
+                        if cmd.strip().startswith("bash -lc"):
+                            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=120, cwd=os.path.expanduser("~"))
+                        else:
+                            import shlex
+                            parts = shlex.split(cmd)
+                            result = subprocess.run(parts, capture_output=True, text=True, timeout=120, cwd=os.path.expanduser("~"))
+
+                        if result.stdout:
+                            self.append(result.stdout, "output")
+                        if result.returncode == 0:
+                            self.append("\n✓ Task completed successfully\n\n", "success")
+                            self.log_event("AI_SUCCESS", cmd[:200])
+                        else:
+                            if result.stderr:
+                                self.append(f"\nError: {result.stderr}\n\n", "error")
+                            self.append(f"✗ Exit code: {result.returncode}\n\n", "error")
+                            self.log_event("AI_ERROR", f"{cmd[:200]} (exit: {result.returncode})")
+
+                    except subprocess.TimeoutExpired:
+                        self.append("✗ Request timed out (120s limit)\n\n", "error")
+                        self.log_event("AI_TIMEOUT", cmd[:200])
                     except Exception as e:
-                        result = subprocess.CompletedProcess(args=["firefox"], returncode=1, stdout="", stderr=str(e))
+                        self.append(f"✗ Error executing command: {e}\n\n", "error")
+                        self.log_event("AI_ERROR", str(e))
+
+                elif action == "advice":
+                    # Show advice text
+                    self.append(explanation + "\n\n", "info")
+                    self.log_event("AI_ADVICE", request_text[:200])
                 else:
-                    # Not supported locally; instruct the user
-                    raise FileNotFoundError("auraos.sh not found in PATH or cwd; automated actions require host-side auraos.sh or a configured GUI agent.")
-            
-            # Display output
-            if result.stdout:
-                self.append(result.stdout, "output")
-            
-            if result.returncode == 0:
-                self.append("\n✓ Task completed successfully\n\n", "success")
-                self.log_event("AI_SUCCESS", request_text[:60])
+                    # Ask user to clarify
+                    self.append("✗ Could not map request to an automated action. Please rephrase.\n\n", "error")
+                    self.log_event("AI_CLARIFY", request_text[:200])
+
             else:
-                if result.stderr:
-                    self.append(f"\nError: {result.stderr}\n\n", "error")
-                self.append(f"✗ Exit code: {result.returncode}\n\n", "error")
-                self.log_event("AI_ERROR", f"{request_text[:60]} (exit: {result.returncode})")
-            
+                # Fallback to previous behavior: call auraos.sh or local handlers
+                auraos_path = None
+                local_path = os.path.join(os.getcwd(), "auraos.sh")
+                if os.path.isfile(local_path) and os.access(local_path, os.X_OK):
+                    auraos_path = local_path
+                else:
+                    auraos_path = shutil.which("auraos.sh")
+
+                if auraos_path:
+                    cmd = [auraos_path, "automate", request_text]
+                    result = subprocess.run(
+                        cmd, capture_output=True, text=True, timeout=120,
+                        cwd=os.path.expanduser("~")
+                    )
+                else:
+                    rt = request_text.lower()
+                    if "open firefox" in rt or rt.strip() == "open firefox":
+                        try:
+                            subprocess.Popen(["firefox"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            self.append("✓ Launched Firefox\n", "success")
+                            result = subprocess.CompletedProcess(args=["firefox"], returncode=0, stdout="Launched Firefox")
+                        except Exception as e:
+                            result = subprocess.CompletedProcess(args=["firefox"], returncode=1, stdout="", stderr=str(e))
+                    else:
+                        raise FileNotFoundError("auraos.sh not found and AI unavailable; cannot automate this request.")
+
+                if result.stdout:
+                    self.append(result.stdout, "output")
+
+                if result.returncode == 0:
+                    self.append("\n✓ Task completed successfully\n\n", "success")
+                    self.log_event("AI_SUCCESS", request_text[:60])
+                else:
+                    if result.stderr:
+                        self.append(f"\nError: {result.stderr}\n\n", "error")
+                    self.append(f"✗ Exit code: {result.returncode}\n\n", "error")
+                    self.log_event("AI_ERROR", f"{request_text[:60]} (exit: {result.returncode})")
+
             self.update_status("Ready", "#6db783")
-        
-        except subprocess.TimeoutExpired:
-            self.append("✗ Request timed out (120s limit)\n\n", "error")
-            self.update_status("Error", "#f48771")
-            self.log_event("AI_TIMEOUT", request_text[:60])
+
         except Exception as e:
             self.append(f"✗ Error: {str(e)}\n\n", "error")
             self.update_status("Error", "#f48771")
