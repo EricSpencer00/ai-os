@@ -15,6 +15,7 @@ Modes:
 import tkinter as tk
 from tkinter import scrolledtext, messagebox
 import subprocess
+import shutil
 import threading
 import sys
 import os
@@ -227,13 +228,36 @@ class AuraOSTerminal:
             self.is_processing = True
             self.update_status("Processing with AI...", "#00ff88")
             self.append("⟳ Processing request...\n", "info")
-            
-            # Call ./auraos.sh automate with the request
-            cmd = ["./auraos.sh", "automate", request_text]
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=120,
-                cwd=os.path.expanduser("~")
-            )
+            # Prefer an installed auraos.sh if present; fall back to local handlers
+            auraos_path = None
+            # check local cwd
+            local_path = os.path.join(os.getcwd(), "auraos.sh")
+            if os.path.isfile(local_path) and os.access(local_path, os.X_OK):
+                auraos_path = local_path
+            else:
+                # check PATH
+                auraos_path = shutil.which("auraos.sh")
+
+            if auraos_path:
+                cmd = [auraos_path, "automate", request_text]
+                result = subprocess.run(
+                    cmd, capture_output=True, text=True, timeout=120,
+                    cwd=os.path.expanduser("~")
+                )
+            else:
+                # Simple local fallbacks for common tasks when auraos.sh isn't available
+                rt = request_text.lower()
+                if "open firefox" in rt or rt.strip() == "open firefox":
+                    # launch firefox directly in the VM
+                    try:
+                        subprocess.Popen(["firefox"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        self.append("✓ Launched Firefox\n", "success")
+                        result = subprocess.CompletedProcess(args=["firefox"], returncode=0, stdout="Launched Firefox")
+                    except Exception as e:
+                        result = subprocess.CompletedProcess(args=["firefox"], returncode=1, stdout="", stderr=str(e))
+                else:
+                    # Not supported locally; instruct the user
+                    raise FileNotFoundError("auraos.sh not found in PATH or cwd; automated actions require host-side auraos.sh or a configured GUI agent.")
             
             # Display output
             if result.stdout:
@@ -267,13 +291,24 @@ class AuraOSTerminal:
             self.is_processing = True
             self.update_status("Searching with AI...", "#9cdcfe")
             self.append(f"🔍 Searching for: {search_query}\n", "info")
-            
-            # Use auraos.sh to do smart file search
-            cmd = ["./auraos.sh", "automate", f"find files: {search_query}"]
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=60,
-                cwd=os.path.expanduser("~")
-            )
+            # Prefer auraos.sh if available otherwise run a local find as fallback
+            auraos_path = shutil.which("auraos.sh") or os.path.join(os.getcwd(), "auraos.sh") if os.path.isfile(os.path.join(os.getcwd(), "auraos.sh")) else None
+            if auraos_path:
+                cmd = [auraos_path, "automate", f"find files: {search_query}"]
+                result = subprocess.run(
+                    cmd, capture_output=True, text=True, timeout=60,
+                    cwd=os.path.expanduser("~")
+                )
+            else:
+                # Run a local find limited to user's home directory and return the first 200 matches
+                try:
+                    find_cmd = [
+                        "bash", "-lc",
+                        "find ~ -type f -iname '*%s*' 2>/dev/null | head -n 200" % search_query.replace("'","'\\''")
+                    ]
+                    result = subprocess.run(find_cmd, capture_output=True, text=True, timeout=60)
+                except Exception as e:
+                    result = subprocess.CompletedProcess(args=find_cmd, returncode=1, stdout="", stderr=str(e))
             
             if result.stdout:
                 self.append(result.stdout, "output")
