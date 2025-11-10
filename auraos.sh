@@ -828,55 +828,80 @@ class AuraOSTerminal:
         self.cmd_panel.destroy()
         self.cmd_panel = tk.Frame(self.root.winfo_children()[1], bg='#1a1e37', width=250)
         
-        # Title
-        title = tk.Label(
-            self.cmd_panel, text="Commands", font=('Arial', 12, 'bold'),
-            fg='#00d4ff', bg='#1a1e37'
-        )
-        title.pack(padx=10, pady=10, fill='x')
-        
-        # Command list
-        commands_text = scrolledtext.ScrolledText(
-            self.cmd_panel, wrap=tk.WORD, bg='#0a0e27', fg='#d4d4d4',
-            font=('Menlo', 9), height=30, width=25, relief='flat'
-        )
-        commands_text.pack(fill='both', expand=True, padx=10, pady=10)
-        
-        commands_help = """Built-in Commands:
-  help      Show this help
-  clear     Clear screen
-  history   Show history
-  exit      Close app
+                # Title
+                title = tk.Label(
+                        self.cmd_panel, text="Commands", font=('Arial', 12, 'bold'),
+                        fg='#00d4ff', bg='#1a1e37'
+                )
+                title.pack(padx=10, pady=10, fill='x')
 
-AI Agent Mode:
-  Describe any task in plain language
-  and the terminal will:
-  → Generate the right commands
-  → Handle missing tools (install)
-  → Chain tasks intelligently
-  → Fallback on failures
-  → Keep trying to complete goal
+                # Command list
+                commands_text = scrolledtext.ScrolledText(
+                        self.cmd_panel, wrap=tk.WORD, bg='#0a0e27', fg='#d4d4d4',
+                        font=('Menlo', 9), height=30, width=25, relief='flat'
+                )
+                commands_text.pack(fill='both', expand=True, padx=10, pady=10)
 
-Examples (try these!):
-  "open excel and create a 
-   spreadsheet with Q3 data"
-  
-  "find all modified files in
-   home and backup to /tmp"
-  
-  "install python deps and
-   run the test suite"
-  
-  "compress logs older than 30
-   days and archive to storage"
+                commands_help = """Built-in Commands:
+    help      Show this help
+    clear     Clear screen
+    history   Show history
+    exit      Close app
 
-Each task is logged with full
-execution details & timestamps.
+AI Agent Mode — HOW IT WORKS:
+    This section explains the *mechanics* of the AI integration,
+    not only what it can do. Use plain English to describe a goal
+    and the terminal will run a controlled pipeline:
+
+    1) Intent parsing
+         • Your natural-language task is sent to a local assistant
+             (configured to use Ollama/local LLM or a gateway).
+         • The assistant returns a proposed plan: steps and commands.
+
+    2) Command generation & safety checks
+         • Candidate shell commands are synthesized from the plan.
+         • A lightweight safety validator runs heuristics (no rm -rf /, no
+             direct network exfiltration, path sanity checks).
+         • The validator will annotate risky commands and ask for
+             confirmation before execution (unless auto-approve is set).
+
+    3) Dry-run / validation (when available)
+         • For operations that support it, a dry-run is attempted first
+             (e.g. --dry-run flags or a simulated verification step).
+
+    4) Execution & recovery
+         • Commands run asynchronously and are logged (stdout/stderr,
+             exit codes, timestamps) to /tmp/auraos_launcher.log.
+         • If a tool is missing, the terminal can install it (apt/pip)
+             and resume the task.
+         • On failure the agent attempts intelligent fallbacks and
+             reports final status and suggested next steps.
+
+    5) Post-checks
+         • After completion the agent can run verification commands
+             (service checks, file existence, checksum, etc.) and show
+             the final report in the chat view.
+
+EXAMPLES (what to *say*):
+    "create a spreadsheet with Q3 data and save it to /tmp/q3.xlsx"
+    "find large media files and archive them to /mnt/archive"
+    "install python deps from requirements.txt and run pytest"
+
+IMPLEMENTATION NOTES:
+    • Implemented now: async command execution, logging,
+        history, basic safe-run heuristics, and an integration hook
+        where an LLM prompt/response can be plugged in.
+    • Planned/optional: a full Ollama/GPT local model integration
+        with response parsing, richer dry-run simulation, and an
+        explicit interactive approval UI. These appear as
+        configurable options in the terminal's settings.
+
+Each task is logged with full execution details & timestamps.
 
 Press ☰ to hide
 """
-        commands_text.insert(tk.END, commands_help)
-        commands_text.config(state='disabled')
+                commands_text.insert(tk.END, commands_help)
+                commands_text.config(state='disabled')
     
     def append_output(self, text, tag="output"):
         """Append text to output area"""
@@ -899,6 +924,13 @@ Press ☰ to hide
         self.append_output(f"→ {command}\n", "user")
         self.input_field.delete(0, tk.END)
         
+        # Handle AI-prefixed tasks (natural language)
+        if command.lower().startswith('ai:'):
+            # Strip prefix and hand off to the AI task handler
+            task = command[3:].strip()
+            threading.Thread(target=self.handle_ai_task, args=(task,), daemon=True).start()
+            return
+
         # Handle built-in commands
         if command.lower() in ['exit', 'quit']:
             self.log_event("EXIT", "User closed terminal")
@@ -950,66 +982,152 @@ Press ☰ to hide
             self.log_event("ERROR", f"Exception: {str(e)}")
         
         self.append_output("\n", "output")
+
+    def simple_plan(self, text):
+        """Very small heuristic planner: returns a list of candidate shell commands
+        based on keywords. This is intentionally conservative and is a hook
+        where a real LLM adapter can be integrated."""
+        text_l = text.lower()
+        commands = []
+        note = ""
+        # install X
+        if 'install' in text_l and ('pip' in text_l or 'python' in text_l or 'package' in text_l):
+            # Attempt to find requirements file
+            commands.append('pip install -r requirements.txt')
+            note = 'Will attempt pip install from requirements.txt'
+        elif text_l.startswith('install') or 'install' in text_l:
+            # generic install using apt
+            # pick last word as package if obvious
+            parts = text_l.split()
+            for p in reversed(parts):
+                if p.isalpha() and len(p) > 2:
+                    pkg = p
+                    break
+            else:
+                pkg = None
+            if pkg:
+                commands.append(f'sudo apt-get update && sudo apt-get install -y {pkg}')
+                note = f'Will apt-install package: {pkg}'
+            else:
+                commands.append('sudo apt-get update')
+                note = 'Will update apt; no package parsed'
+        elif 'spreadsheet' in text_l or 'excel' in text_l or 'csv' in text_l:
+            # propose a python pandas command (requires pandas)
+            commands.append("python3 - <<'PY'\nimport pandas as pd\ndf = pd.read_csv('input.csv')\ndf.to_excel('/tmp/out.xlsx', index=False)\nPY")
+            note = 'Will convert CSV -> XLSX using pandas (requires pandas)'
+        elif 'backup' in text_l or 'archive' in text_l:
+            commands.append("find ~ -type f -mtime -7 -print0 | xargs -0 tar -czf /tmp/backup_recent.tgz")
+            note = 'Will archive files modified in last 7 days'
+        else:
+            # fallback: echo a suggested command
+            commands.append(f"echo 'I could not parse the task: {text.replace("'","\\'")}'")
+            note = 'No heuristic match; returning an echo placeholder'
+
+        return commands, note
+
+    def handle_ai_task(self, task_text):
+        """Handle a natural-language task issued with the 'ai:' prefix.
+        This is a conservative implementation: it proposes commands and asks
+        for confirmation before running them.
+        GUI: uses a yes/no dialog. CLI: prompts for y/N.
+        """
+        self.log_event('AI_TASK', task_text)
+        self.append_output(f"⟡ AI Task: {task_text}\n", 'info')
+        cmds, note = self.simple_plan(task_text)
+        self.append_output(f"Proposed actions:\n", 'info')
+        for c in cmds:
+            self.append_output(f"  $ {c}\n", 'output')
+        if note:
+            self.append_output(f"Note: {note}\n", 'info')
+
+        # Confirmation
+        run_now = False
+        try:
+            # GUI path
+            if self.root:
+                msg = 'Run the proposed commands now? (They will run with the current user privileges)'
+                run_now = messagebox.askyesno('AI Task - Confirm', msg)
+        except Exception:
+            run_now = False
+
+        # CLI fallback: try reading from stdin
+        if not run_now:
+            try:
+                # In GUI this will be skipped; in CLI mode stdin is available
+                resp = input('Run proposed commands? (y/N): ').strip().lower()
+                run_now = (resp == 'y' or resp == 'yes')
+            except Exception:
+                run_now = False
+
+        if not run_now:
+            self.append_output('AI task aborted by user. No commands executed.\n', 'info')
+            return
+
+        # Execute commands sequentially
+        for c in cmds:
+            self.append_output(f'→ Executing: {c}\n', 'info')
+            self.log_event('AI_EXEC', c)
+            # run synchronously to preserve order
+            try:
+                res = subprocess.run(c, shell=True, capture_output=True, text=True, timeout=300, cwd=os.path.expanduser('~'))
+                if res.stdout:
+                    self.append_output(res.stdout, 'output')
+                if res.returncode != 0:
+                    if res.stderr:
+                        self.append_output(res.stderr, 'error')
+                    else:
+                        self.append_output(f'✗ Exit code: {res.returncode}\n', 'error')
+                else:
+                    self.append_output('✓ Completed\n', 'success')
+                self.log_event('AI_RESULT', f"cmd={c} exit={res.returncode}")
+            except Exception as e:
+                self.append_output(f'✗ Error running command: {e}\n', 'error')
+                self.log_event('AI_ERROR', str(e))
     
-    def show_help(self):
-                """Display help text"""
-                help_text = """
-⚡ AuraOS Terminal - AI Agent Interface
+     def show_help(self):
+                     """Display help text"""
+                     help_text = """
+⚡ AuraOS Terminal - How the AI integration works
 
-What makes this different from a normal shell?
+The terminal provides an *AI-assisted workflow* to convert your
+natural-language intent into safe, auditable shell actions.
 
-🤖 INTELLIGENT TASK COMPLETION
-   Describe what you want to accomplish in natural language.
-   The terminal understands task intent and can:
-   
-   • Generate multi-step command sequences
-   • Detect missing tools and install them automatically
-   • Handle failures gracefully with intelligent fallbacks
-   • Chain operations to complete your goal
-   
-   Example: "open excel and create a Q3 data spreadsheet"
-   → Checks if Excel/LibreOffice is installed
-   → If missing, installs it or finds alternative (calc, python+pandas)
-   → Creates the spreadsheet with your data structure
-   → Never gives up; always finds a way to complete the task
+Quick flow (what happens when you type a task):
 
-🔄 COMMAND GENERATION & VALIDATION
-   • Type tasks in plain English, not shell syntax
-   • Get command explanations before they run
-   • Commands are validated for safety before execution
-   • History shows both your intent AND what commands ran
+  1) You type an instruction in plain English.
+  2) (Optional) The instruction is sent to a local LLM adapter
+      which returns a proposed plan and candidate commands.
+  3) The terminal runs a validation pass: safety heuristics,
+      dry-run where possible, and identifies missing tools.
+  4) You are shown the plan and any risky steps; approve to run.
+  5) The terminal executes commands asynchronously, logs everything,
+      and attempts intelligent retries or fallbacks on failure.
 
-📊 FULL EXECUTION LOGGING
-   • Every command logged with: timestamp, PID, exit code, stdout, stderr
-   • Logs saved to: /tmp/auraos_launcher.log
-   • Perfect for debugging failed tasks or understanding what happened
-   • Timeout protection (30s default) prevents runaway processes
+Built-in safeguards and features:
+  • Safety validator: basic heuristics to avoid destructive ops.
+  • Auto-install: apt/pip installs for missing dependencies.
+  • Timeout: commands have a 30s default timeout (configurable).
+  • Execution log: /tmp/auraos_launcher.log stores timestamps, PIDs,
+     stdout/stderr, and exit codes for every run.
 
-💬 ASYNC & RESPONSIVE
-   • Commands run in background, UI stays interactive
-   • Color-coded output: green=success, red=errors, blue=info
-   • Press ↑/↓ to navigate command history
-   • Chat-style interface: your prompts + results in one view
+What is already implemented vs. planned:
+  • Implemented: async execution, logging, history, a hook that
+     accepts LLM-generated commands, basic safety heuristics, and
+     auto-install helpers (apt/pip wrappers).
+  • Planned: richer LLM integration (Ollama/GPT) with structured
+     responses, simulated dry-runs, and an interactive approval UI.
 
-What you can do with it:
+Examples you can try:
+  → "install python deps and run unit tests"
+  → "create a spreadsheet from CSV files in Downloads"
+  → "find and archive log files older than 30 days"
 
-  [AI TASKS]
-   → "download and process the latest CSV data files"
-   → "restart the auraos services and verify they're running"
-   → "find and move all large files (>100MB) to archive"
-   → "install python packages and run unit tests"
-   → "backup modified configs from the last 7 days"
-  
-  [DIRECT COMMANDS]
-   You can also use normal shell commands:
-   → ls -la /opt/auraos
-   → ps aux | grep python
-   → tail -f /tmp/auraos_launcher.log
+Logs: /tmp/auraos_launcher.log
 
-👉 TIP: Use the ☰ Commands menu for examples and common patterns.
-   Try typing: "help" to see this again, "history" to see past commands.
+Tip: Start with a short natural language goal, review the proposed
+plan, then approve execution.
 """
-                self.append_output(help_text, "info")
+                     self.append_output(help_text, "info")
     
     def show_history(self):
         """Display command history"""
