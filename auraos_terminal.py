@@ -312,6 +312,20 @@ class AuraOSTerminal:
 
             else:
                 # Fallback to previous behavior: call auraos.sh or local handlers
+                # But first, detect short chat/greetings and handle locally so we don't call auraos.sh
+                rt = request_text.strip().lower()
+                greetings = ["hello", "hi", "hey", "good morning", "good afternoon", "how are you", "yo"]
+                # If it's a short greeting or clearly not an automation request, reply locally
+                if len(rt.split()) <= 4 and any(g in rt for g in greetings):
+                    try:
+                        resp = local_conversational_ai(request_text)
+                        self.append(resp + "\n", "output")
+                    except Exception:
+                        self.append("I'm here — but couldn't form a reply right now.\n", "error")
+                    self.update_status("Ready", "#6db783")
+                    self.is_processing = False
+                    return
+
                 auraos_path = None
                 local_path = os.path.join(os.getcwd(), "auraos.sh")
                 if os.path.isfile(local_path) and os.access(local_path, os.X_OK):
