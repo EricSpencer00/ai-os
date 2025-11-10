@@ -1,0 +1,26 @@
+[Unit]
+Description=AuraOS Terminal - AI-Powered Command Interface
+Documentation=file:///usr/share/doc/auraos/TERMINAL_README.md
+After=network-online.target
+Wants=auraos-daemon.service
+
+[Service]
+Type=simple
+User=%i
+ExecStart=/usr/bin/python3 /opt/auraos/auraos_terminal.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+Environment="DISPLAY=:0"
+Environment="XAUTHORITY=%h/.Xauthority"
+
+# Security settings
+PrivateTmp=yes
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.auraos %h/.local/share/auraos /tmp
+
+[Install]
+WantedBy=graphical-session.target

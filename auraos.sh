@@ -464,6 +464,94 @@ echo "Done. Re-login or reboot the VM for all changes to take effect."
 DISABLE_EOF
 }
 
+cmd_setup_terminal() {
+    echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
+    echo -e "${BLUE}║   AuraOS Terminal Setup                ║${NC}"
+    echo -e "${BLUE}║   AI-Powered Command Interface         ║${NC}"
+    echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
+    echo ""
+
+    echo -e "${BLUE}Step 1/4: Copying terminal files...${NC}"
+    
+    # Try /opt/auraos first, fall back to ~/auraos
+    INSTALL_DIR="/opt/auraos"
+    if ! mkdir -p "$INSTALL_DIR" 2>/dev/null; then
+        INSTALL_DIR="$HOME/auraos"
+        mkdir -p "$INSTALL_DIR"
+        echo -e "${YELLOW}Note: Using home directory ($INSTALL_DIR) instead of /opt/auraos${NC}"
+    fi
+    
+    # Copy main terminal file
+    cp "$SCRIPT_DIR/auraos_terminal.py" "$INSTALL_DIR/auraos_terminal.py"
+    chmod +x "$INSTALL_DIR/auraos_terminal.py"
+    echo -e "${GREEN}✓ Terminal files installed to $INSTALL_DIR${NC}"
+    echo ""
+    
+    echo -e "${BLUE}Step 2/4: Installing dependencies...${NC}"
+    activate_venv
+    
+    # Ensure required packages are installed
+    pip install flask requests pillow >/dev/null 2>&1 || true
+    echo -e "${GREEN}✓ Dependencies installed${NC}"
+    echo ""
+    
+    echo -e "${BLUE}Step 3/4: Creating systemd service...${NC}"
+    
+    # Install systemd service if in a systemd environment
+    if command -v systemctl &> /dev/null; then
+        USER_HOME=$(eval echo ~"${SUDO_USER:-$USER}")
+        SYSTEMD_USER_DIR="$USER_HOME/.config/systemd/user"
+        
+        mkdir -p "$SYSTEMD_USER_DIR"
+        
+        # Copy service file
+        if [ -f "$SCRIPT_DIR/vm_resources/systemd/auraos-terminal.service" ]; then
+            cp "$SCRIPT_DIR/vm_resources/systemd/auraos-terminal.service" "$SYSTEMD_USER_DIR/auraos-terminal.service"
+            
+            # Enable the service
+            systemctl --user daemon-reload 2>/dev/null || true
+            systemctl --user enable auraos-terminal.service 2>/dev/null || true
+            
+            echo -e "${GREEN}✓ Systemd service installed and enabled${NC}"
+        fi
+    else
+        echo -e "${YELLOW}⚠ systemd not detected, skipping service installation${NC}"
+    fi
+    echo ""
+    
+    echo -e "${BLUE}Step 4/4: Creating launch script...${NC}"
+    
+    # Create ~/.local/bin if it doesn't exist
+    mkdir -p "$HOME/.local/bin"
+    
+    # Create launch script
+    cat > "$HOME/.local/bin/auraos-terminal" <<TERMINAL_SCRIPT
+#!/bin/bash
+# AuraOS Terminal Launcher
+python3 "$INSTALL_DIR/auraos_terminal.py" "\$@"
+TERMINAL_SCRIPT
+    
+    chmod +x "$HOME/.local/bin/auraos-terminal"
+    echo -e "${GREEN}✓ Launch script created${NC}"
+    echo ""
+    
+    echo -e "${GREEN}✓ AuraOS Terminal Setup Complete!${NC}"
+    echo ""
+    echo "Next steps:"
+    echo "1. Launch terminal:"
+    echo "   $HOME/.local/bin/auraos-terminal"
+    echo "   or: python3 $INSTALL_DIR/auraos_terminal.py"
+    echo ""
+    echo "2. Start the AI daemon (in another terminal):"
+    echo "   cd $SCRIPT_DIR/auraos_daemon"
+    echo "   python main.py"
+    echo ""
+    echo "3. Click ⚡ AI button for natural language commands"
+    echo "4. Type 'help' for more information"
+    echo ""
+    echo "Logs: /tmp/auraos_terminal.log"
+}
+
 cmd_install() {
     echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
     echo -e "${BLUE}║   AuraOS Installation Script v1.0      ║${NC}"
@@ -1939,6 +2027,7 @@ cmd_help() {
     echo "Commands:"
     echo "  install            - Install all dependencies (Homebrew, Multipass, Ollama, Python)"
     echo "  setup-v2           - Install v2 improvements (delta detection, planner, WebSocket)"
+    echo "  setup-terminal     - Setup AuraOS Terminal (AI-powered command interface)"
     echo "  vm-setup           - Create and configure Ubuntu VM with GUI"
     echo "  status             - Show VM and service status"
     echo "  health             - Run comprehensive system health check"
@@ -1954,30 +2043,15 @@ cmd_help() {
     echo "  restart            - Restart all VM services"
     echo "  help               - Show this help"
     echo ""
-    echo "Examples:"
-    echo "  $0 install                                   # First-time setup"
-    echo "  $0 vm-setup                                  # Create Ubuntu VM"
-    echo "  $0 health                                    # Check all systems"
-    echo "  $0 gui-reset                                 # Reset VNC/noVNC from scratch"
-    echo "  $0 screenshot                                # Capture desktop"
-    echo "  $0 automate \"click on file manager\"        # AI automation"
-    echo "  $0 keys ollama llava:13b llava:13b          # Configure vision model"
-    echo ""
-    echo "Examples:"
-    echo "  $0 install                                   # First-time setup"
-    echo "  $0 vm-setup                                  # Create Ubuntu VM"
-    echo "  $0 health                                    # Check all systems"
-    echo "  $0 forward start                             # Start port forwarders"
-    echo "  $0 gui-reset                                 # Reset VNC/noVNC from scratch"
-    echo "  $0 screenshot                                # Capture desktop"
-    echo "  $0 automate \"click on file manager\"        # AI automation"
-    echo "  $0 keys ollama llava:13b llava:13b          # Configure vision model"
-    echo ""
     echo "Quick Start:"
-    echo "  1. ./auraos.sh install     # Install everything"
-    echo "  2. ./auraos.sh vm-setup    # Create Ubuntu VM with GUI"
-    echo "  3. ./auraos.sh health      # Verify all systems working"
-    echo "  4. Open http://localhost:6080/vnc.html (password: auraos123)"
+    echo "  1. ./auraos.sh install       # Install everything"
+    echo "  2. ./auraos.sh vm-setup      # Create Ubuntu VM with GUI"
+    echo "  3. ./auraos.sh setup-v2      # Install advanced features"
+    echo "  4. ./auraos.sh setup-terminal # Setup AI terminal"
+    echo "  5. ./auraos.sh health        # Verify all systems working"
+    echo ""
+    echo "Web Interface:"
+    echo "  Open http://localhost:6080/vnc.html (password: auraos123)"
     echo ""
 }
 
@@ -1991,6 +2065,9 @@ case "$1" in
         ;;
     vm-setup)
         cmd_vm_setup
+        ;;
+    setup-terminal)
+        cmd_setup_terminal
         ;;
     forward)
         shift

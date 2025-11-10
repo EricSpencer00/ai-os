@@ -25,21 +25,36 @@ That's it! Your Ubuntu desktop is now accessible at: **http://localhost:6080/vnc
 
 ## Usage Examples
 
-### AuraOS Terminal (New!)
+### AuraOS Terminal (AI-Powered)
+
+The terminal is the easiest way to interact with the system using natural language:
 
 ```bash
-# Launch ChatGPT-style terminal
-auraos-terminal
+# Launch terminal
+./auraos.sh setup-terminal    # First time only
+auraos-terminal              # Or: python auraos_terminal.py
 
-# Or use CLI mode
-auraos-terminal --cli
+# Example AI commands (click ⚡ AI button or type "ai-"):
+ai- install python dependencies
+ai- backup important files
+ai- find large log files and compress them
+ai- list running processes using high CPU
 
-# Example commands:
+# Regular shell commands also work:
 help              # Show available commands
 ls                # List files
 whoami            # Current user
 date              # Show date/time
 ```
+
+**Key Features:**
+- ⚡ **AI Button**: One-click access to natural language mode
+- 🚀 **Auto-Execute**: Safe tasks run without confirmation
+- 📸 **Screen Context**: AI understands last 5 minutes of activity
+- 🔒 **Safe**: Dangerous operations blocked automatically
+- 📝 **Logged**: All actions tracked with full audit trail
+
+See `TERMINAL_README.md` for detailed terminal guide.
 
 ### AI Automation
 
