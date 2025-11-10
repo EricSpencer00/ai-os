@@ -291,7 +291,7 @@ cmd_gui_reset() {
     
     # Step 3: Setup VNC password
     echo -e "${YELLOW}[3/7]${NC} Setting up VNC authentication..."
-        multipass exec "$VM_NAME" -- sudo bash << 'VNC_PASSWORD_EOF' 2>/dev/null
+        multipass exec "$VM_NAME" -- sudo bash <<VNC_PASSWORD_EOF 2>/dev/null
             mkdir -p /home/${AURAOS_USER}/.vnc
             rm -f /home/${AURAOS_USER}/.vnc/passwd
       
@@ -314,7 +314,7 @@ VNC_PASSWORD_EOF
     
     # Step 4: Fix noVNC service configuration
     echo -e "${YELLOW}[4/7]${NC} Configuring noVNC service..."
-    multipass exec "$VM_NAME" -- sudo bash << 'SERVICE_EOF' 2>/dev/null
+    multipass exec "$VM_NAME" -- sudo bash <<SERVICE_EOF 2>/dev/null
 cat > /etc/systemd/system/auraos-novnc.service << "CONFIG_EOF"
 [Unit]
 Description=AuraOS noVNC web proxy
@@ -587,7 +587,7 @@ cmd_vm_setup() {
     echo ""
 
     echo -e "${YELLOW}[4/5]${NC} Setting up VNC services..."
-    multipass exec "$VM_NAME" -- sudo bash << 'SERVICE_SETUP'
+    multipass exec "$VM_NAME" -- sudo bash <<SERVICE_SETUP
 # Create x11vnc systemd service
 cat > /etc/systemd/system/auraos-x11vnc.service << 'EOF'
 [Unit]
@@ -652,7 +652,7 @@ SERVICE_SETUP
     echo ""
 
     echo -e "${YELLOW}[5/7]${NC} Setting up VNC password and starting services..."
-    multipass exec "$VM_NAME" -- sudo bash << 'VNC_START'
+    multipass exec "$VM_NAME" -- sudo bash <<VNC_START
 # Create VNC password
 mkdir -p /home/${AURAOS_USER}/.vnc
 rm -f /home/${AURAOS_USER}/.vnc/passwd
@@ -680,7 +680,7 @@ systemctl start auraos-novnc.service
 VNC_START
 
     echo -e "${YELLOW}[6/7]${NC} Installing AuraOS applications (with error logging)..."
-    multipass exec "$VM_NAME" -- sudo bash << 'AURAOS_APPS'
+    multipass exec "$VM_NAME" -- sudo bash <<AURAOS_APPS
 # Install dependencies for AuraOS apps
 apt-get update -qq && apt-get install -y python3-tk python3-pip portaudio19-dev firefox >/dev/null 2>&1
 pip3 install speech_recognition pyaudio >/dev/null 2>&1
@@ -1421,7 +1421,7 @@ echo "✓ AuraOS applications installed with error logging"
 AURAOS_APPS
 
     echo -e "${YELLOW}[7/7]${NC} Configuring AuraOS branding..."
-    multipass exec "$VM_NAME" -- sudo bash << 'BRANDING'
+    multipass exec "$VM_NAME" -- sudo bash <<BRANDING
 # Set hostname
 echo "auraos" > /etc/hostname
 sed -i 's/ubuntu-multipass/auraos/g' /etc/hosts
@@ -1522,6 +1522,26 @@ USER_CONFIG
 
 echo "✓ AuraOS branding configured"
 BRANDING
+
+    # Additional safety: ensure xfce4-screensaver cannot lock the session.
+    # Remove per-user autostart, kill any running screensaver processes, and
+    # remove the package if present. These are non-fatal operations.
+    multipass exec "$VM_NAME" -- sudo bash -c '
+        # remove system autostart for xfce4-screensaver (if exists)
+        rm -f /etc/xdg/autostart/xfce4-screensaver.desktop || true
+
+        # remove per-user autostart for the auraos user
+        if [ -d "/home/${AURAOS_USER}/.config/autostart" ]; then
+            rm -f /home/${AURAOS_USER}/.config/autostart/xfce4-screensaver.desktop || true
+            chown -R ${AURAOS_USER}:${AURAOS_USER} /home/${AURAOS_USER}/.config || true
+        fi
+
+        # Kill any running screensaver processes
+        pkill -f xfce4-screensaver || true
+
+        # Try removing the xfce4-screensaver package to avoid re-enabling locks
+        DEBIAN_FRONTEND=noninteractive apt-get remove -y xfce4-screensaver >/dev/null 2>&1 || true
+    '
 
     # Set up port forwarding
     VM_IP=$(multipass info "$VM_NAME" | grep IPv4 | awk '{print $2}')
