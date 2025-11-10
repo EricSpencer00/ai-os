@@ -338,30 +338,54 @@ SERVICE_EOF
     multipass exec "$VM_NAME" -- sudo systemctl start auraos-x11vnc.service
     sleep 5
     
-    # Step 6: Verify x11vnc is listening
+    # Step 6: Verify x11vnc is listening (robust host-driven check)
     echo -e "${YELLOW}[6/7]${NC} Verifying x11vnc is listening..."
-    multipass exec "$VM_NAME" -- bash -c '
-      for i in {1..10}; do
-        ss -tlnp 2>/dev/null | grep -q 5900 && break
+
+    found_x11vnc=false
+    for i in {1..10}; do
+        # Run the check from the host to avoid long-lived remote shells blocking
+        if multipass exec "$VM_NAME" -- ss -tlnp 2>/dev/null | grep -q ":5900\b"; then
+            found_x11vnc=true
+            break
+        fi
         sleep 1
-      done
-      ss -tlnp 2>/dev/null | grep 5900 || netstat -tlnp 2>/dev/null | grep 5900
-    ' >/dev/null 2>&1
-    echo -e "${GREEN}✓ x11vnc listening on port 5900${NC}"
+    done
+
+    if [ "$found_x11vnc" = true ]; then
+        echo -e "${GREEN}✓ x11vnc listening on port 5900${NC}"
+    else
+        echo -e "${RED}✗ x11vnc did not appear on port 5900 after 10s${NC}"
+        echo -e "${YELLOW}Gathering diagnostic information...${NC}"
+        multipass exec "$VM_NAME" -- sudo systemctl status auraos-x11vnc.service --no-pager || true
+        multipass exec "$VM_NAME" -- sudo journalctl -u auraos-x11vnc.service -n 80 --no-pager || true
+        echo -e "${YELLOW}You can inspect the VM logs or retry the GUI reset.${NC}"
+        return 1
+    fi
     
     # Step 7: Start noVNC
     echo -e "${YELLOW}[7/7]${NC} Starting noVNC web server..."
     multipass exec "$VM_NAME" -- sudo systemctl start auraos-novnc.service
     sleep 4
     
-    # Verify noVNC
-    multipass exec "$VM_NAME" -- bash -c '
-      for i in {1..10}; do
-        ss -tlnp 2>/dev/null | grep -q 6080 && break
+    # Verify noVNC (host-driven check)
+    found_novnc=false
+    for i in {1..10}; do
+        if multipass exec "$VM_NAME" -- ss -tlnp 2>/dev/null | grep -q ":6080\b"; then
+            found_novnc=true
+            break
+        fi
         sleep 1
-      done
-    ' >/dev/null 2>&1
-    echo -e "${GREEN}✓ noVNC listening on port 6080${NC}"
+    done
+
+    if [ "$found_novnc" = true ]; then
+        echo -e "${GREEN}✓ noVNC listening on port 6080${NC}"
+    else
+        echo -e "${RED}✗ noVNC did not appear on port 6080 after 10s${NC}"
+        echo -e "${YELLOW}Gathering diagnostic information...${NC}"
+        multipass exec "$VM_NAME" -- sudo systemctl status auraos-novnc.service --no-pager || true
+        multipass exec "$VM_NAME" -- sudo journalctl -u auraos-novnc.service -n 80 --no-pager || true
+        return 1
+    fi
     
     echo ""
     echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
