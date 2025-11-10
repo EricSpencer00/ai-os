@@ -771,7 +771,13 @@ sleep 2
 systemctl start auraos-novnc.service
 VNC_START
 
-    echo -e "${YELLOW}[6/7]${NC} Installing AuraOS applications (with error logging)..."
+    echo -e "${YELLOW}[6/7]${NC} Installing AuraOS applications..."
+    
+    # Copy new dual-mode terminal and browser from local workspace
+    echo "Copying AuraOS Terminal (dual-mode) and Browser to VM..."
+    multipass transfer auraos_terminal.py "$VM_NAME:/tmp/auraos_terminal.py" 2>/dev/null || true
+    multipass transfer auraos_browser.py "$VM_NAME:/tmp/auraos_browser.py" 2>/dev/null || true
+    
     multipass exec "$VM_NAME" -- sudo bash <<AURAOS_APPS
 # Install dependencies for AuraOS apps
 apt-get update -qq && apt-get install -y python3-tk python3-pip portaudio19-dev firefox >/dev/null 2>&1
@@ -785,6 +791,17 @@ cat > /tmp/auraos_launcher.log << 'LOG_INIT'
 # AuraOS Launcher Log
 # Created at installation time
 LOG_INIT
+
+# Copy new applications if they were transferred
+if [ -f /tmp/auraos_terminal.py ]; then
+    cp /tmp/auraos_terminal.py /opt/auraos/bin/auraos_terminal.py
+    chmod +x /opt/auraos/bin/auraos_terminal.py
+fi
+
+if [ -f /tmp/auraos_browser.py ]; then
+    cp /tmp/auraos_browser.py /opt/auraos/bin/auraos_browser.py
+    chmod +x /opt/auraos/bin/auraos_browser.py
+fi
 
 # Install ChatGPT-style AuraOS Terminal with Hamburger Menu
 cat > /opt/auraos/bin/auraos_terminal.py << 'TERMINAL_EOF'
@@ -1492,6 +1509,12 @@ cd /opt/auraos/bin
 exec python3 auraos_terminal.py "$@"
 TERM_LAUNCHER
 
+cat > /usr/local/bin/auraos-browser << 'BROWSER_LAUNCHER'
+#!/bin/bash
+cd /opt/auraos/bin
+exec python3 auraos_browser.py "$@"
+BROWSER_LAUNCHER
+
 cat > /usr/local/bin/auraos-home << 'HOME_LAUNCHER'
 #!/bin/bash
 cd /opt/auraos/bin
@@ -1499,6 +1522,7 @@ exec python3 auraos_homescreen.py
 HOME_LAUNCHER
 
 chmod +x /usr/local/bin/auraos-terminal
+chmod +x /usr/local/bin/auraos-browser
 chmod +x /usr/local/bin/auraos-home
 
 # Change terminal launcher to not use env var
@@ -1593,6 +1617,30 @@ Exec=auraos-terminal
 Icon=utilities-terminal
 Terminal=false
 Categories=System;TerminalEmulator;
+DESKTOP_EOF
+
+cat > ~/Desktop/AuraOS_Terminal.desktop << 'DESKTOP_EOF'
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=AuraOS Terminal
+Comment=AI-Powered Dual-Mode Terminal
+Exec=auraos-terminal
+Icon=utilities-terminal
+Terminal=false
+Categories=System;Development;
+DESKTOP_EOF
+
+cat > ~/Desktop/AuraOS_Browser.desktop << 'DESKTOP_EOF'
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=AuraOS Browser
+Comment=AI-Powered Web Search Browser
+Exec=auraos-browser
+Icon=web-browser
+Terminal=false
+Categories=Internet;
 DESKTOP_EOF
 
 cat > ~/Desktop/AuraOS_Home.desktop << 'DESKTOP_EOF'
