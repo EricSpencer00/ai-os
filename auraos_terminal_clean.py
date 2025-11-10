@@ -8,6 +8,7 @@ import subprocess
 import threading
 import sys
 import os
+import shutil
 from datetime import datetime
 
 class AuraOSTerminal:
@@ -228,6 +229,32 @@ Press ☰ to hide
         elif command.lower() == 'history':
             self.show_history()
             return
+
+        # Detect likely natural-language input (e.g. "download open libre software")
+        # If the first token is not an executable on PATH and the input contains spaces
+        # and no obvious shell operators, prompt the user to run it via the AI agent.
+        try:
+            first_tok = command.split()[0]
+            has_shell_chars = any(ch in command for ch in ';|&$<>`\\')
+            if ' ' in command and not has_shell_chars and shutil.which(first_tok) is None:
+                # Ask the user whether to route this through the AI agent instead
+                try:
+                    if not self.cli_mode and self.root:
+                        use_ai = messagebox.askyesno('AI assistant',
+                                                     'This looks like a natural-language request.\nRun it using the AI assistant (recommended)?')
+                        if use_ai:
+                            threading.Thread(target=self.handle_ai_task, args=(command,), daemon=True).start()
+                            return
+                    else:
+                        resp = input('This looks like a natural-language request. Run with AI assistant? (y/N): ').strip().lower()
+                        if resp in ('y', 'yes'):
+                            self.handle_ai_task(command)
+                            return
+                except Exception:
+                    # GUI may not be available in some environments; fall through to executing as-is
+                    pass
+        except Exception:
+            pass
 
         threading.Thread(target=self.run_command, args=(command,), daemon=True).start()
 
