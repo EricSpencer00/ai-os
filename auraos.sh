@@ -7,6 +7,9 @@ set -e
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 VENV_DIR="$SCRIPT_DIR/auraos_daemon/venv"
 
+# Configurable VM username (default matches Multipass cloud images)
+AURAOS_USER="${AURAOS_USER:-ubuntu}"
+
 # Colors
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
@@ -149,7 +152,7 @@ cmd_health() {
     
     # Check 4: VNC Password File
     echo -e "${YELLOW}[4/7]${NC} VNC Authentication"
-    if multipass exec auraos-multipass -- [ -f /home/ubuntu/.vnc/passwd ] 2>/dev/null; then
+    if multipass exec auraos-multipass -- [ -f /home/${AURAOS_USER}/.vnc/passwd ] 2>/dev/null; then
         echo -e "${GREEN}✓ Password file exists${NC}"
     else
         echo -e "${RED}✗ Password file missing${NC}"
@@ -288,25 +291,25 @@ cmd_gui_reset() {
     
     # Step 3: Setup VNC password
     echo -e "${YELLOW}[3/7]${NC} Setting up VNC authentication..."
-    multipass exec "$VM_NAME" -- sudo bash << 'VNC_PASSWORD_EOF' 2>/dev/null
-      mkdir -p /home/ubuntu/.vnc
-      rm -f /home/ubuntu/.vnc/passwd
+        multipass exec "$VM_NAME" -- sudo bash << 'VNC_PASSWORD_EOF' 2>/dev/null
+            mkdir -p /home/${AURAOS_USER}/.vnc
+            rm -f /home/${AURAOS_USER}/.vnc/passwd
       
-      expect << 'EXPECT_EOF'
-        set timeout 5
-        spawn x11vnc -storepasswd /home/ubuntu/.vnc/passwd
-        expect "Enter VNC password:"
-        send "auraos123\r"
-        expect "Verify password:"
-        send "auraos123\r"
-        expect "Write password"
-        send "y\r"
-        expect eof
+            expect << 'EXPECT_EOF'
+                set timeout 5
+                spawn x11vnc -storepasswd /home/${AURAOS_USER}/.vnc/passwd
+                expect "Enter VNC password:"
+                send "auraos123\r"
+                expect "Verify password:"
+                send "auraos123\r"
+                expect "Write password"
+                send "y\r"
+                expect eof
 EXPECT_EOF
       
-      chown ubuntu:ubuntu /home/ubuntu/.vnc/passwd
-      chmod 600 /home/ubuntu/.vnc/passwd
-      echo "✓ Password file created at /home/ubuntu/.vnc/passwd"
+            chown ${AURAOS_USER}:${AURAOS_USER} /home/${AURAOS_USER}/.vnc/passwd
+            chmod 600 /home/${AURAOS_USER}/.vnc/passwd
+            echo "✓ Password file created at /home/${AURAOS_USER}/.vnc/passwd"
 VNC_PASSWORD_EOF
     
     # Step 4: Fix noVNC service configuration
@@ -319,8 +322,8 @@ After=network.target auraos-x11vnc.service
 
 [Service]
 Type=simple
-User=ubuntu
-Environment=HOME=/home/ubuntu
+User=${AURAOS_USER}
+Environment=HOME=/home/${AURAOS_USER}
 ExecStart=/opt/novnc/utils/novnc_proxy --listen 6080 --vnc localhost:5900 --web /opt/novnc --file-only
 Restart=on-failure
 RestartSec=5
@@ -593,11 +596,11 @@ After=network.target
 
 [Service]
 Type=simple
-User=ubuntu
+User=${AURAOS_USER}
 Environment=DISPLAY=:99
-Environment=HOME=/home/ubuntu
+Environment=HOME=/home/${AURAOS_USER}
 ExecStartPre=/usr/bin/Xvfb :99 -screen 0 1280x720x24 -ac -nolisten tcp &
-ExecStart=/usr/bin/x11vnc -display :99 -forever -shared -rfbauth /home/ubuntu/.vnc/passwd -rfbport 5900
+ExecStart=/usr/bin/x11vnc -display :99 -forever -shared -rfbauth /home/${AURAOS_USER}/.vnc/passwd -rfbport 5900
 Restart=on-failure
 RestartSec=5
 
@@ -613,8 +616,8 @@ After=network.target auraos-x11vnc.service
 
 [Service]
 Type=simple
-User=ubuntu
-Environment=HOME=/home/ubuntu
+User=${AURAOS_USER}
+Environment=HOME=/home/${AURAOS_USER}
 ExecStart=/opt/novnc/utils/novnc_proxy --listen 6080 --vnc localhost:5900 --web /opt/novnc --file-only
 Restart=on-failure
 RestartSec=5
@@ -631,11 +634,11 @@ After=network.target auraos-x11vnc.service
 
 [Service]
 Type=simple
-User=ubuntu
+User=${AURAOS_USER}
 Environment=DISPLAY=:99
-Environment=HOME=/home/ubuntu
-WorkingDirectory=/home/ubuntu
-ExecStart=/usr/bin/python3 /home/ubuntu/gui_agent.py
+Environment=HOME=/home/${AURAOS_USER}
+WorkingDirectory=/home/${AURAOS_USER}
+ExecStart=/usr/bin/python3 /home/${AURAOS_USER}/gui_agent.py
 Restart=on-failure
 RestartSec=5
 
@@ -651,12 +654,12 @@ SERVICE_SETUP
     echo -e "${YELLOW}[5/7]${NC} Setting up VNC password and starting services..."
     multipass exec "$VM_NAME" -- sudo bash << 'VNC_START'
 # Create VNC password
-mkdir -p /home/ubuntu/.vnc
-rm -f /home/ubuntu/.vnc/passwd
+mkdir -p /home/${AURAOS_USER}/.vnc
+rm -f /home/${AURAOS_USER}/.vnc/passwd
 
 expect << 'EXPECT_EOF'
 set timeout 5
-spawn x11vnc -storepasswd /home/ubuntu/.vnc/passwd
+spawn x11vnc -storepasswd /home/${AURAOS_USER}/.vnc/passwd
 expect "Enter VNC password:"
 send "auraos123\r"
 expect "Verify password:"
@@ -666,8 +669,8 @@ send "y\r"
 expect eof
 EXPECT_EOF
 
-chown -R ubuntu:ubuntu /home/ubuntu/.vnc
-chmod 600 /home/ubuntu/.vnc/passwd
+chown -R ${AURAOS_USER}:${AURAOS_USER} /home/${AURAOS_USER}/.vnc
+chmod 600 /home/${AURAOS_USER}/.vnc/passwd
 
 # Start services
 systemctl enable auraos-x11vnc.service auraos-novnc.service
@@ -1388,7 +1391,7 @@ HOMESCREEN_EOF
 # Make scripts executable and set permissions
 chmod +x /opt/auraos/bin/auraos_terminal.py
 chmod +x /opt/auraos/bin/auraos_homescreen.py
-chown -R ubuntu:ubuntu /opt/auraos
+chown -R ${AURAOS_USER}:${AURAOS_USER} /opt/auraos
 
 # Create/update command launchers
 cat > /usr/local/bin/auraos-terminal << 'TERM_LAUNCHER'
@@ -1424,8 +1427,8 @@ echo "auraos" > /etc/hostname
 sed -i 's/ubuntu-multipass/auraos/g' /etc/hosts
 sed -i 's/ubuntu/auraos/g' /etc/hosts
 
-# Configure desktop for ubuntu user
-sudo -u ubuntu bash << 'USER_CONFIG'
+# Configure desktop for ${AURAOS_USER} user
+sudo -u ${AURAOS_USER} bash << 'USER_CONFIG'
 # Create config directories
 mkdir -p ~/.config/xfce4/xfconf/xfce-perchannel-xml
 mkdir -p ~/.config/autostart
@@ -1533,7 +1536,7 @@ BRANDING
     # Set up SSH forwarding in background
     multipass exec "$VM_NAME" -- bash -c "
         # Allow password auth for port forwarding
-        echo 'ubuntu:auraos123' | sudo chpasswd
+        echo '${AURAOS_USER}:auraos123' | sudo chpasswd
         sudo sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config
         sudo systemctl restart ssh
     " >/dev/null 2>&1
@@ -1543,7 +1546,7 @@ BRANDING
     # Port forward VNC (5900->5901) and noVNC (6080->6080)
     ssh -f -N -L 5901:localhost:5900 -L 6080:localhost:6080 -L 8765:localhost:8765 \
         -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-        ubuntu@"$VM_IP" >/dev/null 2>&1 &
+        ${AURAOS_USER}@"$VM_IP" >/dev/null 2>&1 &
 
     echo -e "${GREEN}✓ Port forwarding set up${NC}"
     echo ""

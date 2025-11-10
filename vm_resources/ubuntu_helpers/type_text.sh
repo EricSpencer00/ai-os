@@ -2,7 +2,8 @@
 # type_text.sh - Type text on DISPLAY :1
 # Usage: ./type_text.sh "text to type"
 
-USER=ubuntu
+AURAOS_USER="${AURAOS_USER:-ubuntu}"
+USER="$AURAOS_USER"
 DISPLAY=:1
 
 if [ -z "$1" ]; then

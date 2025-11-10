@@ -4,7 +4,8 @@
 #   X, Y: pixel coordinates
 #   button: 1 (left, default), 2 (middle), 3 (right)
 
-USER=ubuntu
+AURAOS_USER="${AURAOS_USER:-ubuntu}"
+USER="$AURAOS_USER"
 DISPLAY=:1
 
 if [ -z "$1" ] || [ -z "$2" ]; then

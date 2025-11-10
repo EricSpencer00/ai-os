@@ -2,7 +2,8 @@
 # screenshot.sh - Capture screenshot from DISPLAY :1
 # Usage: ./screenshot.sh [output_file.png]
 
-USER=ubuntu
+AURAOS_USER="${AURAOS_USER:-ubuntu}"
+USER="$AURAOS_USER"
 DISPLAY=:1
 OUTPUT="${1:-/tmp/screenshot_$(date +%Y%m%d_%H%M%S).png}"
 
