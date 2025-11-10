@@ -837,6 +837,8 @@ if [ -f /tmp/auraos_browser.py ]; then
 fi
 
 # Install ChatGPT-style AuraOS Terminal with Hamburger Menu
+# Only install the built-in fallback if a transferred terminal was NOT copied
+if [ ! -f /opt/auraos/bin/auraos_terminal.py ]; then
 cat > /opt/auraos/bin/auraos_terminal.py << 'TERMINAL_EOF'
 #!/usr/bin/env python3
 """AuraOS Terminal - ChatGPT-Style AI Command Interface"""
@@ -1323,7 +1325,8 @@ if __name__ == "__main__":
         root = tk.Tk()
         app = AuraOSTerminal(root)
         root.mainloop()
-TERMINAL_EOF
+        TERMINAL_EOF
+        fi
 
 # Install Improved AuraOS Home Screen with Error Logging
 cat > /opt/auraos/bin/auraos_homescreen.py << 'HOMESCREEN_EOF'
@@ -1539,7 +1542,7 @@ chown -R ${AURAOS_USER}:${AURAOS_USER} /opt/auraos
 cat > /usr/local/bin/auraos-terminal << 'TERM_LAUNCHER'
 #!/bin/bash
 cd /opt/auraos/bin
-exec python3 auraos_terminal.py "$@"
+exec python3 /opt/auraos/bin/auraos_terminal.py "$@"
 TERM_LAUNCHER
 
 cat > /usr/local/bin/auraos-browser << 'BROWSER_LAUNCHER'
@@ -1561,8 +1564,7 @@ chmod +x /usr/local/bin/auraos-home
 # Change terminal launcher to not use env var
 cat > /opt/auraos/bin/auraos-terminal << 'TERMINAL_SCRIPT'
 #!/bin/bash
-cd /opt/auraos/bin
-exec python3 auraos_terminal.py "$@"
+exec python3 /opt/auraos/bin/auraos_terminal.py "$@"
 TERMINAL_SCRIPT
 chmod +x /opt/auraos/bin/auraos-terminal
 
