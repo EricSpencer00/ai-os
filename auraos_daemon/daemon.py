@@ -3,6 +3,7 @@
 import os, json, requests, subprocess, logging, base64, re, threading, time
 from flask import Flask, request, jsonify
 from core.llm_router import get_router
+from core import ai_helper
 
 app = Flask(__name__)
 VERSION = "8.4"
@@ -73,18 +74,15 @@ def generate_script():
     - Open Windows: {window_list_str}
     """
 
-    # Use the centralized LLM router (local Ollama preferred, fallback to cloud)
-    if not ROUTER:
-        logging.error("No LLM router available for script generation")
-        return jsonify({"error": "No LLM available"}), 500
+    # Centralized AI: try configured cloud provider (OpenRouter/OpenAI) and fall back to Ollama
+    res = ai_helper.get_ai_response(user_intent, system_prompt=system_prompt)
+    if not res.get('success'):
+        logging.error(f"[Script Gen] AI call failed: {res.get('error')}")
+        return jsonify({"error": "LLM call failed", "details": res.get('error')}), 500
 
+    msg = res.get('response', '')
+    logging.info(f"[Script Gen] Used provider: {res.get('provider')}")
     try:
-        res = ROUTER.route(user_intent, context={"system_prompt": system_prompt})
-        if not res.get('success'):
-            logging.error(f"[Script Gen] LLM routing failed: {res.get('error')}")
-            return jsonify({"error": "LLM call failed", "details": res.get('error')}), 500
-
-        msg = res.get('response', '')
         # Extract and parse JSON from model response
         content = re.sub(r'```json|```', '', msg, flags=re.IGNORECASE)
         match = re.search(r'\{.*\}', content, re.DOTALL)
@@ -156,30 +154,25 @@ def self_reflect():
         )
         task = f"LOGS: {logs}\nSOURCE: {src}"
 
-        logging.warning("[Self-Reflect] Sending self-improvement task to configured LLM via router...")
-        if not ROUTER:
-            logging.error("No LLM router available for self-reflect")
-            return jsonify({"error": "No LLM available"}), 500
+        logging.warning("[Self-Reflect] Sending self-improvement task to configured LLM...")
+        res = ai_helper.get_ai_response(task, system_prompt=system_prompt)
+        if not res.get('success'):
+            logging.error(f"[Self-Reflect] AI call failed: {res.get('error')}")
+            return jsonify({"error": "LLM call failed", "details": res.get('error')}), 500
 
+        msg = res.get('response', '')
+        logging.info(f"[Self-Reflect] Used provider: {res.get('provider')}")
         try:
-            res = ROUTER.route(task, context={"system_prompt": system_prompt})
-            if not res.get('success'):
-                logging.error(f"[Self-Reflect] LLM routing failed: {res.get('error')}")
-                return jsonify({"error": "LLM call failed", "details": res.get('error')}), 500
-
-            msg = res.get('response', '')
             content = re.sub(r'```json|```', '', msg, flags=re.IGNORECASE).strip()
-            try:
-                decoder = json.JSONDecoder()
-                update, idx = decoder.raw_decode(content)
-            except json.JSONDecodeError as e:
-                logging.error(f"[Self-Reflect] JSON parse error: {e}\nContent: {content}")
-                raise ValueError("Invalid JSON format in model response") from e
+            decoder = json.JSONDecoder()
+            update, idx = decoder.raw_decode(content)
 
             b64 = base64.b64encode(json.dumps(update).encode()).decode()
             subprocess.run(["python3", UPDATER_PATH, b64], check=False)
             return jsonify({"status": "update triggered"}), 200
-
+        except json.JSONDecodeError as e:
+            logging.error(f"[Self-Reflect] JSON parse error: {e}\nContent: {content}")
+            return jsonify({"error": "Parse failed", "details": str(e)}), 500
         except Exception as parse_err:
             logging.error(f"[Self-Reflect] Response parse error: {parse_err}")
             return jsonify({"error": "Parse failed", "details": str(parse_err)}), 500
@@ -204,16 +197,16 @@ def chat():
     data = request.get_json(force=True)
     user_message = data.get("message", "")
     # Use centralized router for conversational responses (local preferred)
-    if ROUTER:
-        res = ROUTER.route(user_message, context={})
-        if res.get('success'):
-            return jsonify({"response": res.get('response')}), 200
-        else:
-            logging.warning(f"Local router failed for chat: {res.get('error')}")
-
-    # Fallback to simple local stub
-    response = local_conversational_ai(user_message)
-    return jsonify({"response": response}), 200
+    # Try configured cloud provider first, then Ollama via ai_helper
+    res = ai_helper.get_ai_response(user_message, system_prompt=None)
+    if res.get('success') and res.get('response'):
+        logging.info(f"[Chat] Used provider: {res.get('provider')}")
+        return jsonify({"response": res.get('response')}), 200
+    else:
+        logging.warning(f"[Chat] AI call failed or empty: {res.get('error')}")
+        # Fallback to simple local stub
+        response = local_conversational_ai(user_message)
+        return jsonify({"response": response}), 200
 
 # Intent classification: decide if input is chat or task
 

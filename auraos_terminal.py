@@ -244,9 +244,13 @@ class AuraOSTerminal:
             interpreted = None
             if ai_helper:
                 try:
-                    interpreted = ai_helper.interpret_request_to_json(request_text)
+                    interpreted, provider = ai_helper.interpret_request_to_json(request_text)
+                    # Announce provider used
+                    if provider:
+                        self.append(f"Using AI provider: {provider}\n", "info")
                 except Exception:
                     interpreted = None
+                    provider = None
 
             # If AI returned an intent, handle it
             if interpreted and isinstance(interpreted, dict):

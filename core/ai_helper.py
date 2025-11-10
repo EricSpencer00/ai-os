@@ -16,6 +16,12 @@ import urllib.error
 import getpass
 
 from . import key_store
+try:
+    import requests
+    _REQUESTS_AVAILABLE = True
+except Exception:
+    requests = None
+    _REQUESTS_AVAILABLE = False
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
@@ -104,6 +110,51 @@ def call_ai_system(user_prompt, system_prompt=None, model=DEFAULT_MODEL, timeout
         return None
 
 
+def get_ai_response(user_prompt, system_prompt=None, model=DEFAULT_MODEL, timeout=15):
+    """Try provider-based cloud call first (OpenRouter/OpenAI via call_ai_system).
+
+    If that fails or no key/provider is configured, fall back to a local Ollama
+    instance (http://localhost:11434/api/chat). Returns a dict with keys:
+      success: bool, provider: str, response: str, model: str|None, error: str|None
+    """
+    # First try cloud/provider via call_ai_system
+    try:
+        cloud_resp = call_ai_system(user_prompt, system_prompt=system_prompt, model=model, timeout=timeout)
+        if cloud_resp:
+            return {"success": True, "provider": (key_store.get_default_provider() or os.environ.get('PROVIDER') or 'openai'), "response": cloud_resp, "model": model, "error": None}
+    except Exception as e:
+        # Continue to fallback
+        cloud_exc = e
+    # Fallback: try local Ollama
+    try:
+        ollama_url = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/chat")
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": user_prompt})
+        payload = {"model": os.environ.get("OLLAMA_MODEL", "gemma:2b"), "messages": messages, "stream": False}
+        if _REQUESTS_AVAILABLE:
+            resp = requests.post(ollama_url, json=payload, timeout=timeout)
+            resp.raise_for_status()
+            data = resp.json()
+        else:
+            # Fallback to urllib
+            import urllib.request as _ur
+            data_bytes = json.dumps(payload).encode('utf-8')
+            req = _ur.Request(ollama_url, data=data_bytes, method='POST')
+            req.add_header('Content-Type', 'application/json')
+            with _ur.urlopen(req, timeout=timeout) as r:
+                data = json.loads(r.read().decode('utf-8'))
+        return {"success": True, "provider": "ollama", "response": data.get("message", {}).get("content"), "model": payload["model"], "error": None}
+    except Exception as e:
+        # Both cloud and ollama failed
+        err = str(e)
+        # If we had a cloud exception, prefer that message
+        if 'cloud_exc' in locals():
+            err = str(cloud_exc)
+        return {"success": False, "provider": None, "response": None, "model": None, "error": err}
+
+
 def interpret_request_to_json(request_text):
     """Ask the AI to interpret a natural language request and return JSON.
 
@@ -122,7 +173,10 @@ def interpret_request_to_json(request_text):
         "If the command might be destructive (file deletion, format, network access), set confirm_required to true."
     )
 
-    ai_response = call_ai_system(request_text, system_prompt=system)
+    # Use the centralized get_ai_response so provider selection and fallback are consistent
+    res = get_ai_response(request_text, system_prompt=system)
+    provider = res.get('provider') if isinstance(res, dict) else None
+    ai_response = res.get('response') if isinstance(res, dict) else None
     if ai_response:
         # Try to extract JSON from the AI response
         try:
@@ -131,23 +185,23 @@ def interpret_request_to_json(request_text):
             if start != -1:
                 json_part = ai_response[start:]
                 parsed = json.loads(json_part)
-                return parsed
+                return parsed, provider
         except Exception:
             pass
 
     # Fallback heuristic
     rt = request_text.lower()
     if "open firefox" in rt:
-        return {"action": "run_command", "command": "firefox", "explanation": "Open Firefox browser", "confirm_required": False}
+        return {"action": "run_command", "command": "firefox", "explanation": "Open Firefox browser", "confirm_required": False}, None
     if rt.startswith("find") or rt.startswith("search") or "find files" in rt:
         # build a safe find command searching home directory
         q = request_text.replace('find files', '').replace('search', '').strip()
         q = q if q else "*"
         cmd = f"bash -lc \"find ~ -type f -iname '*{q}*' 2>/dev/null | head -n 200\""
-        return {"action": "run_command", "command": cmd, "explanation": "Search for files matching query in home directory", "confirm_required": False}
+        return {"action": "run_command", "command": cmd, "explanation": "Search for files matching query in home directory", "confirm_required": False}, None
 
     # Default: ask user for clarification
-    return {"action": "ask_user", "explanation": "I couldn't confidently map that request to a safe automated action. Please rephrase or provide more details.", "confirm_required": True}
+    return {"action": "ask_user", "explanation": "I couldn't confidently map that request to a safe automated action. Please rephrase or provide more details.", "confirm_required": True}, None
 
 def is_command_safe(command):
     """Naive safety check for a single command string.
