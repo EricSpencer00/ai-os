@@ -620,7 +620,7 @@ SERVICE_SETUP
     echo -e "${GREEN}✓ Services configured${NC}"
     echo ""
 
-    echo -e "${YELLOW}[5/5]${NC} Setting up VNC password and starting services..."
+    echo -e "${YELLOW}[5/7]${NC} Setting up VNC password and starting services..."
     multipass exec "$VM_NAME" -- sudo bash << 'VNC_START'
 # Create VNC password
 mkdir -p /home/ubuntu/.vnc
@@ -647,6 +647,440 @@ systemctl start auraos-x11vnc.service
 sleep 3
 systemctl start auraos-novnc.service
 VNC_START
+
+    echo -e "${YELLOW}[6/7]${NC} Installing AuraOS applications..."
+    multipass exec "$VM_NAME" -- sudo bash << 'AURAOS_APPS'
+# Install dependencies for AuraOS apps
+apt-get install -y python3-tk python3-pip portaudio19-dev >/dev/null 2>&1
+pip3 install speech_recognition pyaudio >/dev/null 2>&1
+
+# Create AuraOS bin directory
+mkdir -p /opt/auraos/bin
+
+# Install AuraOS Terminal
+cat > /opt/auraos/bin/auraos_terminal.py << 'TERMINAL_EOF'
+#!/usr/bin/env python3
+"""AuraOS Terminal - AI-Powered Command Interface"""
+import tkinter as tk
+from tkinter import scrolledtext
+import subprocess
+import threading
+import sys
+import os
+from datetime import datetime
+
+class AuraOSTerminal:
+    def __init__(self, root, cli_mode=False):
+        self.cli_mode = cli_mode
+        if not cli_mode:
+            self.root = root
+            self.root.title("AuraOS Terminal")
+            self.root.geometry("900x600")
+            self.root.configure(bg='#1e1e1e')
+            self.command_history = []
+            self.history_index = -1
+            self.create_widgets()
+        else:
+            self.run_cli_mode()
+    
+    def create_widgets(self):
+        # Output area
+        self.output_area = scrolledtext.ScrolledText(
+            self.root, wrap=tk.WORD, bg='#1e1e1e', fg='#d4d4d4',
+            font=('Consolas', 11), insertbackground='#00d4ff',
+            relief='flat', padx=10, pady=10
+        )
+        self.output_area.pack(fill='both', expand=True, padx=10, pady=(10,0))
+        
+        # Input frame
+        input_frame = tk.Frame(self.root, bg='#1e1e1e')
+        input_frame.pack(fill='x', padx=10, pady=10)
+        
+        # Input field
+        self.input_field = tk.Entry(
+            input_frame, bg='#2d2d2d', fg='#ffffff',
+            font=('Consolas', 11), insertbackground='#00d4ff',
+            relief='flat'
+        )
+        self.input_field.pack(side='left', fill='x', expand=True, ipady=8, padx=(0,10))
+        self.input_field.bind('<Return>', lambda e: self.execute_command())
+        self.input_field.bind('<Up>', self.history_up)
+        self.input_field.bind('<Down>', self.history_down)
+        
+        # Buttons
+        btn_frame = tk.Frame(input_frame, bg='#1e1e1e')
+        btn_frame.pack(side='right')
+        
+        self.execute_btn = tk.Button(
+            btn_frame, text="Execute", command=self.execute_command,
+            bg='#00d4ff', fg='#1e1e1e', font=('Arial', 10, 'bold'),
+            relief='flat', cursor='hand2', padx=15, pady=5
+        )
+        self.execute_btn.pack(side='left', padx=5)
+        
+        self.clear_btn = tk.Button(
+            btn_frame, text="Clear", command=self.clear_output,
+            bg='#2d2d2d', fg='#ffffff', font=('Arial', 10),
+            relief='flat', cursor='hand2', padx=15, pady=5
+        )
+        self.clear_btn.pack(side='left')
+        
+        # Welcome message
+        self.write_output("⚡ AuraOS Terminal v1.0\n", "system")
+        self.write_output("AI-Powered Command Interface\n\n", "system")
+        self.write_output("Type 'help' for available commands\n\n", "info")
+        
+        self.input_field.focus()
+    
+    def write_output(self, text, tag="output"):
+        self.output_area.insert(tk.END, text, tag)
+        self.output_area.tag_config("system", foreground="#00d4ff", font=('Consolas', 11, 'bold'))
+        self.output_area.tag_config("input", foreground="#4ec9b0")
+        self.output_area.tag_config("output", foreground="#d4d4d4")
+        self.output_area.tag_config("error", foreground="#f48771")
+        self.output_area.tag_config("info", foreground="#9cdcfe")
+        self.output_area.see(tk.END)
+    
+    def execute_command(self):
+        command = self.input_field.get().strip()
+        if not command:
+            return
+        
+        self.command_history.append(command)
+        self.history_index = len(self.command_history)
+        self.input_field.delete(0, tk.END)
+        
+        self.write_output(f"$ {command}\n", "input")
+        
+        if command.lower() in ['exit', 'quit']:
+            self.root.quit()
+            return
+        elif command.lower() == 'clear':
+            self.clear_output()
+            return
+        elif command.lower() == 'help':
+            self.show_help()
+            return
+        elif command.lower() == 'history':
+            self.show_history()
+            return
+        
+        threading.Thread(target=self.run_command, args=(command,), daemon=True).start()
+    
+    def run_command(self, command):
+        try:
+            result = subprocess.run(
+                command, shell=True, capture_output=True,
+                text=True, timeout=30, cwd=os.path.expanduser('~')
+            )
+            if result.stdout:
+                self.write_output(result.stdout, "output")
+            if result.stderr:
+                self.write_output(result.stderr, "error")
+            if result.returncode != 0:
+                self.write_output(f"\nExit code: {result.returncode}\n", "error")
+        except subprocess.TimeoutExpired:
+            self.write_output("\nCommand timed out (30s limit)\n", "error")
+        except Exception as e:
+            self.write_output(f"\nError: {str(e)}\n", "error")
+        self.write_output("\n", "output")
+    
+    def show_help(self):
+        help_text = """
+Built-in Commands:
+  help      - Show this help message
+  clear     - Clear the terminal
+  history   - Show command history
+  exit/quit - Exit the terminal
+
+All standard shell commands are supported.
+Examples: ls, pwd, date, whoami, cat, echo, etc.
+
+"""
+        self.write_output(help_text, "info")
+    
+    def show_history(self):
+        if not self.command_history:
+            self.write_output("No command history\n", "info")
+            return
+        self.write_output("Command History:\n", "info")
+        for i, cmd in enumerate(self.command_history, 1):
+            self.write_output(f"  {i}. {cmd}\n", "output")
+        self.write_output("\n", "output")
+    
+    def history_up(self, event):
+        if self.command_history and self.history_index > 0:
+            self.history_index -= 1
+            self.input_field.delete(0, tk.END)
+            self.input_field.insert(0, self.command_history[self.history_index])
+    
+    def history_down(self, event):
+        if self.history_index < len(self.command_history) - 1:
+            self.history_index += 1
+            self.input_field.delete(0, tk.END)
+            self.input_field.insert(0, self.command_history[self.history_index])
+        elif self.history_index == len(self.command_history) - 1:
+            self.history_index = len(self.command_history)
+            self.input_field.delete(0, tk.END)
+    
+    def clear_output(self):
+        self.output_area.delete(1.0, tk.END)
+        self.write_output("⚡ AuraOS Terminal\n\n", "system")
+    
+    def run_cli_mode(self):
+        print("⚡ AuraOS Terminal (CLI Mode)")
+        print("Type 'exit' to quit\n")
+        while True:
+            try:
+                command = input("$ ").strip()
+                if command.lower() in ['exit', 'quit']:
+                    break
+                if command:
+                    result = subprocess.run(command, shell=True, cwd=os.path.expanduser('~'))
+            except (EOFError, KeyboardInterrupt):
+                print("\nExiting...")
+                break
+
+if __name__ == "__main__":
+    if "--cli" in sys.argv:
+        app = AuraOSTerminal(None, cli_mode=True)
+    else:
+        root = tk.Tk()
+        app = AuraOSTerminal(root)
+        root.mainloop()
+TERMINAL_EOF
+
+# Install AuraOS Home Screen
+cat > /opt/auraos/bin/auraos_homescreen.py << 'HOMESCREEN_EOF'
+#!/usr/bin/env python3
+"""AuraOS Home Screen - Dashboard and Launcher"""
+import tkinter as tk
+import subprocess
+import os
+from datetime import datetime
+
+class AuraOSHomeScreen:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("AuraOS")
+        self.root.geometry("800x600")
+        self.root.configure(bg='#0a0e27')
+        self.create_widgets()
+        
+    def create_widgets(self):
+        # Header
+        header = tk.Frame(self.root, bg='#0a0e27', height=120)
+        header.pack(fill='x', padx=20, pady=20)
+        
+        logo_label = tk.Label(header, text="⚡ AuraOS", font=('Arial', 48, 'bold'),
+                             fg='#00d4ff', bg='#0a0e27')
+        logo_label.pack()
+        
+        tagline = tk.Label(header, text="AI-Powered Operating System",
+                          font=('Arial', 14), fg='#888888', bg='#0a0e27')
+        tagline.pack()
+        
+        # Content
+        content = tk.Frame(self.root, bg='#0a0e27')
+        content.pack(fill='both', expand=True, padx=40, pady=20)
+        
+        actions_frame = tk.Frame(content, bg='#0a0e27')
+        actions_frame.pack(pady=30)
+        
+        actions = [
+            ("🖥️ Terminal", "AuraOS Terminal", self.launch_terminal),
+            ("📁 Files", "File Manager", self.launch_files),
+            ("🌐 Browser", "Web Browser", self.launch_browser),
+            ("⚙️ Settings", "System Settings", self.launch_settings),
+        ]
+        
+        for idx, (icon, label, command) in enumerate(actions):
+            row = idx // 2
+            col = idx % 2
+            btn_frame = tk.Frame(actions_frame, bg='#1a1e37', relief='raised', bd=2)
+            btn_frame.grid(row=row, column=col, padx=15, pady=15, sticky='nsew')
+            btn = tk.Button(btn_frame, text=f"{icon}\n{label}", font=('Arial', 16),
+                           bg='#1a1e37', fg='#ffffff', activebackground='#2a2e47',
+                           activeforeground='#00d4ff', command=command, relief='flat',
+                           cursor='hand2', width=15, height=4)
+            btn.pack(fill='both', expand=True, padx=10, pady=10)
+            btn.bind('<Enter>', lambda e, b=btn: b.config(bg='#2a2e47', fg='#00d4ff'))
+            btn.bind('<Leave>', lambda e, b=btn: b.config(bg='#1a1e37', fg='#ffffff'))
+        
+        # Status bar
+        status_frame = tk.Frame(self.root, bg='#0a0e27', height=50)
+        status_frame.pack(side='bottom', fill='x', padx=20, pady=10)
+        
+        self.status_label = tk.Label(status_frame, text=self.get_system_info(),
+                                     font=('Arial', 10), fg='#666666', bg='#0a0e27', anchor='w')
+        self.status_label.pack(side='left')
+        
+        self.clock_label = tk.Label(status_frame, text="", font=('Arial', 12, 'bold'),
+                                    fg='#00d4ff', bg='#0a0e27', anchor='e')
+        self.clock_label.pack(side='right')
+        self.update_clock()
+        
+    def get_system_info(self):
+        try:
+            hostname = subprocess.check_output(['hostname'], text=True).strip()
+            return f"🖥️  {hostname}"
+        except:
+            return "🖥️  AuraOS"
+    
+    def update_clock(self):
+        now = datetime.now()
+        time_str = now.strftime("%I:%M %p")
+        date_str = now.strftime("%A, %B %d, %Y")
+        self.clock_label.config(text=f"{time_str}\n{date_str}")
+        self.root.after(1000, self.update_clock)
+    
+    def launch_terminal(self):
+        subprocess.Popen(['auraos-terminal'], start_new_session=True,
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    
+    def launch_files(self):
+        subprocess.Popen(['thunar'], start_new_session=True,
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    
+    def launch_browser(self):
+        subprocess.Popen(['firefox'], start_new_session=True,
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    
+    def launch_settings(self):
+        subprocess.Popen(['xfce4-settings-manager'], start_new_session=True,
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = AuraOSHomeScreen(root)
+    root.mainloop()
+HOMESCREEN_EOF
+
+# Make scripts executable
+chmod +x /opt/auraos/bin/auraos_terminal.py
+chmod +x /opt/auraos/bin/auraos_homescreen.py
+
+# Create command launchers
+cat > /usr/local/bin/auraos-terminal << 'TERM_LAUNCHER'
+#!/bin/bash
+cd /opt/auraos/bin
+exec python3 auraos_terminal.py "$@"
+TERM_LAUNCHER
+
+cat > /usr/local/bin/auraos-home << 'HOME_LAUNCHER'
+#!/bin/bash
+cd /opt/auraos/bin
+exec python3 auraos_homescreen.py
+HOME_LAUNCHER
+
+chmod +x /usr/local/bin/auraos-terminal
+chmod +x /usr/local/bin/auraos-home
+
+echo "✓ AuraOS applications installed"
+AURAOS_APPS
+
+    echo -e "${YELLOW}[7/7]${NC} Configuring AuraOS branding..."
+    multipass exec "$VM_NAME" -- sudo bash << 'BRANDING'
+# Set hostname
+echo "auraos" > /etc/hostname
+sed -i 's/ubuntu-multipass/auraos/g' /etc/hosts
+sed -i 's/ubuntu/auraos/g' /etc/hosts
+
+# Configure desktop for ubuntu user
+sudo -u ubuntu bash << 'USER_CONFIG'
+# Create config directories
+mkdir -p ~/.config/xfce4/xfconf/xfce-perchannel-xml
+mkdir -p ~/.config/autostart
+mkdir -p ~/Desktop
+
+# Disable screensaver
+cat > ~/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-screensaver.xml << 'XML_EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="xfce4-screensaver" version="1.0">
+  <property name="enabled" type="bool" value="false"/>
+  <property name="saver_enabled" type="bool" value="false"/>
+</channel>
+XML_EOF
+
+# Disable power manager locking
+cat > ~/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-power-manager.xml << 'XML_EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="xfce4-power-manager" version="1.0">
+  <property name="blank-on-ac" type="int" value="0"/>
+  <property name="dpms-on-ac-sleep" type="uint" value="0"/>
+  <property name="dpms-on-ac-off" type="uint" value="0"/>
+  <property name="lock-screen-suspend-hibernate" type="bool" value="false"/>
+  <property name="general-notification" type="bool" value="false"/>
+</channel>
+XML_EOF
+
+# Set AuraOS background
+cat > ~/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml << 'XML_EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="xfce4-desktop" version="1.0">
+  <property name="backdrop" type="empty">
+    <property name="screen0" type="empty">
+      <property name="monitorVNC-0" type="empty">
+        <property name="workspace0" type="empty">
+          <property name="color-style" type="int" value="0"/>
+          <property name="color1" type="array">
+            <value type="uint" value="4369"/>
+            <value type="uint" value="8738"/>
+            <value type="uint" value="13107"/>
+            <value type="uint" value="65535"/>
+          </property>
+          <property name="image-style" type="int" value="5"/>
+        </property>
+      </property>
+    </property>
+  </property>
+</channel>
+XML_EOF
+
+# Create autostart for home screen
+cat > ~/.config/autostart/auraos-homescreen.desktop << 'DESKTOP_EOF'
+[Desktop Entry]
+Type=Application
+Name=AuraOS Home
+Comment=AuraOS Home Screen Dashboard
+Exec=auraos-home
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=2
+DESKTOP_EOF
+
+# Create desktop shortcuts
+cat > ~/Desktop/AuraOS_Terminal.desktop << 'DESKTOP_EOF'
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=AuraOS Terminal
+Comment=AI-Powered Terminal
+Exec=auraos-terminal
+Icon=utilities-terminal
+Terminal=false
+Categories=System;TerminalEmulator;
+DESKTOP_EOF
+
+cat > ~/Desktop/AuraOS_Home.desktop << 'DESKTOP_EOF'
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=AuraOS Home
+Comment=AuraOS Dashboard
+Exec=auraos-home
+Icon=user-home
+Terminal=false
+Categories=System;
+DESKTOP_EOF
+
+chmod +x ~/Desktop/*.desktop
+
+USER_CONFIG
+
+echo "✓ AuraOS branding configured"
+BRANDING
 
     # Set up port forwarding
     VM_IP=$(multipass info "$VM_NAME" | grep IPv4 | awk '{print $2}')
@@ -677,15 +1111,21 @@ VNC_START
     echo ""
 
     echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}✓ VM Setup Complete!${NC}"
+    echo -e "${GREEN}✓ AuraOS VM Setup Complete!${NC}"
     echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
     echo ""
-    echo -e "${GREEN}Access the Ubuntu desktop:${NC}"
+    echo -e "${GREEN}AuraOS Desktop installed with:${NC}"
+    echo -e "  ⚡ AuraOS Home Screen (auto-launches)"
+    echo -e "  🖥️  AuraOS Terminal (AI-powered)"
+    echo -e "  🎨 Custom branding and dark blue theme"
+    echo ""
+    echo -e "${GREEN}Access your AuraOS desktop:${NC}"
     echo -e "  Browser: ${BLUE}http://localhost:6080/vnc.html${NC}"
     echo -e "  Password: ${BLUE}auraos123${NC}"
     echo ""
-    echo -e "${YELLOW}Run system health check:${NC}"
-    echo -e "  ${BLUE}./auraos.sh health${NC}"
+    echo -e "${YELLOW}Commands:${NC}"
+    echo -e "  ${BLUE}./auraos.sh health${NC}        - System health check"
+    echo -e "  ${BLUE}./auraos.sh forward start${NC} - Start port forwarders"
     echo ""
 }
 
