@@ -1523,6 +1523,26 @@ USER_CONFIG
 echo "✓ AuraOS branding configured"
 BRANDING
 
+    # Additional safety: ensure xfce4-screensaver cannot lock the session.
+    # Remove per-user autostart, kill any running screensaver processes, and
+    # remove the package if present. These are non-fatal operations.
+    multipass exec "$VM_NAME" -- sudo bash -c '
+        # remove system autostart for xfce4-screensaver (if exists)
+        rm -f /etc/xdg/autostart/xfce4-screensaver.desktop || true
+
+        # remove per-user autostart for the auraos user
+        if [ -d "/home/${AURAOS_USER}/.config/autostart" ]; then
+            rm -f /home/${AURAOS_USER}/.config/autostart/xfce4-screensaver.desktop || true
+            chown -R ${AURAOS_USER}:${AURAOS_USER} /home/${AURAOS_USER}/.config || true
+        fi
+
+        # Kill any running screensaver processes
+        pkill -f xfce4-screensaver || true
+
+        # Try removing the xfce4-screensaver package to avoid re-enabling locks
+        DEBIAN_FRONTEND=noninteractive apt-get remove -y xfce4-screensaver >/dev/null 2>&1 || true
+    '
+
     # Set up port forwarding
     VM_IP=$(multipass info "$VM_NAME" | grep IPv4 | awk '{print $2}')
     echo ""
