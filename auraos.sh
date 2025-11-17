@@ -40,9 +40,15 @@ cmd_status() {
     echo ""
     echo -e "${BLUE}VM Status:${NC}"
     multipass list
-    echo ""
-    echo -e "${BLUE}VM Services:${NC}"
-    multipass exec auraos-multipass -- bash -c 'ps aux | grep -E "[x]11vnc|[w]ebsockify" | head -2' || echo "Services not running"
+    
+    # Only check services if VM exists and is running
+    VM_NAME="auraos-multipass"
+    if multipass list 2>/dev/null | grep -q "^${VM_NAME}\b" && multipass list 2>/dev/null | grep "^${VM_NAME}" | grep -q "Running"; then
+        echo ""
+        echo -e "${BLUE}VM Services:${NC}"
+        multipass exec "$VM_NAME" -- bash -c 'ps aux | grep -E "[x]11vnc|[w]ebsockify" | head -2' 2>/dev/null || echo "Services not running"
+    fi
+    
     echo ""
     echo -e "${BLUE}Ports:${NC}"
     lsof -i :5901 -i :6080 -i :8765 2>/dev/null | grep LISTEN || echo "No ports listening"
@@ -122,14 +128,75 @@ cmd_restart() {
 }
 
 cmd_health() {
+    # Temporarily disable exit on error for health checks
+    set +e
+    
     echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
     echo -e "${BLUE}║       AuraOS System Health Check       ║${NC}"
     echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
     echo ""
     
+    local health_failed=0
+    
     # Check 1: VM Running
     echo -e "${YELLOW}[1/7]${NC} VM Status"
-    multipass list | grep auraos-multipass || { echo -e "${RED}✗ VM not running${NC}"; return 1; }
+    VM_STATE=$(multipass list 2>/dev/null | grep auraos-multipass | awk '{print $2}')
+    
+    if [ -z "$VM_STATE" ]; then
+        echo -e "${RED}✗ VM not found${NC}"
+        echo -e "${YELLOW}  Run: ./auraos.sh vm-setup${NC}"
+        set -e
+        return 1
+    fi
+    
+    if [ "$VM_STATE" = "Unknown" ]; then
+        echo -e "${YELLOW}⚠ VM in Unknown state, attempting recovery...${NC}"
+        echo -e "${YELLOW}  Restarting multipass daemon...${NC}"
+        sudo launchctl stop com.canonical.multipassd 2>/dev/null || true
+        sleep 3
+        sudo launchctl start com.canonical.multipassd 2>/dev/null || true
+        sleep 5
+        VM_STATE=$(multipass list 2>/dev/null | grep auraos-multipass | awk '{print $2}')
+        
+        if [ "$VM_STATE" = "Stopped" ]; then
+            echo -e "${YELLOW}  Starting VM after daemon restart...${NC}"
+            START_OUTPUT=$(multipass start auraos-multipass 2>&1)
+            START_EXIT=$?
+            
+            if [ $START_EXIT -ne 0 ]; then
+                echo "$START_OUTPUT" | head -5
+                
+                # Check for corrupt image
+                if echo "$START_OUTPUT" | grep -q "Image is corrupt"; then
+                    echo -e "${RED}✗ VM image is corrupted${NC}"
+                    echo -e "${YELLOW}Recovery options:${NC}"
+                    echo -e "  1. Delete and recreate: multipass delete auraos-multipass && multipass purge && ./auraos.sh vm-setup"
+                    echo -e "  2. Try repair: multipass stop auraos-multipass && multipass start auraos-multipass"
+                    set -e
+                    return 1
+                fi
+            fi
+            
+            sleep 5
+            VM_STATE=$(multipass list 2>/dev/null | grep auraos-multipass | awk '{print $2}')
+        fi
+    fi
+    
+    if [ "$VM_STATE" != "Running" ]; then
+        if [ "$VM_STATE" = "Stopped" ]; then
+            echo -e "${YELLOW}  Starting VM...${NC}"
+            multipass start auraos-multipass 2>&1 | head -5
+            sleep 5
+            VM_STATE=$(multipass list 2>/dev/null | grep auraos-multipass | awk '{print $2}')
+        fi
+        
+        if [ "$VM_STATE" != "Running" ]; then
+            echo -e "${RED}✗ VM is $VM_STATE (failed to start)${NC}"
+            set -e
+            return 1
+        fi
+    fi
+    
     echo -e "${GREEN}✓ VM running${NC}"
     echo ""
     
@@ -140,7 +207,10 @@ cmd_health() {
     else
         echo -e "${RED}✗ x11vnc not running${NC}"
         echo "  Starting..."
-        multipass exec auraos-multipass -- sudo systemctl start auraos-x11vnc.service
+        if ! multipass exec auraos-multipass -- sudo systemctl start auraos-x11vnc.service 2>/dev/null; then
+            echo -e "${RED}  Failed to start x11vnc service${NC}"
+            health_failed=1
+        fi
         sleep 3
     fi
     echo ""
@@ -152,7 +222,10 @@ cmd_health() {
     else
         echo -e "${RED}✗ noVNC not running${NC}"
         echo "  Starting..."
-        multipass exec auraos-multipass -- sudo systemctl start auraos-novnc.service
+        if ! multipass exec auraos-multipass -- sudo systemctl start auraos-novnc.service 2>/dev/null; then
+            echo -e "${RED}  Failed to start noVNC service${NC}"
+            health_failed=1
+        fi
         sleep 2
     fi
     echo ""
@@ -163,7 +236,7 @@ cmd_health() {
         echo -e "${GREEN}✓ Password file exists${NC}"
     else
         echo -e "${RED}✗ Password file missing${NC}"
-        return 1
+        health_failed=1
     fi
     echo ""
     
@@ -173,7 +246,7 @@ cmd_health() {
         echo -e "${GREEN}✓ Listening on 5900${NC}"
     else
         echo -e "${RED}✗ Not listening on 5900${NC}"
-        return 1
+        health_failed=1
     fi
     echo ""
     
@@ -242,12 +315,12 @@ PY
                 echo -e "${GREEN}✓ Forwarder started: localhost:6080 -> ${VM_IP}:6080${NC}"
             else
                 echo -e "${RED}✗ Failed to start forwarder for 6080${NC}"
-                return 1
+                health_failed=1
             fi
 
         else
             echo -e "${RED}✗ Not listening on 6080 inside VM${NC}"
-            return 1
+            health_failed=1
         fi
     fi
     echo ""
@@ -288,22 +361,32 @@ PY
             else
                 echo -e "${RED}✗ Web server still returning: $HTTP_CODE${NC}"
                 echo -e "${RED}✗ Automated recovery failed; please inspect logs or run './auraos.sh gui-reset' manually.${NC}"
-                set -e
-                return 1
+                health_failed=1
             fi
         fi
-        set -e
     fi
     echo ""
 
     # Summary
-    echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}✓ All systems operational!${NC}"
-    echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
-    echo ""
-    echo -e "${YELLOW}Access the GUI:${NC}"
-    echo -e "  Browser: ${GREEN}http://localhost:6080/vnc.html${NC}"
-    echo -e "  Password: ${GREEN}auraos123${NC}"
+    if [ $health_failed -eq 0 ]; then
+        echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
+        echo -e "${GREEN}✓ All systems operational!${NC}"
+        echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
+        echo ""
+        echo -e "${YELLOW}Access the GUI:${NC}"
+        echo -e "  Browser: ${GREEN}http://localhost:6080/vnc.html${NC}"
+        echo -e "  Password: ${GREEN}auraos123${NC}"
+    else
+        echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
+        echo -e "${YELLOW}⚠ Health check completed with warnings${NC}"
+        echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
+        echo ""
+        echo -e "${YELLOW}Some services may need attention. See errors above.${NC}"
+    fi
+    
+    # Re-enable exit on error
+    set -e
+    return $health_failed
 }
 
 cmd_gui_reset() {
