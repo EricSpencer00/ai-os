@@ -891,29 +891,28 @@ SERVICE_SETUP
 
     echo -e "${YELLOW}[5/7]${NC} Setting up VNC password and starting services..."
     multipass exec "$VM_NAME" -- sudo bash <<'VNC_START'
-# Create VNC password
+# Create VNC password BEFORE starting services
 mkdir -p /home/${AURAOS_USER}/.vnc
 rm -f /home/${AURAOS_USER}/.vnc/passwd
 
-expect << 'EXPECT_EOF'
-set timeout 5
-spawn x11vnc -storepasswd /home/${AURAOS_USER}/.vnc/passwd
-expect "Enter VNC password:"
-send "auraos123\r"
-expect "Verify password:"
-send "auraos123\r"
-expect "Write password"
-send "y\r"
-expect eof
-EXPECT_EOF
+# Use printf to avoid interactive prompts
+printf 'auraos123\nauraos123\ny\n' | x11vnc -storepasswd /home/${AURAOS_USER}/.vnc/passwd >/dev/null 2>&1 || true
 
+# Ensure correct permissions on password file
 chown -R ${AURAOS_USER}:${AURAOS_USER} /home/${AURAOS_USER}/.vnc
 chmod 600 /home/${AURAOS_USER}/.vnc/passwd
 
+# Verify password file exists before starting services
+if [ ! -f /home/${AURAOS_USER}/.vnc/passwd ]; then
+    echo "ERROR: VNC password file was not created" >&2
+    exit 1
+fi
+
 # Start services
+systemctl daemon-reload
 systemctl enable auraos-x11vnc.service auraos-desktop.service auraos-novnc.service
 systemctl start auraos-x11vnc.service
-sleep 2
+sleep 3
 systemctl start auraos-desktop.service
 sleep 2
 systemctl start auraos-novnc.service
@@ -1441,10 +1440,11 @@ if __name__ == "__main__":
         root = tk.Tk()
         app = AuraOSTerminal(root)
         root.mainloop()
-        TERMINAL_EOF
-        fi
+TERMINAL_EOF
+fi
 
-# Install Improved AuraOS Home Screen with Error Logging
+# Install fallback homescreen if not transferred
+if [ ! -f /opt/auraos/bin/auraos_homescreen.py ]; then
 cat > /opt/auraos/bin/auraos_homescreen.py << 'HOMESCREEN_EOF'
 #!/usr/bin/env python3
 """AuraOS Home Screen - Dashboard and Launcher with Error Logging"""
@@ -1653,6 +1653,7 @@ HOMESCREEN_EOF
 chmod +x /opt/auraos/bin/auraos_terminal.py
 chmod +x /opt/auraos/bin/auraos_homescreen.py
 chown -R ${AURAOS_USER}:${AURAOS_USER} /opt/auraos
+fi
 
 # Create/update command launchers
 cat > /usr/local/bin/auraos-terminal << 'TERM_LAUNCHER'
