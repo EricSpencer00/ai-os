@@ -236,7 +236,32 @@ cmd_health() {
         echo -e "${GREEN}✓ Password file exists${NC}"
     else
         echo -e "${RED}✗ Password file missing${NC}"
-        health_failed=1
+        # Try to auto-create it inside the VM (uses expect, which is installed during vm-setup)
+        echo "→ Attempting to create VNC password inside VM..."
+        multipass exec auraos-multipass -- sudo bash <<'CREATE_VNC' 2>/dev/null || true
+mkdir -p /home/${AURAOS_USER}/.vnc
+expect << 'EXPECT'
+set timeout 5
+spawn x11vnc -storepasswd /home/${AURAOS_USER}/.vnc/passwd
+expect "Enter VNC password:"
+send "auraos123\r"
+expect "Verify password:"
+send "auraos123\r"
+expect "Write password"
+send "y\r"
+expect eof
+EXPECT
+chown -R ${AURAOS_USER}:${AURAOS_USER} /home/${AURAOS_USER}/.vnc || true
+chmod 600 /home/${AURAOS_USER}/.vnc/passwd || true
+CREATE_VNC
+
+        # Re-check
+        if multipass exec auraos-multipass -- [ -f /home/${AURAOS_USER}/.vnc/passwd ] 2>/dev/null; then
+            echo -e "${GREEN}✓ Password file created and present${NC}"
+        else
+            echo -e "${RED}✗ Password file still missing after attempt${NC}"
+            health_failed=1
+        fi
     fi
     echo ""
     
@@ -429,7 +454,7 @@ VNC_PASSWORD_EOF
     
     # Step 4: Fix noVNC service configuration
     echo -e "${YELLOW}[4/7]${NC} Configuring noVNC service..."
-    multipass exec "$VM_NAME" -- sudo bash << SERVICE_EOF 2>/dev/null
+    multipass exec "$VM_NAME" -- sudo bash <<'SERVICE_EOF' 2>/dev/null
 cat > /etc/systemd/system/auraos-novnc.service << 'CONFIG_EOF'
 [Unit]
 Description=AuraOS noVNC web proxy
@@ -770,7 +795,7 @@ cmd_vm_setup() {
     echo ""
 
     echo -e "${YELLOW}[4/5]${NC} Setting up VNC services..."
-    multipass exec "$VM_NAME" -- sudo bash <<SERVICE_SETUP
+    multipass exec "$VM_NAME" -- sudo bash <<'SERVICE_SETUP'
 # Create x11vnc systemd service
 cat > /etc/systemd/system/auraos-x11vnc.service << 'EOF'
 [Unit]
@@ -865,7 +890,7 @@ SERVICE_SETUP
     echo ""
 
     echo -e "${YELLOW}[5/7]${NC} Setting up VNC password and starting services..."
-    multipass exec "$VM_NAME" -- sudo bash <<VNC_START
+    multipass exec "$VM_NAME" -- sudo bash <<'VNC_START'
 # Create VNC password
 mkdir -p /home/${AURAOS_USER}/.vnc
 rm -f /home/${AURAOS_USER}/.vnc/passwd
@@ -902,7 +927,7 @@ VNC_START
     multipass transfer auraos_browser.py "$VM_NAME:/tmp/auraos_browser.py" 2>/dev/null || true
     multipass transfer gui_agent.py "$VM_NAME:/home/${AURAOS_USER}/gui_agent.py" 2>/dev/null || true
     
-    multipass exec "$VM_NAME" -- sudo bash <<AURAOS_APPS
+    multipass exec "$VM_NAME" -- sudo bash <<'AURAOS_APPS'
 # Install dependencies for AuraOS apps
 apt-get update -qq && apt-get install -y python3-tk python3-pip portaudio19-dev firefox scrot >/dev/null 2>&1
 pip3 install speech_recognition pyaudio flask pyautogui pillow >/dev/null 2>&1
@@ -1709,7 +1734,7 @@ SHIM
         echo ""
 
     echo -e "${YELLOW}[7/7]${NC} Configuring AuraOS branding..."
-    multipass exec "$VM_NAME" -- sudo bash <<BRANDING
+    multipass exec "$VM_NAME" -- sudo bash <<'BRANDING'
 # Set hostname
 echo "auraos" > /etc/hostname
 sed -i 's/ubuntu-multipass/auraos/g' /etc/hosts
