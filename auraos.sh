@@ -233,31 +233,21 @@ cmd_health() {
     
     # Check 4: VNC Password File
     echo -e "${YELLOW}[4/7]${NC} VNC Authentication"
-    if multipass exec auraos-multipass -- [ -f /home/${AURAOS_USER}/.vnc/passwd ] 2>/dev/null; then
+    if multipass exec auraos-multipass -- sudo test -f /home/${AURAOS_USER}/.vnc/passwd 2>/dev/null; then
         echo -e "${GREEN}✓ Password file exists${NC}"
     else
         echo -e "${RED}✗ Password file missing${NC}"
-        # Try to auto-create it inside the VM (uses expect, which is installed during vm-setup)
+        # Try to auto-create it inside the VM
         echo "→ Attempting to create VNC password inside VM..."
         multipass exec auraos-multipass -- sudo bash <<CREATE_VNC 2>/dev/null || true
 mkdir -p /home/${AURAOS_USER}/.vnc
-expect << 'EXPECT'
-set timeout 5
-spawn x11vnc -storepasswd /home/${AURAOS_USER}/.vnc/passwd
-expect "Enter VNC password:"
-send "auraos123\r"
-expect "Verify password:"
-send "auraos123\r"
-expect "Write password"
-send "y\r"
-expect eof
-EXPECT
+printf 'auraos123\nauraos123\ny\n' | x11vnc -storepasswd /home/${AURAOS_USER}/.vnc/passwd >/dev/null 2>&1 || true
 chown -R ${AURAOS_USER}:${AURAOS_USER} /home/${AURAOS_USER}/.vnc || true
 chmod 600 /home/${AURAOS_USER}/.vnc/passwd || true
 CREATE_VNC
 
         # Re-check
-        if multipass exec auraos-multipass -- [ -f /home/${AURAOS_USER}/.vnc/passwd ] 2>/dev/null; then
+        if multipass exec auraos-multipass -- sudo test -f /home/${AURAOS_USER}/.vnc/passwd 2>/dev/null; then
             echo -e "${GREEN}✓ Password file created and present${NC}"
         else
             echo -e "${RED}✗ Password file still missing after attempt${NC}"
@@ -819,7 +809,7 @@ USER_SETUP
     multipass exec "$VM_NAME" -- sudo bash <<'SERVICE_SETUP'
 AURAOS_USER='auraos'
 # Create x11vnc systemd service
-cat > /etc/systemd/system/auraos-x11vnc.service << 'EOF'
+cat > /etc/systemd/system/auraos-x11vnc.service <<EOF
 [Unit]
 Description=AuraOS x11vnc VNC Server
 After=network.target
@@ -839,7 +829,7 @@ WantedBy=multi-user.target
 EOF
 
 # Create noVNC systemd service
-cat > /etc/systemd/system/auraos-novnc.service << 'EOF'
+cat > /etc/systemd/system/auraos-novnc.service <<EOF
 [Unit]
 Description=AuraOS noVNC web proxy
 After=network.target auraos-x11vnc.service
@@ -857,7 +847,7 @@ WantedBy=multi-user.target
 EOF
 
 # Create XFCE startup script
-cat > /tmp/start-xfce4-session.sh << 'XFCE_SCRIPT'
+cat > /tmp/start-xfce4-session.sh <<XFCE_SCRIPT
 #!/bin/bash
 export DISPLAY=:99
 export HOME=/home/${AURAOS_USER}
@@ -867,7 +857,7 @@ XFCE_SCRIPT
 chmod +x /tmp/start-xfce4-session.sh
 
 # Create XFCE Desktop systemd service
-cat > /etc/systemd/system/auraos-desktop.service << 'EOF'
+cat > /etc/systemd/system/auraos-desktop.service <<EOF
 [Unit]
 Description=AuraOS XFCE Desktop Environment
 After=auraos-x11vnc.service
@@ -887,7 +877,7 @@ WantedBy=multi-user.target
 EOF
 
 # Create GUI agent service
-cat > /etc/systemd/system/auraos-gui-agent.service << 'EOF'
+cat > /etc/systemd/system/auraos-gui-agent.service <<EOF
 [Unit]
 Description=AuraOS GUI Automation Agent
 After=network.target auraos-x11vnc.service
