@@ -239,7 +239,7 @@ cmd_health() {
         echo -e "${RED}✗ Password file missing${NC}"
         # Try to auto-create it inside the VM (uses expect, which is installed during vm-setup)
         echo "→ Attempting to create VNC password inside VM..."
-        multipass exec auraos-multipass -- sudo bash <<'CREATE_VNC' 2>/dev/null || true
+        multipass exec auraos-multipass -- sudo bash <<CREATE_VNC 2>/dev/null || true
 mkdir -p /home/${AURAOS_USER}/.vnc
 expect << 'EXPECT'
 set timeout 5
@@ -440,7 +440,7 @@ cmd_gui_reset() {
     
     # Step 3: Setup VNC password
     echo -e "${YELLOW}[3/7]${NC} Setting up VNC authentication..."
-    multipass exec "$VM_NAME" -- sudo bash << 'VNC_PASSWORD_EOF' 2>/dev/null
+    multipass exec "$VM_NAME" -- sudo bash <<VNC_PASSWORD_EOF 2>/dev/null
         mkdir -p /home/${AURAOS_USER}/.vnc
         rm -f /home/${AURAOS_USER}/.vnc/passwd
         printf 'auraos123\nauraos123\ny\n' | x11vnc -storepasswd /home/${AURAOS_USER}/.vnc/passwd >/dev/null 2>&1 || true
@@ -455,7 +455,7 @@ VNC_PASSWORD_EOF
     
     # Step 4: Fix noVNC service configuration
     echo -e "${YELLOW}[4/7]${NC} Configuring noVNC service..."
-    multipass exec "$VM_NAME" -- sudo bash <<'SERVICE_EOF' 2>/dev/null
+    multipass exec "$VM_NAME" -- sudo bash <<SERVICE_EOF 2>/dev/null
 cat > /etc/systemd/system/auraos-novnc.service << 'CONFIG_EOF'
 [Unit]
 Description=AuraOS noVNC web proxy
