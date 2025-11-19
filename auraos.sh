@@ -8,7 +8,8 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 VENV_DIR="$SCRIPT_DIR/auraos_daemon/venv"
 
 # Configurable VM username (default matches Multipass cloud images)
-AURAOS_USER="${AURAOS_USER:-ubuntu}"
+# Default runtime user is `auraos` (was 'ubuntu') to match VM setup
+AURAOS_USER="${AURAOS_USER:-auraos}"
 
 # Colors
 GREEN='\033[0;32m'
@@ -794,8 +795,29 @@ cmd_vm_setup() {
     echo -e "${GREEN}✓ noVNC installed${NC}"
     echo ""
 
+    echo -e "${YELLOW}[3.5/5]${NC} Creating auraos user..."
+    multipass exec "$VM_NAME" -- sudo bash <<'USER_SETUP'
+if ! id -u auraos >/dev/null 2>&1; then
+    useradd -m -s /bin/bash auraos
+    usermod -aG sudo auraos
+    echo "auraos:auraos123" | chpasswd
+fi
+# Copy SSH keys from ubuntu user if they exist to allow passwordless SSH
+if [ -d /home/ubuntu/.ssh ]; then
+    mkdir -p /home/auraos/.ssh
+    cp -r /home/ubuntu/.ssh/authorized_keys /home/auraos/.ssh/authorized_keys 2>/dev/null || true
+    chown -R auraos:auraos /home/auraos/.ssh
+    chmod 700 /home/auraos/.ssh
+    chmod 600 /home/auraos/.ssh/authorized_keys
+fi
+USER_SETUP
+    echo -e "${GREEN}✓ User auraos created${NC}"
+    echo ""
+
     echo -e "${YELLOW}[4/5]${NC} Setting up VNC services..."
+# multipass SERVICE_SETUP: ensure AURAOS_USER is set inside remote environment
     multipass exec "$VM_NAME" -- sudo bash <<'SERVICE_SETUP'
+AURAOS_USER='auraos'
 # Create x11vnc systemd service
 cat > /etc/systemd/system/auraos-x11vnc.service << 'EOF'
 [Unit]
@@ -807,7 +829,7 @@ Type=simple
 User=${AURAOS_USER}
 Environment=DISPLAY=:99
 Environment=HOME=/home/${AURAOS_USER}
-ExecStartPre=/bin/bash -c 'Xvfb :99 -screen 0 1280x720x24 -ac -nolisten tcp &'
+ExecStartPre=/bin/sh -c 'Xvfb :99 -screen 0 1280x720x24 -ac -nolisten tcp >/tmp/xvfb.log 2>&1 & sleep 1'
 ExecStart=/usr/bin/x11vnc -display :99 -forever -shared -rfbauth /home/${AURAOS_USER}/.vnc/passwd -rfbport 5900
 Restart=on-failure
 RestartSec=5
@@ -890,7 +912,9 @@ SERVICE_SETUP
     echo ""
 
     echo -e "${YELLOW}[5/7]${NC} Setting up VNC password and starting services..."
+# multipass VNC_START: ensure AURAOS_USER is set inside remote environment
     multipass exec "$VM_NAME" -- sudo bash <<'VNC_START'
+AURAOS_USER='auraos'
 # Create VNC password BEFORE starting services
 mkdir -p /home/${AURAOS_USER}/.vnc
 rm -f /home/${AURAOS_USER}/.vnc/passwd
@@ -926,7 +950,9 @@ VNC_START
     multipass transfer auraos_browser.py "$VM_NAME:/tmp/auraos_browser.py" 2>/dev/null || true
     multipass transfer gui_agent.py "$VM_NAME:/home/${AURAOS_USER}/gui_agent.py" 2>/dev/null || true
     
+# multipass AURAOS_APPS: ensure AURAOS_USER is set inside remote environment
     multipass exec "$VM_NAME" -- sudo bash <<'AURAOS_APPS'
+AURAOS_USER='auraos'
 # Install dependencies for AuraOS apps
 apt-get update -qq && apt-get install -y python3-tk python3-pip portaudio19-dev firefox scrot >/dev/null 2>&1
 pip3 install speech_recognition pyaudio flask pyautogui pillow >/dev/null 2>&1
@@ -1691,12 +1717,12 @@ AURAOS_APPS
         # Install a lightweight VM-side automation shim so GUI apps inside the VM
         # can call a minimal 'auraos.sh automate' subset without contacting the host.
         echo -e "${YELLOW}[7/7]${NC} Installing VM-side automation shim..."
-        multipass exec "$VM_NAME" -- sudo bash <<'SHIM'
-cat > /usr/local/bin/auraos.sh <<'SH'
+        # Create shim scripts locally to avoid nested here-doc issues
+        cat > /tmp/auraos_shim_local.sh <<'SH'
 #!/usr/bin/env bash
 exec /usr/local/bin/auraos_vm_shim.sh "$@"
 SH
-cat > /usr/local/bin/auraos_vm_shim.sh <<'SHIM2'
+        cat > /tmp/auraos_vm_shim_local.sh <<'SHIM2'
 #!/usr/bin/env bash
 # Simple VM-side automation shim
 set -e
@@ -1729,13 +1755,24 @@ case "$cmd" in
         exit 1
         ;;
 esac
-SHIM
+SHIM2
+
+        # Transfer and install
+        multipass transfer /tmp/auraos_shim_local.sh "$VM_NAME:/tmp/auraos.sh"
+        multipass transfer /tmp/auraos_vm_shim_local.sh "$VM_NAME:/tmp/auraos_vm_shim.sh"
+        multipass exec "$VM_NAME" -- sudo mv /tmp/auraos.sh /usr/local/bin/auraos.sh
+        multipass exec "$VM_NAME" -- sudo mv /tmp/auraos_vm_shim.sh /usr/local/bin/auraos_vm_shim.sh
         multipass exec "$VM_NAME" -- sudo chmod +x /usr/local/bin/auraos.sh /usr/local/bin/auraos_vm_shim.sh || true
+        
+        # Cleanup local files
+        rm -f /tmp/auraos_shim_local.sh /tmp/auraos_vm_shim_local.sh
         echo -e "${GREEN}✓ VM automation shim installed${NC}"
         echo ""
 
     echo -e "${YELLOW}[7/7]${NC} Configuring AuraOS branding..."
+# multipass BRANDING: ensure AURAOS_USER is set inside remote environment
     multipass exec "$VM_NAME" -- sudo bash <<'BRANDING'
+AURAOS_USER='auraos'
 # Set hostname
 echo "auraos" > /etc/hostname
 sed -i 's/ubuntu-multipass/auraos/g' /etc/hosts
