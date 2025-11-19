@@ -900,11 +900,12 @@ VNC_START
     echo "Copying AuraOS Terminal (dual-mode) and Browser to VM..."
     multipass transfer auraos_terminal.py "$VM_NAME:/tmp/auraos_terminal.py" 2>/dev/null || true
     multipass transfer auraos_browser.py "$VM_NAME:/tmp/auraos_browser.py" 2>/dev/null || true
+    multipass transfer gui_agent.py "$VM_NAME:/home/${AURAOS_USER}/gui_agent.py" 2>/dev/null || true
     
     multipass exec "$VM_NAME" -- sudo bash <<AURAOS_APPS
 # Install dependencies for AuraOS apps
-apt-get update -qq && apt-get install -y python3-tk python3-pip portaudio19-dev firefox >/dev/null 2>&1
-pip3 install speech_recognition pyaudio >/dev/null 2>&1
+apt-get update -qq && apt-get install -y python3-tk python3-pip portaudio19-dev firefox scrot >/dev/null 2>&1
+pip3 install speech_recognition pyaudio flask pyautogui pillow >/dev/null 2>&1
 
 # Create AuraOS bin directory
 mkdir -p /opt/auraos/bin
