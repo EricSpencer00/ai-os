@@ -78,25 +78,40 @@ class AuraOSLauncher:
 
     def launch_terminal(self):
         self.status_label.config(text="Launching Terminal...", fg='#00d4ff')
-        subprocess.Popen([sys.executable, "auraos_terminal.py"])
-        self.status_label.config(text="System Ready", fg='#6db783')
+        try:
+            subprocess.Popen([sys.executable, "/opt/auraos/bin/auraos_terminal.py"])
+            self.status_label.config(text="System Ready", fg='#6db783')
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to launch Terminal: {e}")
+            self.status_label.config(text="Error launching Terminal", fg='#ff0000')
 
     def launch_browser(self):
         self.status_label.config(text="Launching Browser...", fg='#ff7f50')
-        subprocess.Popen([sys.executable, "auraos_browser.py"])
-        self.status_label.config(text="System Ready", fg='#6db783')
+        try:
+            subprocess.Popen([sys.executable, "/opt/auraos/bin/auraos_browser.py"])
+            self.status_label.config(text="System Ready", fg='#6db783')
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to launch Browser: {e}")
+            self.status_label.config(text="Error launching Browser", fg='#ff0000')
 
     def launch_vision_os(self):
         self.status_label.config(text="Starting Vision Desktop...", fg='#00ff88')
-        # Start daemon if not running?
-        # Open VNC
-        webbrowser.open("http://localhost:6080/vnc.html")
-        self.status_label.config(text="Vision Desktop Opened", fg='#6db783')
+        try:
+            # Open VNC
+            webbrowser.open("http://localhost:6080/vnc.html")
+            self.status_label.config(text="Vision Desktop Opened", fg='#6db783')
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to open Vision Desktop: {e}")
+            self.status_label.config(text="Error opening Vision Desktop", fg='#ff0000')
 
     def launch_settings(self):
         self.status_label.config(text="Opening Settings...", fg='#9cdcfe')
-        subprocess.Popen([sys.executable, "auraos_onboarding.py"])
-        self.status_label.config(text="System Ready", fg='#6db783')
+        try:
+            subprocess.Popen([sys.executable, "/opt/auraos/bin/auraos_onboarding.py"])
+            self.status_label.config(text="System Ready", fg='#6db783')
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to launch Settings: {e}")
+            self.status_label.config(text="Error launching Settings", fg='#ff0000')
 
 if __name__ == "__main__":
     root = tk.Tk()

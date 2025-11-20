@@ -238,15 +238,13 @@ class AuraOSBrowser:
                     cwd=os.path.expanduser("~")
                 )
             else:
-                # local fallback: run find in home directory
+                # Fallback: Open in Firefox
                 try:
-                    find_cmd = [
-                        "bash", "-lc",
-                        "find ~ -type f -iname '*%s*' 2>/dev/null | head -n 200" % query.replace("'","'\\''")
-                    ]
-                    result = subprocess.run(find_cmd, capture_output=True, text=True, timeout=60)
+                    url = f"https://www.google.com/search?q={query}"
+                    webbrowser.open(url)
+                    result = subprocess.CompletedProcess(args=[], returncode=0, stdout=f"Opened search for '{query}' in Firefox.", stderr="")
                 except Exception as e:
-                    result = subprocess.CompletedProcess(args=find_cmd, returncode=1, stdout="", stderr=str(e))
+                    result = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr=str(e))
             
             # Display search results
             if result.stdout:
