@@ -138,10 +138,11 @@ cmd_health() {
     echo ""
     
     local health_failed=0
+    VM_NAME="auraos-multipass"
     
     # Check 1: VM Running
     echo -e "${YELLOW}[1/7]${NC} VM Status"
-    VM_STATE=$(multipass list 2>/dev/null | grep auraos-multipass | awk '{print $2}')
+    VM_STATE=$(multipass list 2>/dev/null | grep "$VM_NAME" | awk '{print $2}')
     
     if [ -z "$VM_STATE" ]; then
         echo -e "${RED}✗ VM not found${NC}"
