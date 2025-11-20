@@ -20,6 +20,7 @@ import threading
 import sys
 import os
 import json
+import requests
 from datetime import datetime
 from pathlib import Path
 
@@ -223,81 +224,39 @@ class AuraOSTerminal:
                 threading.Thread(target=self.execute_shell_command, args=(text,), daemon=True).start()
     
     def execute_ai_task(self, request_text):
-        """Interpret the user's request with an AI and execute a safe action.
-
-        Uses `core.ai_helper` to convert a natural language request into a
-        structured intent. Performs conservative safety checks before executing
-        any command. If the AI cannot be reached, fall back to the previous
-        auraos.sh or local behaviors.
-        """
+        """Send request to the Vision Agent."""
+        self.is_processing = True
+        self.update_status("Processing with Vision Agent...", "#00ff88")
+        self.append("⟳ Sending request to Vision Agent...\n", "info")
+        
         try:
-            self.is_processing = True
-            self.update_status("Processing with AI...", "#00ff88")
-            self.append("⟳ Processing request...\n", "info")
-
-            # Lazy import so apps don't fail if core isn't available
-            try:
-                from core import ai_helper
-            except Exception:
-                ai_helper = None
-
-            interpreted = None
-            if ai_helper:
-                try:
-                    interpreted, provider = ai_helper.interpret_request_to_json(request_text)
-                    # Announce provider used
-                    if provider:
-                        self.append(f"Using AI provider: {provider}\n", "info")
-                except Exception:
-                    interpreted = None
-                    provider = None
-
-            # If AI returned an intent, handle it
-            if interpreted and isinstance(interpreted, dict):
-                action = interpreted.get("action")
-                cmd = interpreted.get("command")
-                explanation = interpreted.get("explanation", "")
-                confirm_required = bool(interpreted.get("confirm_required", False))
-
-                # Show explanation if present
-                if explanation:
-                    self.append(f"{explanation}\n", "info")
-
-                if action == "run_command" and cmd:
-                    safe, reason = ai_helper.is_command_safe(cmd) if ai_helper else (False, "no ai helper")
-                    if not safe or confirm_required:
-                        # Ask the user for confirmation before running
-                        ask = messagebox.askyesno("Confirm Action", f"The requested action is:\n\n{cmd}\n\nReason: {reason}\n\nRun this command?")
-                        if not ask:
-                            self.append("✗ Aborted by user.\n\n", "warning")
-                            self.log_event("AI_ABORT", cmd[:200])
-                            return
-
-                    # Execute the command conservatively (no shell)
-                    try:
-                        # If it's a bash -lc wrapper, run with shell
-                        if cmd.strip().startswith("bash -lc"):
-                            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=120, cwd=os.path.expanduser("~"))
-                        else:
-                            import shlex
-                            parts = shlex.split(cmd)
-                            result = subprocess.run(parts, capture_output=True, text=True, timeout=120, cwd=os.path.expanduser("~"))
-
-                        if result.stdout:
-                            self.append(result.stdout, "output")
-                        if result.returncode == 0:
-                            self.append("\n✓ Task completed successfully\n\n", "success")
-                            self.log_event("AI_SUCCESS", cmd[:200])
-                        else:
-                            if result.stderr:
-                                self.append(f"\nError: {result.stderr}\n\n", "error")
-                            self.append(f"✗ Exit code: {result.returncode}\n\n", "error")
-                            self.log_event("AI_ERROR", f"{cmd[:200]} (exit: {result.returncode})")
-
-                    except subprocess.TimeoutExpired:
-                        self.append("✗ Request timed out (120s limit)\n\n", "error")
-                        self.log_event("AI_TIMEOUT", cmd[:200])
-                    except Exception as e:
+            # Try Vision Agent first
+            response = requests.post(
+                "http://localhost:8765/ask",
+                json={"query": request_text},
+                timeout=120
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                executed = result.get("executed", [])
+                self.append(f"✓ Agent executed {len(executed)} actions.\n", "success")
+                for action in executed:
+                    act = action.get("action", {})
+                    self.append(f"  - {act}\n", "output")
+                self.log_event("AI_SUCCESS", request_text)
+            else:
+                self.append(f"✗ Agent Error: {response.text}\n", "error")
+                self.log_event("AI_ERROR", response.text)
+                
+        except Exception as e:
+            self.append(f"✗ Connection failed: {e}\n", "error")
+            self.append("  Is the GUI Agent running?\n", "warning")
+            self.log_event("AI_EXCEPTION", str(e))
+            
+        self.is_processing = False
+        self.update_status("Ready", "#6db783")
+        self.input_field.focus()
                         self.append(f"✗ Error executing command: {e}\n\n", "error")
                         self.log_event("AI_ERROR", str(e))
 

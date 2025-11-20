@@ -383,6 +383,16 @@ PY
     fi
     echo ""
 
+    # Check 8: GUI Agent
+    echo -e "${YELLOW}[8/8]${NC} GUI Agent Service"
+    if multipass exec "$VM_NAME" -- systemctl is-active --quiet auraos-gui-agent.service; then
+        echo -e "${GREEN}✓ GUI Agent running${NC}"
+    else
+        echo -e "${RED}✗ GUI Agent not running${NC}"
+        health_failed=1
+    fi
+    echo ""
+
     # Summary
     if [ $health_failed -eq 0 ]; then
         echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
@@ -728,6 +738,7 @@ cmd_install() {
     echo ""
     echo -e "  3. Try AI automation:"
     echo -e "     ${BLUE}./auraos.sh automate \"click on Firefox\"${NC}"
+    echo -e "     (Ensure Ollama is running with OLLAMA_HOST=0.0.0.0)"
     echo ""
 }
 
@@ -887,6 +898,7 @@ Type=simple
 User=${AURAOS_USER}
 Environment=DISPLAY=:99
 Environment=HOME=/home/${AURAOS_USER}
+Environment=OLLAMA_URL=http://192.168.2.1:11434
 WorkingDirectory=/home/${AURAOS_USER}
 ExecStart=/usr/bin/python3 /home/${AURAOS_USER}/gui_agent.py
 Restart=on-failure
@@ -924,12 +936,13 @@ fi
 
 # Start services
 systemctl daemon-reload
-systemctl enable auraos-x11vnc.service auraos-desktop.service auraos-novnc.service
+systemctl enable auraos-x11vnc.service auraos-desktop.service auraos-novnc.service auraos-gui-agent.service
 systemctl start auraos-x11vnc.service
 sleep 3
 systemctl start auraos-desktop.service
 sleep 2
 systemctl start auraos-novnc.service
+systemctl start auraos-gui-agent.service
 VNC_START
 
     echo -e "${YELLOW}[6/7]${NC} Installing AuraOS applications..."
@@ -945,7 +958,7 @@ VNC_START
 AURAOS_USER='auraos'
 # Install dependencies for AuraOS apps
 apt-get update -qq && apt-get install -y python3-tk python3-pip portaudio19-dev firefox scrot >/dev/null 2>&1
-pip3 install speech_recognition pyaudio flask pyautogui pillow >/dev/null 2>&1
+pip3 install speech_recognition pyaudio flask pyautogui pillow requests numpy >/dev/null 2>&1
 
 # Create AuraOS bin directory
 mkdir -p /opt/auraos/bin
@@ -979,6 +992,8 @@ import subprocess
 import threading
 import sys
 import os
+import json
+import requests
 from datetime import datetime
 
 class AuraOSTerminal:
@@ -1305,62 +1320,36 @@ Press ☰ to hide
 
     def handle_ai_task(self, task_text):
         """Handle a natural-language task issued with the 'ai:' prefix.
-        This is a conservative implementation: it proposes commands and asks
-        for confirmation before running them.
-        GUI: uses a yes/no dialog. CLI: prompts for y/N.
+        Sends the request to the local Vision Agent (gui_agent).
         """
         self.log_event('AI_TASK', task_text)
         self.append_output(f"⟡ AI Task: {task_text}\n", 'info')
-        cmds, note = self.simple_plan(task_text)
-        self.append_output(f"Proposed actions:\n", 'info')
-        for c in cmds:
-            self.append_output(f"  $ {c}\n", 'output')
-        if note:
-            self.append_output(f"Note: {note}\n", 'info')
-
-        # Confirmation
-        run_now = False
+        self.append_output("⟳ Sending to Vision Agent...\n", 'info')
+        
         try:
-            # GUI path
-            if self.root:
-                msg = 'Run the proposed commands now? (They will run with the current user privileges)'
-                run_now = messagebox.askyesno('AI Task - Confirm', msg)
-        except Exception:
-            run_now = False
-
-        # CLI fallback: try reading from stdin
-        if not run_now:
-            try:
-                # In GUI this will be skipped; in CLI mode stdin is available
-                resp = input('Run proposed commands? (y/N): ').strip().lower()
-                run_now = (resp == 'y' or resp == 'yes')
-            except Exception:
-                run_now = False
-
-        if not run_now:
-            self.append_output('AI task aborted by user. No commands executed.\n', 'info')
-            return
-
-        # Execute commands sequentially
-        for c in cmds:
-            self.append_output(f'→ Executing: {c}\n', 'info')
-            self.log_event('AI_EXEC', c)
-            # run synchronously to preserve order
-            try:
-                res = subprocess.run(c, shell=True, capture_output=True, text=True, timeout=300, cwd=os.path.expanduser('~'))
-                if res.stdout:
-                    self.append_output(res.stdout, 'output')
-                if res.returncode != 0:
-                    if res.stderr:
-                        self.append_output(res.stderr, 'error')
-                    else:
-                        self.append_output(f'✗ Exit code: {res.returncode}\n', 'error')
-                else:
-                    self.append_output('✓ Completed\n', 'success')
-                self.log_event('AI_RESULT', f"cmd={c} exit={res.returncode}")
-            except Exception as e:
-                self.append_output(f'✗ Error running command: {e}\n', 'error')
-                self.log_event('AI_ERROR', str(e))
+            # Call the Vision Agent
+            response = requests.post(
+                "http://localhost:8765/ask",
+                json={"query": task_text},
+                timeout=120
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                executed = result.get("executed", [])
+                self.append_output(f"✓ Agent executed {len(executed)} actions.\n", "success")
+                for action in executed:
+                    act = action.get("action", {})
+                    self.append_output(f"  - {act}\n", "output")
+                self.log_event("AI_SUCCESS", task_text)
+            else:
+                self.append_output(f"✗ Agent Error: {response.text}\n", "error")
+                self.log_event("AI_ERROR", response.text)
+                
+        except Exception as e:
+            self.append_output(f"✗ Connection failed: {e}\n", "error")
+            self.append_output("  Is the GUI Agent running?\n", "warning")
+            self.log_event("AI_EXCEPTION", str(e))
     
      def show_help(self):
                      """Display help text"""
@@ -1796,23 +1785,25 @@ cat > ~/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-power-manager.xml << 'XML
 XML_EOF
 
 # Set AuraOS background
+# Download a cool AI/Tech wallpaper
+wget -q -O ~/.config/auraos_wallpaper.jpg "https://images.unsplash.com/photo-1620712943543-bcc4688e7485?q=80&w=1920&auto=format&fit=crop" || true
+
 cat > ~/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml << 'XML_EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <channel name="xfce4-desktop" version="1.0">
   <property name="backdrop" type="empty">
     <property name="screen0" type="empty">
-      <property name="monitorVNC-0" type="empty">
-        <property name="workspace0" type="empty">
-          <property name="color-style" type="int" value="0"/>
-          <property name="color1" type="array">
-            <value type="uint" value="4369"/>
-            <value type="uint" value="8738"/>
-            <value type="uint" value="13107"/>
-            <value type="uint" value="65535"/>
-          </property>
-          <property name="image-style" type="int" value="5"/>
-        </property>
+      <property name="monitor0" type="empty">
+        <property name="image-path" type="string" value="/home/auraos/.config/auraos_wallpaper.jpg"/>
+        <property name="image-style" type="int" value="5"/>
       </property>
+    </property>
+  </property>
+  <property name="desktop-icons" type="empty">
+    <property name="file-icons" type="empty">
+      <property name="show-home" type="bool" value="true"/>
+      <property name="show-filesystem" type="bool" value="false"/>
+      <property name="show-trash" type="bool" value="true"/>
     </property>
   </property>
 </channel>
@@ -1832,18 +1823,6 @@ X-GNOME-Autostart-Delay=2
 DESKTOP_EOF
 
 # Create desktop shortcuts
-cat > ~/Desktop/AuraOS_Terminal.desktop << 'DESKTOP_EOF'
-[Desktop Entry]
-Version=1.0
-Type=Application
-Name=AuraOS Terminal
-Comment=AI-Powered Terminal
-Exec=auraos-terminal
-Icon=utilities-terminal
-Terminal=false
-Categories=System;TerminalEmulator;
-DESKTOP_EOF
-
 cat > ~/Desktop/AuraOS_Terminal.desktop << 'DESKTOP_EOF'
 [Desktop Entry]
 Version=1.0
