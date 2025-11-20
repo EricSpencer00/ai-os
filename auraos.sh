@@ -952,6 +952,8 @@ VNC_START
     echo "Copying AuraOS Terminal (dual-mode) and Browser to VM..."
     multipass transfer auraos_terminal.py "$VM_NAME:/tmp/auraos_terminal.py" 2>/dev/null || true
     multipass transfer auraos_browser.py "$VM_NAME:/tmp/auraos_browser.py" 2>/dev/null || true
+    multipass transfer auraos_launcher.py "$VM_NAME:/tmp/auraos_launcher.py" 2>/dev/null || true
+    multipass transfer auraos_onboarding.py "$VM_NAME:/tmp/auraos_onboarding.py" 2>/dev/null || true
     multipass transfer gui_agent.py "$VM_NAME:/home/${AURAOS_USER}/gui_agent.py" 2>/dev/null || true
     
 # multipass AURAOS_APPS: ensure AURAOS_USER is set inside remote environment
@@ -979,6 +981,16 @@ fi
 if [ -f /tmp/auraos_browser.py ]; then
     cp /tmp/auraos_browser.py /opt/auraos/bin/auraos_browser.py
     chmod +x /opt/auraos/bin/auraos_browser.py
+fi
+
+if [ -f /tmp/auraos_launcher.py ]; then
+    cp /tmp/auraos_launcher.py /opt/auraos/bin/auraos_launcher.py
+    chmod +x /opt/auraos/bin/auraos_launcher.py
+fi
+
+if [ -f /tmp/auraos_onboarding.py ]; then
+    cp /tmp/auraos_onboarding.py /opt/auraos/bin/auraos_onboarding.py
+    chmod +x /opt/auraos/bin/auraos_onboarding.py
 fi
 
 # Install ChatGPT-style AuraOS Terminal with Hamburger Menu
@@ -1677,7 +1689,7 @@ BROWSER_LAUNCHER
 cat > /usr/local/bin/auraos-home << 'HOME_LAUNCHER'
 #!/bin/bash
 cd /opt/auraos/bin
-exec python3 auraos_homescreen.py
+exec python3 auraos_launcher.py
 HOME_LAUNCHER
 
 chmod +x /usr/local/bin/auraos-terminal
@@ -1821,6 +1833,19 @@ Hidden=false
 NoDisplay=false
 X-GNOME-Autostart-enabled=true
 X-GNOME-Autostart-Delay=2
+DESKTOP_EOF
+
+# Create autostart for onboarding
+cat > ~/.config/autostart/auraos-onboarding.desktop << 'DESKTOP_EOF'
+[Desktop Entry]
+Type=Application
+Name=AuraOS Onboarding
+Comment=AuraOS Startup Experience
+Exec=/opt/auraos/bin/auraos_onboarding.py
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=0
 DESKTOP_EOF
 
 # Create desktop shortcuts

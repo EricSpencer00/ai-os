@@ -234,7 +234,7 @@ class AuraOSTerminal:
             response = requests.post(
                 "http://localhost:8765/ask",
                 json={"query": request_text},
-                timeout=120
+                timeout=180
             )
             
             if response.status_code == 200:

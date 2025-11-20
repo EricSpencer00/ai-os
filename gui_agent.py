@@ -135,7 +135,8 @@ Output ONLY the JSON list. Example: [{{"action": "click", "x": 10, "y": 10}}]
 
         try:
             logging.info(f"Sending request to Ollama at {url}...")
-            response = requests.post(url, json=payload, timeout=60)
+            # Increased timeout to 120s for slower models/hardware
+            response = requests.post(url, json=payload, timeout=120)
             response.raise_for_status()
             result = response.json()
             return result.get("response", "")
