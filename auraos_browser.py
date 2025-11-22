@@ -220,53 +220,25 @@ class AuraOSBrowser:
         threading.Thread(target=self._perform_search, args=(query,), daemon=True).start()
     
     def _perform_search(self, query):
-        """Perform actual search via auraos.sh"""
+        """Perform actual search - open Firefox with Google search"""
         try:
             self.is_processing = True
-            self.update_status("Searching...", "#00ff88")
-            self.append("⟳ Fetching results...\n\n", "info")
+            self.update_status("Opening search...", "#00ff88")
+            self.append("⟳ Opening Firefox with Google search...\n\n", "info")
             
-            # Prefer an installed auraos.sh in cwd or PATH, otherwise fall back to local find
-            auraos_path = None
-            local_path = os.path.join(os.getcwd(), "auraos.sh")
-            if os.path.isfile(local_path) and os.access(local_path, os.X_OK):
-                auraos_path = local_path
-            else:
-                auraos_path = shutil.which("auraos.sh")
-
-            if auraos_path:
-                cmd = [auraos_path, "automate", f"search: {query}"]
-                result = subprocess.run(
-                    cmd, capture_output=True, text=True, timeout=60,
-                    cwd=os.path.expanduser("~")
-                )
-            else:
-                # Fallback: Open in Firefox
-                try:
-                    url = f"https://www.google.com/search?q={query}"
-                    webbrowser.open(url)
-                    result = subprocess.CompletedProcess(args=[], returncode=0, stdout=f"Opened search for '{query}' in Firefox.", stderr="")
-                except Exception as e:
-                    result = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr=str(e))
-            
-            # Display search results
-            if result.stdout:
-                self.append(result.stdout, "output")
-            
-            if result.returncode == 0:
-                self.append("\n✓ Search completed\n\n", "success")
-                
-                # Show related topics
-                self.append("Related topics:\n", "info")
-                self.append("  • Click the Firefox button to open results\n", "output")
-                self.append("  • Try refining your search with more specific terms\n", "output")
-                self.append("  • Ask follow-up questions in the search box\n\n", "output")
-                
-                self.log_event("SEARCH_SUCCESS", query[:60])
-            else:
-                if result.stderr:
-                    self.append(f"Error: {result.stderr}\n", "error")
-                self.log_event("SEARCH_ERROR", query[:60])
+            # Open Firefox with Google search
+            url = f"https://www.google.com/search?q={query}"
+            try:
+                subprocess.Popen(["firefox", url], 
+                                stdout=subprocess.DEVNULL, 
+                                stderr=subprocess.DEVNULL)
+                self.append(f"✓ Opened: {url}\n\n", "success")
+                self.log_event("SEARCH_SUCCESS", f"Firefox search: {query[:60]}")
+            except FileNotFoundError:
+                # Firefox not available, try webbrowser fallback
+                webbrowser.open(url)
+                self.append(f"✓ Opened search in default browser\n\n", "success")
+                self.log_event("SEARCH_SUCCESS", f"Webbrowser search: {query[:60]}")
             
             self.update_status("Ready", "#6db783")
         
