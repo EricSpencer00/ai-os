@@ -229,9 +229,13 @@ class AuraOSBrowser:
             # Open Firefox with Google search
             url = f"https://www.google.com/search?q={query}"
             try:
+                # Set DISPLAY for X server
+                env = os.environ.copy()
+                env['DISPLAY'] = ':99'
                 subprocess.Popen(["firefox", url], 
                                 stdout=subprocess.DEVNULL, 
-                                stderr=subprocess.DEVNULL)
+                                stderr=subprocess.DEVNULL,
+                                env=env)
                 self.append(f"✓ Opened: {url}\n\n", "success")
                 self.log_event("SEARCH_SUCCESS", f"Firefox search: {query[:60]}")
             except FileNotFoundError:
@@ -256,18 +260,17 @@ class AuraOSBrowser:
         try:
             self.update_status("Opening Firefox...", "#ff7f50")
             
-            # Prefer auraos.sh if available so automation is handled uniformly
-            auraos_path = shutil.which("auraos.sh") or (os.path.join(os.getcwd(), "auraos.sh") if os.path.isfile(os.path.join(os.getcwd(), "auraos.sh")) else None)
-            if auraos_path:
-                subprocess.run([auraos_path, "automate", "open firefox"], check=False)
-                self.append("🌐 Opening Firefox via auraos.sh...\n", "info")
-                self.log_event("FIREFOX_OPENED", "via auraos.sh")
-            else:
-                # fallback: launch firefox locally
-                subprocess.Popen(["firefox"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                self.append("🌐 Opening Firefox...\n", "info")
-                self.log_event("FIREFOX_OPENED", "local")
-
+            # Set DISPLAY for X server
+            env = os.environ.copy()
+            env['DISPLAY'] = ':99'
+            
+            # Launch firefox
+            subprocess.Popen(["firefox"], 
+                           stdout=subprocess.DEVNULL, 
+                           stderr=subprocess.DEVNULL,
+                           env=env)
+            self.append("🌐 Firefox opened\n", "info")
+            self.log_event("FIREFOX_OPENED", "manual")
             self.update_status("Firefox opened", "#6db783")
         
         except Exception as e:
