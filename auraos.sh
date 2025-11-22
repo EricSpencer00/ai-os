@@ -1832,7 +1832,7 @@ Exec=auraos-home
 Hidden=false
 NoDisplay=false
 X-GNOME-Autostart-enabled=true
-X-GNOME-Autostart-Delay=2
+X-GNOME-Autostart-Delay=5
 DESKTOP_EOF
 
 # Create autostart for onboarding
@@ -1845,7 +1845,7 @@ Exec=/opt/auraos/bin/auraos_onboarding.py
 Hidden=false
 NoDisplay=false
 X-GNOME-Autostart-enabled=true
-X-GNOME-Autostart-Delay=0
+X-GNOME-Autostart-Delay=1
 DESKTOP_EOF
 
 # Create desktop shortcuts

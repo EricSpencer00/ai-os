@@ -97,11 +97,25 @@ class AuraOSLauncher:
     def launch_vision_os(self):
         self.status_label.config(text="Starting Vision Desktop...", fg='#00ff88')
         try:
-            # Open VNC
-            webbrowser.open("http://localhost:6080/vnc.html")
-            self.status_label.config(text="Vision Desktop Opened", fg='#6db783')
+            # Try to open VNC in browser
+            import webbrowser as wb
+            success = wb.open("http://localhost:6080/vnc.html")
+            if success:
+                self.status_label.config(text="Vision Desktop Opened", fg='#6db783')
+                messagebox.showinfo("Vision Desktop", "Opening VNC viewer in browser.\n\nPassword: auraos123")
+            else:
+                # Fallback: try Firefox directly
+                try:
+                    subprocess.Popen(["firefox", "http://localhost:6080/vnc.html"], 
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    self.status_label.config(text="Vision Desktop Opened", fg='#6db783')
+                    messagebox.showinfo("Vision Desktop", "Opening VNC in Firefox.\n\nPassword: auraos123")
+                except:
+                    messagebox.showwarning("Vision Desktop", 
+                        "Could not open browser automatically.\n\nPlease open manually:\nhttp://localhost:6080/vnc.html\n\nPassword: auraos123")
+                    self.status_label.config(text="Manual browser open required", fg='#dcdcaa')
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to open Vision Desktop: {e}")
+            messagebox.showerror("Error", f"Vision Desktop Error: {e}\n\nTry opening manually:\nhttp://localhost:6080/vnc.html")
             self.status_label.config(text="Error opening Vision Desktop", fg='#ff0000')
 
     def launch_settings(self):

@@ -15,6 +15,8 @@ import threading
 import sys
 import os
 import json
+import webbrowser
+import shutil
 from datetime import datetime
 from pathlib import Path
 
@@ -32,6 +34,7 @@ class AuraOSBrowser:
         self.search_history = []
         self.history_index = -1
         self.firefox_pid = None
+        self.is_processing = False
         
         self.setup_ui()
         self.log_event("STARTUP", "AuraOS Browser initialized")

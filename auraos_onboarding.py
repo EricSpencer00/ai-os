@@ -8,6 +8,7 @@ import time
 import threading
 import sys
 import os
+import subprocess
 import requests
 import random
 
@@ -120,16 +121,21 @@ class AuraOSOnboarding:
             self.canvas.itemconfig(self.status_text, text="Vision Cortex: OFFLINE (Retrying...)", fill='#ff4444')
 
     def finish(self):
-        # Fade out effect
-        self.fade_out(1.0)
+        # Launch AuraOS Home after brief delay
+        self.canvas.itemconfig(self.subtitle_text, text="INITIALIZATION COMPLETE")
+        self.root.after(1000, self.launch_home)
         
-    def fade_out(self, alpha):
-        if alpha > 0:
-            # Tkinter doesn't support alpha on canvas items easily without external libs
-            # So we just destroy the window after a brief pause
-            self.root.after(50, lambda: self.fade_out(alpha - 0.1))
-        else:
-            self.root.destroy()
+    def launch_home(self):
+        """Launch AuraOS Home and close onboarding"""
+        try:
+            # Launch AuraOS Home launcher
+            subprocess.Popen([sys.executable, "/opt/auraos/bin/auraos_launcher.py"],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception as e:
+            print(f"Failed to launch AuraOS Home: {e}")
+        
+        # Close onboarding
+        self.root.destroy()
 
 if __name__ == "__main__":
     # Ensure DISPLAY is set

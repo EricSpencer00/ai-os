@@ -57,6 +57,14 @@ class AuraOSTerminal:
         )
         self.mode_btn.pack(side='left', padx=10, pady=8)
         
+        # Settings button (hamburger menu)
+        settings_btn = tk.Button(
+            top_frame, text="⚙️ Settings", command=self.show_settings,
+            bg='#2d3547', fg='#ffffff', font=('Arial', 10, 'bold'),
+            relief='flat', cursor='hand2', padx=12, pady=10
+        )
+        settings_btn.pack(side='left', padx=5, pady=8)
+        
         # Title
         self.title_label = tk.Label(
             top_frame, text="⚡ AuraOS Terminal (AI Mode)", 
@@ -249,9 +257,23 @@ class AuraOSTerminal:
                 self.append(f"✗ Agent Error: {response.text}\n", "error")
                 self.log_event("AI_ERROR", response.text)
                 
+        except requests.exceptions.ConnectionError:
+            self.append(f"✗ Connection failed: Cannot reach GUI Agent\n", "error")
+            self.append("  \n", "output")
+            self.append("  Troubleshooting:\n", "warning")
+            self.append("  1. Ensure the VM is running\n", "info")
+            self.append("  2. Check agent status: ./auraos.sh health\n", "info")
+            self.append("  3. Restart services: ./auraos.sh restart\n", "info")
+            self.append("  4. View settings: Click '⚙️ Settings' button\n\n", "info")
+            self.log_event("AI_EXCEPTION", "Connection refused")
+        except requests.exceptions.Timeout:
+            self.append(f"✗ Request timed out (3 minutes)\n", "error")
+            self.append("  The AI model may be processing slowly.\n", "info")
+            self.append("  Try a simpler request or check Ollama status.\n\n", "info")
+            self.log_event("AI_EXCEPTION", "Timeout")
         except Exception as e:
-            self.append(f"✗ Connection failed: {e}\n", "error")
-            self.append("  Is the GUI Agent running?\n", "warning")
+            self.append(f"✗ Unexpected error: {e}\n", "error")
+            self.append("  Click '⚙️ Settings' for connection info.\n\n", "info")
             self.log_event("AI_EXCEPTION", str(e))
             
         self.is_processing = False
@@ -408,6 +430,82 @@ Keyboard Shortcuts:
                 f.write(f"[{ts}] {action}: {message}\n")
         except:
             pass
+    
+    def show_settings(self):
+        """Show settings dialog for configuring AI connections"""
+        settings_window = tk.Toplevel(self.root)
+        settings_window.title("AuraOS Terminal Settings")
+        settings_window.geometry("600x500")
+        settings_window.configure(bg='#1a1e37')
+        
+        # Title
+        title = tk.Label(
+            settings_window, text="⚙️ AuraOS Terminal Settings",
+            font=('Arial', 16, 'bold'), fg='#00ff88', bg='#1a1e37'
+        )
+        title.pack(pady=20)
+        
+        # Info frame
+        info_frame = tk.Frame(settings_window, bg='#0a0e27')
+        info_frame.pack(fill='both', expand=True, padx=20, pady=10)
+        
+        info_text = scrolledtext.ScrolledText(
+            info_frame, wrap=tk.WORD, bg='#0a0e27', fg='#d4d4d4',
+            font=('Menlo', 10), relief='flat', padx=15, pady=15
+        )
+        info_text.pack(fill='both', expand=True)
+        
+        # Configuration instructions
+        config_text = """📡 AI Connection Configuration
+
+The AuraOS Terminal connects to the GUI Agent running inside the VM.
+
+Current Connection:
+  • GUI Agent: http://localhost:8765/ask
+  • Ollama Host: http://192.168.2.1:11434 (configured in VM)
+
+Connection Status:
+"""
+        
+        info_text.insert('1.0', config_text)
+        
+        # Check connection status
+        try:
+            response = requests.get("http://localhost:8765/health", timeout=2)
+            if response.status_code == 200:
+                info_text.insert(tk.END, "  ✓ GUI Agent: ONLINE\n", 'success')
+            else:
+                info_text.insert(tk.END, "  ✗ GUI Agent: ERROR\n", 'error')
+        except:
+            info_text.insert(tk.END, "  ✗ GUI Agent: OFFLINE\n\n", 'error')
+            info_text.insert(tk.END, "Troubleshooting:\n", 'warning')
+            info_text.insert(tk.END, "  1. Ensure the VM is running\n")
+            info_text.insert(tk.END, "  2. Check gui_agent service: ./auraos.sh health\n")
+            info_text.insert(tk.END, "  3. Restart services: ./auraos.sh restart\n\n")
+        
+        info_text.insert(tk.END, "\nOllama Configuration:\n", 'info')
+        info_text.insert(tk.END, "  The GUI Agent uses Ollama on the host machine.\n")
+        info_text.insert(tk.END, "  Ensure Ollama is running with:\n")
+        info_text.insert(tk.END, "  OLLAMA_HOST=0.0.0.0 ollama serve\n\n")
+        
+        info_text.insert(tk.END, "To configure API keys or models:\n", 'info')
+        info_text.insert(tk.END, "  ./auraos.sh keys onboard\n")
+        
+        info_text.config(state='disabled')
+        
+        # Configure tags
+        info_text.tag_config('success', foreground='#6db783', font=('Menlo', 10, 'bold'))
+        info_text.tag_config('error', foreground='#f48771', font=('Menlo', 10, 'bold'))
+        info_text.tag_config('warning', foreground='#dcdcaa', font=('Menlo', 10, 'bold'))
+        info_text.tag_config('info', foreground='#9cdcfe', font=('Menlo', 10, 'bold'))
+        
+        # Close button
+        close_btn = tk.Button(
+            settings_window, text="Close", command=settings_window.destroy,
+            bg='#00d4ff', fg='#0a0e27', font=('Arial', 11, 'bold'),
+            relief='flat', cursor='hand2', padx=20, pady=10
+        )
+        close_btn.pack(pady=20)
 
 
 if __name__ == "__main__":
