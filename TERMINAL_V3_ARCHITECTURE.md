@@ -1,4 +1,4 @@
-# AuraOS Terminal v3.0 - Enhanced AI Architecture
+# AuraOS Terminal v3.0 — Enhanced AI Architecture
 
 ## Overview
 

@@ -2,19 +2,20 @@
 
 **Status:** ✅ Installed and Ready  
 **Location:** `/opt/auraos/bin/auraos_terminal.py`  
-**Date:** November 9, 2025
+**Date:** November 22, 2025
 
 ---
 
 ## Overview
 
-AuraOS Terminal is a ChatGPT-style terminal application that allows you to interact with your Ubuntu system using:
-- **Text Input** - Type commands directly
-- **Voice Input** - Speak commands to the system (if speech recognition available)
-- **GUI Interface** - Modern, dark-themed terminal interface
-- **CLI Mode** - Traditional command-line mode
 
-The application executes system commands and displays results in a beautiful, chat-like interface.
+AuraOS Terminal is a ChatGPT-style terminal application for Ubuntu, supporting:
+- **Text Input** — Type commands directly
+- **Voice Input** — Speak commands (if enabled)
+- **GUI Interface** — Modern, dark-themed chat terminal
+- **CLI Mode** — Traditional shell mode
+
+The terminal executes system commands and AI tasks, displaying results in a chat-like interface. Direct Ollama chat integration is planned for next release.
 
 ---
 

@@ -1,4 +1,4 @@
-# AuraOS Terminal v3.0 - Test Plan & Verification Guide
+# AuraOS Terminal v3.0 — Test Plan & Verification Guide
 
 ## Test Overview
 

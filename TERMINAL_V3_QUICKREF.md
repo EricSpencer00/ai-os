@@ -1,4 +1,4 @@
-# AuraOS Terminal v3.0 - Quick Reference
+# AuraOS Terminal v3.0 — Quick Reference
 
 ## 🚀 Start Here
 

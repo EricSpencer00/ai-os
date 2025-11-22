@@ -1,4 +1,4 @@
-# AuraOS Terminal - User Guide
+# AuraOS Terminal — User Guide
 
 ## Quick Start
 

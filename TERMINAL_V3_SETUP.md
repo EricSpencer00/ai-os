@@ -1,4 +1,4 @@
-# AuraOS Terminal v3.0 - Setup & Deployment Guide
+# AuraOS Terminal v3.0 — Setup & Deployment Guide
 
 ## Quick Start
 

@@ -1,3 +1,4 @@
+![aura-os-ss.png](aura-os-ss.png)
 # AuraOS — AI-Powered OS Automation
 
 **Status:** Experimental (2025-11-09)
@@ -183,15 +184,21 @@ multipass restart auraos-multipass
 - 8GB RAM (4GB for VM)
 - 30GB free disk space
 
+
 ## Documentation
 
 - Run `./auraos.sh help` for all commands
-- `QUICKSTART.md` - Fast setup guide
-- `AURAOS_TERMINAL.md` - **NEW:** ChatGPT-style terminal with voice & text commands
-- `DESKTOP_ACCESS.md` - Desktop access methods and troubleshooting
-- `SETUP_VERIFICATION.md` - Detailed system verification results
-- `VM_SETUP.md` - VM details
-- `IMPLEMENTATION.md` - Technical docs
+- [QUICKSTART.md](QUICKSTART.md) — Fast setup guide
+- [AURAOS_TERMINAL.md](AURAOS_TERMINAL.md) — ChatGPT-style terminal with voice & text commands
+- [DESKTOP_ACCESS.md](DESKTOP_ACCESS.md) — Desktop access methods and troubleshooting
+- [SETUP_VERIFICATION.md](SETUP_VERIFICATION.md) — System verification results
+- [VM_SETUP.md](VM_SETUP.md) — VM details
+- [IMPLEMENTATION.md](IMPLEMENTATION.md) — Technical docs
+- [TERMINAL_README.md](TERMINAL_README.md) — Terminal usage and features
+- [TERMINAL_V3_SETUP.md](TERMINAL_V3_SETUP.md) — Terminal v3 setup
+- [TERMINAL_V3_ARCHITECTURE.md](TERMINAL_V3_ARCHITECTURE.md) — Terminal v3 architecture
+- [TERMINAL_V3_QUICKREF.md](TERMINAL_V3_QUICKREF.md) — Terminal v3 quick reference
+- [TEST_PLAN.md](TEST_PLAN.md) — Testing plan and procedures
 
 ## License
 
