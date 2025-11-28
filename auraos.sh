@@ -389,7 +389,7 @@ PY
     if multipass exec "$VM_NAME" -- systemctl is-active --quiet auraos-gui-agent.service; then
         echo -e "${GREEN}✓ GUI Agent running${NC}"
     else
-        echo -e "${RED}✗ GUI Agent not running${NC}"
+        echo -e "${RED}✗ GUI Agent not running, try running ./auraos.sh gui-reset${NC}"
         health_failed=1
     fi
     echo ""
