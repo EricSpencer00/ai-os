@@ -183,7 +183,7 @@ class AuraOSTerminal:
             self.append("💬 AuraOS Terminal - Chat Mode\n", "system")
             self.append("Direct Conversation with Ollama\n\n", "system")
             self.append("Chat with AI models running locally on your machine.\n", "info")
-            self.append("Ensure Ollama is running: OLLAMA_HOST=0.0.0.0 ollama serve\n\n", "warning")
+            self.append("Ensure Ollama is running with Farà-7B: OLLAMA_HOST=0.0.0.0 ollama serve\n\n", "warning")
             self.append("Examples:\n", "info")
             self.append("  • Hello, how are you?\n", "output")
             self.append("  • Explain quantum computing\n", "output")
@@ -411,7 +411,7 @@ class AuraOSTerminal:
             response = requests.post(
                 "http://localhost:11434/api/generate",
                 json={
-                    "model": "llama2",  # Default model, can be configured
+                    "model": "fara-7b",  # Farà-7B model via Ollama
                     "prompt": message,
                     "stream": False
                 },
@@ -432,7 +432,7 @@ class AuraOSTerminal:
             self.append("  \n", "output")
             self.append("  Troubleshooting:\n", "warning")
             self.append("  1. Ensure Ollama is running: OLLAMA_HOST=0.0.0.0 ollama serve\n", "info")
-            self.append("  2. Check if llama2 model is pulled: ollama pull llama2\n", "info")
+            self.append("  2. Pull Farà-7B model: ollama pull fara-7b\n", "info")
             self.append("  3. View settings: Click '⚙️ Settings' button\n\n", "info")
             self.log_event("CHAT_EXCEPTION", "Connection refused")
         except requests.exceptions.Timeout:
@@ -635,7 +635,7 @@ The AuraOS Terminal has three modes:
 
 2. Chat Mode: Direct connection to Ollama for conversation
    • Ollama: http://localhost:11434/api/generate
-   • Model: llama2 (default)
+   • Model: fara-7b (default, requires: ollama pull fara-7b)
 
 3. Regular Mode: Standard terminal with AI file search
 
@@ -669,10 +669,12 @@ Connection Status:
             info_text.insert(tk.END, "  3. For GUI Agent: ./auraos.sh health\n\n")
         
         info_text.insert(tk.END, "\nOllama Configuration:\n", 'info')
-        info_text.insert(tk.END, "  Chat Mode uses Ollama directly on localhost:11434\n")
+        info_text.insert(tk.END, "  Chat Mode uses Ollama directly on localhost:11434 (fara-7b model)\n")
         info_text.insert(tk.END, "  AI Mode uses GUI Agent which connects to Ollama on host\n")
         info_text.insert(tk.END, "  Ensure Ollama is running with:\n")
-        info_text.insert(tk.END, "  OLLAMA_HOST=0.0.0.0 ollama serve\n\n")
+        info_text.insert(tk.END, "  OLLAMA_HOST=0.0.0.0 ollama serve\n")
+        info_text.insert(tk.END, "  Then pull Farà-7B:\n")
+        info_text.insert(tk.END, "  ollama pull fara-7b\n\n")
         
         info_text.insert(tk.END, "To configure API keys or models:\n", 'info')
         info_text.insert(tk.END, "  ./auraos.sh keys onboard\n")

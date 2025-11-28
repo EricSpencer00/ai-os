@@ -39,7 +39,7 @@ class ScreenAutomation:
         self._configure_vision()
     
     def _configure_vision(self):
-        """Configure vision model (GPT-4V, Claude-3, or Ollama LLaVA)"""
+        """Configure vision model (GPT-4V, Claude-3, or Ollama Farà-7B)"""
         # Try OpenAI GPT-4V first
         openai_key = self.km.get_key("openai")
         if openai_key:
@@ -54,7 +54,7 @@ class ScreenAutomation:
             self.vision_api_key = anthropic_key
             return
         
-        # Fallback to local Ollama with LLaVA
+        # Fallback to local Ollama with Farà-7B
         ollama_config = self.km.get_ollama_config()
         if ollama_config:
             self.vision_provider = "ollama"
@@ -262,10 +262,10 @@ Analyze the screenshot and provide the X,Y coordinates to click. Respond ONLY wi
             return None
     
     def _analyze_with_ollama(self, screenshot_path: str, task: str) -> Optional[Dict]:
-        """Analyze with local Ollama LLaVA - using chat API with image support"""
+        """Analyze with local Ollama Farà-7B - using chat API with image support"""
         ollama_config = self.km.get_ollama_config()
         base_url = ollama_config.get("base_url", "http://localhost:11434")
-        model = ollama_config.get("vision_model", "llava:13b")
+        model = ollama_config.get("vision_model", "fara-7b")
         
         # Read and base64 encode the image for Ollama
         with open(screenshot_path, 'rb') as f:

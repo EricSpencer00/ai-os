@@ -126,7 +126,7 @@ Output ONLY the JSON list. Example: [{{"action": "click", "x": 10, "y": 10}}]
 """
         
         payload = {
-            "model": "llava:13b",
+            "model": "fara-7b",  # Using Farà-7B via Ollama
             "prompt": prompt,
             "stream": False,
             "images": images_b64 if images_b64 else None,
