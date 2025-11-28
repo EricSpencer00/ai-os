@@ -197,6 +197,7 @@ class AuraOSTerminal:
             self.append("  ai: find all files suffixed by .txt\n", "output")
             self.append("  ai: find all files with more than 500 words\n", "output")
             self.append("  ai: search for python files in src/\n\n", "output")
+            self.append("(You can also type: 'ai <query>' without the colon)\n", "info")
             self.append("Type 'help' for more information.\n", "info")
     
     def switch_mode(self):
@@ -259,9 +260,12 @@ class AuraOSTerminal:
                 self.output_area.config(state='normal')
                 self.output_area.delete(1.0, tk.END)
                 self.output_area.config(state='disabled')
-            elif text.lower().startswith("ai:"):
-                # AI file search
-                search_query = text[3:].strip()
+            elif text.lower().startswith("ai:") or text.lower().startswith("ai "):
+                # AI file search — accept both 'ai: query' and 'ai query'
+                if text.lower().startswith("ai:"):
+                    search_query = text[3:].strip()
+                else:
+                    search_query = text[2:].strip()
                 threading.Thread(target=self.execute_ai_search, args=(search_query,), daemon=True).start()
             else:
                 # Regular shell command
