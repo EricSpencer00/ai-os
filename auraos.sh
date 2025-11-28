@@ -79,7 +79,7 @@ cmd_keys() {
         echo -e "${GREEN}Adding API key for $2...${NC}"
         python core/key_manager.py add "$2" "$3"
     elif [ "$1" == "ollama" ]; then
-        MODEL="${2:-llava:13b}"
+        MODEL="${2:-fara-7b}"
         VISION_MODEL="${3:-$MODEL}"
         echo -e "${GREEN}Setting Ollama: model=$MODEL, vision_model=$VISION_MODEL${NC}"
         python core/key_manager.py enable-ollama "$MODEL" "$VISION_MODEL"
@@ -89,7 +89,7 @@ cmd_keys() {
         echo -e "${YELLOW}  keys add <provider> <key>  - Add API key${NC}"
         echo -e "${YELLOW}  keys onboard               - Interactive API key onboarding (new system)${NC}"
         echo -e "${YELLOW}  keys ollama [model] [vision_model] - Configure Ollama${NC}"
-        echo -e "${YELLOW}Example: $0 keys ollama llava:13b qwen2.5-coder:7b${NC}"
+        echo -e "${YELLOW}Example: $0 keys ollama fara-7b qwen2.5-coder:7b${NC}"
         exit 1
     fi
 }
@@ -391,6 +391,62 @@ PY
     else
         echo -e "${RED}✗ GUI Agent not running, try running ./auraos.sh gui-reset${NC}"
         health_failed=1
+    fi
+    echo ""
+
+    # Check 9: Ollama service & Farà-7B model
+    echo -e "${YELLOW}[9/9]${NC} Ollama (local LLM)"
+    OLLAMA_UP=0
+    # Quick reachability check
+    if curl -s -m 3 http://localhost:11434/api/tags >/dev/null 2>&1; then
+        OLLAMA_UP=1
+        echo -e "${GREEN}✓ Ollama reachable on localhost:11434${NC}"
+    else
+        echo -e "${YELLOW}→ Ollama not reachable on localhost:11434; attempting to start...${NC}"
+        # Try brew service first (macOS)
+        if command -v brew >/dev/null 2>&1; then
+            brew services start ollama 2>/dev/null || true
+        fi
+        # Also try launching ollama serve in background if CLI available
+        if command -v ollama >/dev/null 2>&1; then
+            nohup ollama serve --host 0.0.0.0 >/tmp/ollama_serve.log 2>&1 &
+        fi
+
+        # Wait up to 20 seconds for Ollama to become available
+        for i in {1..20}; do
+            if curl -s -m 3 http://localhost:11434/api/tags >/dev/null 2>&1; then
+                OLLAMA_UP=1
+                break
+            fi
+            sleep 1
+        done
+
+        if [ $OLLAMA_UP -eq 1 ]; then
+            echo -e "${GREEN}✓ Ollama started and reachable${NC}"
+        else
+            echo -e "${RED}✗ Ollama still not reachable after attempts${NC}"
+            health_failed=1
+        fi
+    fi
+
+    # Ensure fara-7b model is installed when Ollama is up
+    if [ $OLLAMA_UP -eq 1 ]; then
+        if command -v ollama >/dev/null 2>&1; then
+            if ollama list 2>/dev/null | grep -q "fara-7b"; then
+                echo -e "${GREEN}✓ fara-7b model present${NC}"
+            else
+                echo -e "${YELLOW}→ fara-7b model not found; pulling now (may take several minutes)...${NC}"
+                if ollama pull fara-7b >/dev/null 2>&1; then
+                    echo -e "${GREEN}✓ fara-7b pulled successfully${NC}"
+                else
+                    echo -e "${RED}✗ Failed to pull fara-7b model${NC}"
+                    health_failed=1
+                fi
+            fi
+        else
+            echo -e "${YELLOW}⚠ ollama CLI not installed; cannot verify or pull models${NC}"
+            health_failed=1
+        fi
     fi
     echo ""
 
@@ -792,12 +848,12 @@ cmd_install() {
     done
     echo ""
 
-    echo -e "${BLUE}Step 5/8: Downloading vision model (llava:13b)...${NC}"
-    if ollama list 2>/dev/null | grep -q "llava:13b"; then
-        echo -e "${GREEN}✓ llava:13b model already installed${NC}"
+    echo -e "${BLUE}Step 5/8: Downloading vision model (fara-7b)...${NC}"
+    if ollama list 2>/dev/null | grep -q "fara-7b"; then
+        echo -e "${GREEN}✓ fara-7b model already installed${NC}"
     else
-        echo "Downloading llava:13b model (this may take several minutes)..."
-        ollama pull llava:13b
+        echo "Downloading fara-7b model (this may take several minutes)..."
+        ollama pull fara-7b
         echo -e "${GREEN}✓ Model downloaded${NC}"
     fi
     echo ""
@@ -833,8 +889,8 @@ cmd_install() {
 
     echo -e "${BLUE}Step 8/8: Configuring Ollama for vision tasks...${NC}"
     source venv/bin/activate
-    python core/key_manager.py enable-ollama llava:13b llava:13b 2>/dev/null || echo "Configured Ollama"
-    echo -e "${GREEN}✓ Ollama configured with llava:13b for vision${NC}"
+    python core/key_manager.py enable-ollama fara-7b fara-7b 2>/dev/null || echo "Configured Ollama"
+    echo -e "${GREEN}✓ Ollama configured with fara-7b for vision${NC}"
     echo ""
 
     echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
