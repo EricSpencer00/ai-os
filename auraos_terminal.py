@@ -21,6 +21,7 @@ from tkinter import scrolledtext, messagebox
 import subprocess
 import shutil
 import threading
+import time
 import sys
 import os
 import json
@@ -68,6 +69,14 @@ class AuraOSTerminal:
             relief='flat', cursor='hand2', padx=12, pady=10
         )
         settings_btn.pack(side='left', padx=5, pady=8)
+
+        # Demo button for a polished, reproducible demo sequence
+        demo_btn = tk.Button(
+            top_frame, text="▶ Demo", command=self.start_demo,
+            bg='#00bcd4', fg='#0a0e27', font=('Arial', 10, 'bold'),
+            relief='flat', cursor='hand2', padx=12, pady=10
+        )
+        demo_btn.pack(side='left', padx=5, pady=8)
         
         # Title
         self.title_label = tk.Label(
@@ -274,11 +283,27 @@ class AuraOSTerminal:
             
             if response.status_code == 200:
                 result = response.json()
-                executed = result.get("executed", [])
+                # Prefer structured fields: 'suggested' and 'executed'
+                suggested = result.get("suggested", []) if isinstance(result, dict) else []
+                executed = result.get("executed", []) if isinstance(result, dict) else []
+
+                # Show suggested actions if present
+                if suggested:
+                    self.append(f"✓ Agent suggested {len(suggested)} actions.\n", "info")
+                    for a in suggested:
+                        self.append(f"  • {self.format_action(a)}\n", "output")
+
+                # Show executed actions
                 self.append(f"✓ Agent executed {len(executed)} actions.\n", "success")
                 for action in executed:
-                    act = action.get("action", {})
-                    self.append(f"  - {act}\n", "output")
+                    self.append(f"  - {self.format_action(action)}\n", "output")
+
+                # Persist structured action log for replay/demo
+                try:
+                    self.record_action_log(request_text, executed or suggested)
+                except Exception:
+                    pass
+
                 self.log_event("AI_SUCCESS", request_text)
             else:
                 self.append(f"✗ Agent Error: {response.text}\n", "error")
@@ -306,6 +331,70 @@ class AuraOSTerminal:
         self.is_processing = False
         self.update_status("Ready", "#6db783")
         self.input_field.focus()
+
+    def format_action(self, action):
+        """Return a human-friendly string for an action dict or simple value."""
+        try:
+            if isinstance(action, dict):
+                # Common keys: action, type, text, amount, seconds, x, y
+                # Accept either nested {'action': {...}} or direct dict
+                act = action.get("action") if "action" in action and isinstance(action.get("action"), dict) else action
+                if isinstance(act, dict):
+                    atype = act.get("type") or act.get("action") or act.get("name")
+                    parts = []
+                    if atype:
+                        parts.append(str(atype))
+                    for k, v in act.items():
+                        if k in ("type", "action", "name"): continue
+                        parts.append(f"{k}={v}")
+                    return "{" + ", ".join(parts) + "}"
+                else:
+                    return str(act)
+            else:
+                return str(action)
+        except Exception:
+            return str(action)
+
+    def record_action_log(self, request_text, actions):
+        """Append a JSON-line with timestamp, request, and actions for replay/export."""
+        try:
+            out = {
+                "ts": datetime.now().isoformat(),
+                "request": request_text,
+                "actions": actions
+            }
+            path = "/tmp/auraos_terminal_actions.jsonl"
+            with open(path, "a") as f:
+                f.write(json.dumps(out, default=str) + "\n")
+        except Exception:
+            pass
+
+    def start_demo(self):
+        """Start an in-UI demo sequence in a background thread."""
+        threading.Thread(target=self.run_demo_sequence, daemon=True).start()
+
+    def run_demo_sequence(self):
+        """Run a short demo sequence showing agent interactions."""
+        seq = [
+            "hi",
+            "make an officelibre excel sheet with top 10 presidents' elections by popular vote",
+            "create new excel sheet"
+        ]
+        try:
+            self.update_status("Demo running...", "#00bcd4")
+            for cmd in seq:
+                # show user input
+                self.input_field.delete(0, tk.END)
+                self.input_field.insert(0, cmd)
+                self.append(f"⚡ {cmd}\n", "ai")
+                self.execute()
+                # Pause to let agent process and for demo pacing
+                time.sleep(3.5)
+            self.append("\nDemo complete.\n", "success")
+        except Exception as e:
+            self.append(f"Demo error: {e}\n", "error")
+        finally:
+            self.update_status("Ready", "#6db783")
 
     def execute_chat(self, message):
         """Send message directly to Ollama for chat."""
