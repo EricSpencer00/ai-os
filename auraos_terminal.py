@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 """
-AuraOS Terminal - Dual-Mode Application
+AuraOS Terminal - Tri-Mode Application
 Modes:
   1. AI Mode (Default): ChatGPT-like interface for automation tasks
      - Natural language requests (e.g., "open firefox", "make an excel sheet")
      - Auto-execution via ./auraos.sh automate
      - Full daemon integration
   
-  2. Regular Mode: Standard terminal with AI file search
+  2. Chat Mode: Direct conversation with Ollama
+     - Chat with AI models running locally
+     - No automation, just conversation
+  
+  3. Regular Mode: Standard terminal with AI file search
      - Shell command execution
      - AI-powered file search (prefix commands with "ai:" for smart search)
      - Command history navigation
@@ -26,7 +30,7 @@ from pathlib import Path
 
 
 class AuraOSTerminal:
-    """Dual-mode terminal: AI mode (default) and Regular mode"""
+    """Tri-mode terminal: AI mode (default), Chat mode, and Regular mode"""
     
     def __init__(self, root):
         self.root = root
@@ -35,7 +39,7 @@ class AuraOSTerminal:
         self.root.configure(bg='#0a0e27')
         
         # State
-        self.mode = "ai"  # "ai" or "regular"
+        self.mode = "ai"  # "ai", "regular", or "chat"
         self.command_history = []
         self.history_index = -1
         self.is_processing = False
@@ -166,6 +170,16 @@ class AuraOSTerminal:
             self.append("  • download and extract the latest release\n\n", "output")
             self.append("Just describe what you want to do in plain English!\n", "success")
             self.append("Type 'help' for more information.\n", "info")
+        elif self.mode == "chat":
+            self.append("💬 AuraOS Terminal - Chat Mode\n", "system")
+            self.append("Direct Conversation with Ollama\n\n", "system")
+            self.append("Chat with AI models running locally on your machine.\n", "info")
+            self.append("Ensure Ollama is running: OLLAMA_HOST=0.0.0.0 ollama serve\n\n", "warning")
+            self.append("Examples:\n", "info")
+            self.append("  • Hello, how are you?\n", "output")
+            self.append("  • Explain quantum computing\n", "output")
+            self.append("  • Write a Python function to sort a list\n\n", "output")
+            self.append("Just type your message and press Enter!\n", "success")
         else:
             self.append("$ AuraOS Terminal - Regular Mode\n", "system")
             self.append("Standard Terminal with AI File Search\n\n", "system")
@@ -177,14 +191,24 @@ class AuraOSTerminal:
             self.append("Type 'help' for more information.\n", "info")
     
     def switch_mode(self):
-        """Switch between AI and Regular mode"""
-        self.mode = "regular" if self.mode == "ai" else "ai"
+        """Cycle through AI, Chat, and Regular modes"""
+        if self.mode == "ai":
+            self.mode = "chat"
+        elif self.mode == "chat":
+            self.mode = "regular"
+        else:
+            self.mode = "ai"
         
         if self.mode == "ai":
             self.title_label.config(text="⚡ AuraOS Terminal (AI Mode)", fg='#00ff88')
             self.prompt_label.config(text="⚡ ", fg='#00ff88')
-            self.mode_btn.config(text="🔄 Switch to Regular")
+            self.mode_btn.config(text="🔄 Switch to Chat")
             self.log_event("MODE_SWITCH", "Switched to AI mode")
+        elif self.mode == "chat":
+            self.title_label.config(text="💬 AuraOS Terminal (Chat Mode)", fg='#dcdcaa')
+            self.prompt_label.config(text="💬 ", fg='#dcdcaa')
+            self.mode_btn.config(text="🔄 Switch to Regular")
+            self.log_event("MODE_SWITCH", "Switched to Chat mode")
         else:
             self.title_label.config(text="$ AuraOS Terminal (Regular Mode)", fg='#4ec9b0')
             self.prompt_label.config(text="$ ", fg='#4ec9b0')
@@ -210,6 +234,9 @@ class AuraOSTerminal:
         if self.mode == "ai":
             self.append(f"⚡ {text}\n", "ai")
             threading.Thread(target=self.execute_ai_task, args=(text,), daemon=True).start()
+        elif self.mode == "chat":
+            self.append(f"💬 {text}\n", "user")
+            threading.Thread(target=self.execute_chat, args=(text,), daemon=True).start()
         else:
             self.append(f"$ {text}\n", "user")
             
@@ -275,6 +302,55 @@ class AuraOSTerminal:
             self.append(f"✗ Unexpected error: {e}\n", "error")
             self.append("  Click '⚙️ Settings' for connection info.\n\n", "info")
             self.log_event("AI_EXCEPTION", str(e))
+            
+        self.is_processing = False
+        self.update_status("Ready", "#6db783")
+        self.input_field.focus()
+
+    def execute_chat(self, message):
+        """Send message directly to Ollama for chat."""
+        self.is_processing = True
+        self.update_status("Chatting with Ollama...", "#dcdcaa")
+        self.append("⟳ Sending message to Ollama...\n", "info")
+        
+        try:
+            # Send to Ollama directly
+            response = requests.post(
+                "http://localhost:11434/api/generate",
+                json={
+                    "model": "llama2",  # Default model, can be configured
+                    "prompt": message,
+                    "stream": False
+                },
+                timeout=120
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                ai_response = result.get("response", "").strip()
+                self.append(f"{ai_response}\n\n", "output")
+                self.log_event("CHAT_SUCCESS", message)
+            else:
+                self.append(f"✗ Ollama Error: {response.text}\n", "error")
+                self.log_event("CHAT_ERROR", response.text)
+                
+        except requests.exceptions.ConnectionError:
+            self.append(f"✗ Connection failed: Cannot reach Ollama\n", "error")
+            self.append("  \n", "output")
+            self.append("  Troubleshooting:\n", "warning")
+            self.append("  1. Ensure Ollama is running: OLLAMA_HOST=0.0.0.0 ollama serve\n", "info")
+            self.append("  2. Check if llama2 model is pulled: ollama pull llama2\n", "info")
+            self.append("  3. View settings: Click '⚙️ Settings' button\n\n", "info")
+            self.log_event("CHAT_EXCEPTION", "Connection refused")
+        except requests.exceptions.Timeout:
+            self.append(f"✗ Request timed out (2 minutes)\n", "error")
+            self.append("  The AI model may be processing slowly.\n", "info")
+            self.append("  Try a shorter message or check Ollama status.\n\n", "info")
+            self.log_event("CHAT_EXCEPTION", "Timeout")
+        except Exception as e:
+            self.append(f"✗ Unexpected error: {e}\n", "error")
+            self.append("  Click '⚙️ Settings' for connection info.\n\n", "info")
+            self.log_event("CHAT_EXCEPTION", str(e))
             
         self.is_processing = False
         self.update_status("Ready", "#6db783")
@@ -458,11 +534,17 @@ Keyboard Shortcuts:
         # Configuration instructions
         config_text = """📡 AI Connection Configuration
 
-The AuraOS Terminal connects to the GUI Agent running inside the VM.
+The AuraOS Terminal has three modes:
 
-Current Connection:
-  • GUI Agent: http://localhost:8765/ask
-  • Ollama Host: http://192.168.2.1:11434 (configured in VM)
+1. AI Mode: Connects to GUI Agent for automation tasks
+   • GUI Agent: http://localhost:8765/ask
+   • Ollama Host: http://192.168.2.1:11434 (configured in VM)
+
+2. Chat Mode: Direct connection to Ollama for conversation
+   • Ollama: http://localhost:11434/api/generate
+   • Model: llama2 (default)
+
+3. Regular Mode: Standard terminal with AI file search
 
 Connection Status:
 """
@@ -477,14 +559,25 @@ Connection Status:
             else:
                 info_text.insert(tk.END, "  ✗ GUI Agent: ERROR\n", 'error')
         except:
-            info_text.insert(tk.END, "  ✗ GUI Agent: OFFLINE\n\n", 'error')
+            info_text.insert(tk.END, "  ✗ GUI Agent: OFFLINE\n", 'error')
+        
+        try:
+            # Check Ollama
+            response = requests.get("http://localhost:11434/api/tags", timeout=2)
+            if response.status_code == 200:
+                info_text.insert(tk.END, "  ✓ Ollama: ONLINE\n", 'success')
+            else:
+                info_text.insert(tk.END, "  ✗ Ollama: ERROR\n", 'error')
+        except:
+            info_text.insert(tk.END, "  ✗ Ollama: OFFLINE\n\n", 'error')
             info_text.insert(tk.END, "Troubleshooting:\n", 'warning')
-            info_text.insert(tk.END, "  1. Ensure the VM is running\n")
-            info_text.insert(tk.END, "  2. Check gui_agent service: ./auraos.sh health\n")
-            info_text.insert(tk.END, "  3. Restart services: ./auraos.sh restart\n\n")
+            info_text.insert(tk.END, "  1. Start Ollama: OLLAMA_HOST=0.0.0.0 ollama serve\n")
+            info_text.insert(tk.END, "  2. Pull model: ollama pull llama2\n")
+            info_text.insert(tk.END, "  3. For GUI Agent: ./auraos.sh health\n\n")
         
         info_text.insert(tk.END, "\nOllama Configuration:\n", 'info')
-        info_text.insert(tk.END, "  The GUI Agent uses Ollama on the host machine.\n")
+        info_text.insert(tk.END, "  Chat Mode uses Ollama directly on localhost:11434\n")
+        info_text.insert(tk.END, "  AI Mode uses GUI Agent which connects to Ollama on host\n")
         info_text.insert(tk.END, "  Ensure Ollama is running with:\n")
         info_text.insert(tk.END, "  OLLAMA_HOST=0.0.0.0 ollama serve\n\n")
         
