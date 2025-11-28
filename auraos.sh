@@ -582,6 +582,9 @@ SERVICE_EOF
     else
         echo -e "${RED}✗ GUI Agent not running after restart; review logs with: ./auraos.sh logs${NC}"
     fi
+
+    # Also run the agent installer/ensure logic for consistent behavior
+    cmd_agent_ensure >/dev/null 2>&1 || true
 }
 
 cmd_agent_ensure() {
@@ -600,7 +603,7 @@ cmd_agent_ensure() {
     multipass exec "$VM_NAME" -- sudo bash <<'AGENT_SETUP' || true
 AURAOS_USER='auraos'
 apt-get update -qq || true
-apt-get install -y python3-venv python3-pip xauth >/dev/null 2>&1 || true
+apt-get install -y python3-venv python3-pip xauth gnome-screenshot >/dev/null 2>&1 || true
 mkdir -p /opt/auraos/gui_agent
     if [ -f /tmp/gui_agent.py ]; then
     mv /tmp/gui_agent.py /opt/auraos/gui_agent/agent.py
