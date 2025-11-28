@@ -88,7 +88,10 @@ class AuraOSLauncher:
     def launch_browser(self):
         self.status_label.config(text="Launching Browser...", fg='#ff7f50')
         try:
-            subprocess.Popen([sys.executable, "/opt/auraos/bin/auraos_browser.py"])
+            # Get the directory of this script and run browser from there
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            browser_path = os.path.join(script_dir, "auraos_browser.py")
+            subprocess.Popen([sys.executable, browser_path])
             self.status_label.config(text="System Ready", fg='#6db783')
         except Exception as e:
             messagebox.showerror("Error", f"Failed to launch Browser: {e}")

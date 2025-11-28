@@ -17,6 +17,7 @@ import os
 import json
 import webbrowser
 import shutil
+import requests
 from datetime import datetime
 from pathlib import Path
 
@@ -220,59 +221,83 @@ class AuraOSBrowser:
         threading.Thread(target=self._perform_search, args=(query,), daemon=True).start()
     
     def _perform_search(self, query):
-        """Perform actual search - open Firefox with Google search"""
+        """Perform actual search using GUI Agent"""
         try:
             self.is_processing = True
-            self.update_status("Opening search...", "#00ff88")
-            self.append("⟳ Opening Firefox with Google search...\n\n", "info")
+            self.update_status("Searching with AI...", "#00ff88")
+            self.append("⟳ Sending search request to GUI Agent...\n\n", "info")
             
-            # Open Firefox with Google search
-            url = f"https://www.google.com/search?q={query}"
-            try:
-                # Set DISPLAY for X server
-                env = os.environ.copy()
-                env['DISPLAY'] = ':99'
-                subprocess.Popen(["firefox", url], 
-                                stdout=subprocess.DEVNULL, 
-                                stderr=subprocess.DEVNULL,
-                                env=env)
-                self.append(f"✓ Opened: {url}\n\n", "success")
-                self.log_event("SEARCH_SUCCESS", f"Firefox search: {query[:60]}")
-            except FileNotFoundError:
-                # Firefox not available, try webbrowser fallback
-                webbrowser.open(url)
-                self.append(f"✓ Opened search in default browser\n\n", "success")
-                self.log_event("SEARCH_SUCCESS", f"Webbrowser search: {query[:60]}")
+            # Send request to GUI Agent
+            search_request = f"open firefox and search for: {query}"
+            response = requests.post(
+                "http://localhost:8765/ask",
+                json={"query": search_request},
+                timeout=180
+            )
             
-            self.update_status("Ready", "#6db783")
-        
-        except subprocess.TimeoutExpired:
-            self.append("✗ Search timed out (60s limit)\n\n", "error")
-            self.update_status("Timeout", "#f48771")
+            if response.status_code == 200:
+                result = response.json()
+                executed = result.get("executed", [])
+                self.append(f"✓ Agent executed {len(executed)} actions.\n", "success")
+                for action in executed:
+                    act = action.get("action", {})
+                    self.append(f"  - {act}\n", "output")
+                self.log_event("SEARCH_SUCCESS", f"Agent search: {query[:60]}")
+            else:
+                self.append(f"✗ Agent Error: {response.text}\n", "error")
+                self.log_event("SEARCH_ERROR", response.text)
+                
+        except requests.exceptions.ConnectionError:
+            self.append(f"✗ Connection failed: Cannot reach GUI Agent\n", "error")
+            self.append("  \n", "output")
+            self.append("  Troubleshooting:\n", "warning")
+            self.append("  1. Ensure the VM is running\n", "info")
+            self.append("  2. Check agent status: ./auraos.sh health\n", "info")
+            self.append("  3. Restart services: ./auraos.sh restart\n", "info")
+            self.append("  4. View settings: Click '⚙️ Settings' button\n\n", "info")
+            self.log_event("SEARCH_EXCEPTION", "Connection refused")
+        except requests.exceptions.Timeout:
+            self.append(f"✗ Request timed out (3 minutes)\n", "error")
+            self.append("  The AI model may be processing slowly.\n", "info")
+            self.append("  Try a simpler search or check Ollama status.\n\n", "info")
+            self.log_event("SEARCH_EXCEPTION", "Timeout")
         except Exception as e:
-            self.append(f"✗ Error: {str(e)}\n\n", "error")
-            self.update_status("Error", "#f48771")
-        finally:
-            self.is_processing = False
-    
+            self.append(f"✗ Unexpected error: {e}\n", "error")
+            self.append("  Click '⚙️ Settings' for connection info.\n\n", "info")
+            self.log_event("SEARCH_EXCEPTION", str(e))
+            
+        self.is_processing = False
+        self.update_status("Ready", "#6db783")
+
     def open_firefox(self):
-        """Open Firefox browser"""
+        """Open Firefox browser using GUI Agent"""
         try:
             self.update_status("Opening Firefox...", "#ff7f50")
+            self.append("⟳ Opening Firefox via GUI Agent...\n", "info")
             
-            # Set DISPLAY for X server
-            env = os.environ.copy()
-            env['DISPLAY'] = ':99'
+            # Send request to GUI Agent
+            response = requests.post(
+                "http://localhost:8765/ask",
+                json={"query": "open firefox"},
+                timeout=60
+            )
             
-            # Launch firefox
-            subprocess.Popen(["firefox"], 
-                           stdout=subprocess.DEVNULL, 
-                           stderr=subprocess.DEVNULL,
-                           env=env)
-            self.append("🌐 Firefox opened\n", "info")
-            self.log_event("FIREFOX_OPENED", "manual")
-            self.update_status("Firefox opened", "#6db783")
+            if response.status_code == 200:
+                result = response.json()
+                executed = result.get("executed", [])
+                self.append(f"✓ Firefox opened - {len(executed)} actions executed\n", "success")
+                self.log_event("FIREFOX_OPENED", "via agent")
+            else:
+                self.append(f"✗ Agent Error: {response.text}\n", "error")
+                self.log_event("FIREFOX_ERROR", response.text)
+                
+            self.update_status("Ready", "#6db783")
         
+        except requests.exceptions.ConnectionError:
+            self.append(f"✗ Connection failed: Cannot reach GUI Agent\n", "error")
+            self.append("  Ensure VM is running: ./auraos.sh health\n", "info")
+            self.update_status("Error", "#f48771")
+            self.log_event("FIREFOX_ERROR", "Connection refused")
         except Exception as e:
             self.append(f"✗ Error opening Firefox: {str(e)}\n", "error")
             self.update_status("Error", "#f48771")
