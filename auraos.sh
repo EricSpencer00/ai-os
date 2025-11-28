@@ -550,6 +550,115 @@ SERVICE_EOF
     echo -e "${YELLOW}Access:${NC}"
     echo -e "  ${GREEN}http://localhost:6080/vnc.html${NC}"
     echo -e "  Password: ${GREEN}auraos123${NC}"
+
+    # Step 8: Ensure GUI agent is present and started (best-effort)
+    echo ""
+    echo -e "${YELLOW}[8/8]${NC} Ensuring auraos-gui-agent is present and running..."
+    # If local gui_agent.py exists, transfer it; also try to install minimal deps and start service
+    if multipass exec "$VM_NAME" -- sudo test -f /home/${AURAOS_USER}/gui_agent.py 2>/dev/null; then
+        echo -e "${GREEN}→ GUI agent file already present in VM${NC}"
+        multipass exec "$VM_NAME" -- sudo pip3 install --upgrade flask pyautogui pillow requests numpy >/dev/null 2>&1 || true
+        multipass exec "$VM_NAME" -- sudo systemctl daemon-reload || true
+        multipass exec "$VM_NAME" -- sudo systemctl enable --now auraos-gui-agent.service || true
+    else
+        if [ -f "$SCRIPT_DIR/gui_agent.py" ]; then
+            echo -e "${YELLOW}→ Uploading local gui_agent.py to VM...${NC}"
+            # Use /tmp as transfer target and then move with sudo
+            multipass transfer "$SCRIPT_DIR/gui_agent.py" "$VM_NAME:/tmp/gui_agent.py" 2>/dev/null || true
+            multipass exec "$VM_NAME" -- sudo mv /tmp/gui_agent.py /home/${AURAOS_USER}/gui_agent.py || true
+            multipass exec "$VM_NAME" -- sudo chown ${AURAOS_USER}:${AURAOS_USER} /home/${AURAOS_USER}/gui_agent.py || true
+            multipass exec "$VM_NAME" -- sudo chmod +x /home/${AURAOS_USER}/gui_agent.py || true
+            multipass exec "$VM_NAME" -- sudo pip3 install --upgrade flask pyautogui pillow requests numpy >/dev/null 2>&1 || true
+            multipass exec "$VM_NAME" -- sudo systemctl daemon-reload || true
+            multipass exec "$VM_NAME" -- sudo systemctl enable --now auraos-gui-agent.service || true
+        else
+            echo -e "${YELLOW}⚠ No local gui_agent.py found; unable to install GUI agent${NC}"
+        fi
+    fi
+
+    # Report agent status
+    if multipass exec "$VM_NAME" -- sudo systemctl is-active --quiet auraos-gui-agent.service; then
+        echo -e "${GREEN}✓ GUI Agent running${NC}"
+    else
+        echo -e "${RED}✗ GUI Agent not running after restart; review logs with: ./auraos.sh logs${NC}"
+    fi
+}
+
+cmd_agent_ensure() {
+    echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
+    echo -e "${BLUE}║   Ensure GUI Agent Installed & Running ║${NC}"
+    echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
+    echo ""
+
+    VM_NAME="auraos-multipass"
+    # Transfer agent if present locally
+    if [ -f "$SCRIPT_DIR/gui_agent.py" ]; then
+        echo -e "${YELLOW}→ Transferring local gui_agent.py to VM...${NC}"
+        multipass transfer "$SCRIPT_DIR/gui_agent.py" "$VM_NAME:/tmp/gui_agent.py" 2>/dev/null || true
+    fi
+
+    multipass exec "$VM_NAME" -- sudo bash <<'AGENT_SETUP' || true
+AURAOS_USER='auraos'
+apt-get update -qq || true
+apt-get install -y python3-venv python3-pip xauth >/dev/null 2>&1 || true
+mkdir -p /opt/auraos/gui_agent
+    if [ -f /tmp/gui_agent.py ]; then
+    mv /tmp/gui_agent.py /opt/auraos/gui_agent/agent.py
+    chown -R ${AURAOS_USER}:${AURAOS_USER} /opt/auraos/gui_agent
+    chmod +x /opt/auraos/gui_agent/agent.py || true
+fi
+    # Create Xauthority for the auraos user if missing
+    if [ ! -f /home/${AURAOS_USER}/.Xauthority ]; then
+        mkdir -p /home/${AURAOS_USER}
+        chown ${AURAOS_USER}:${AURAOS_USER} /home/${AURAOS_USER}
+        sudo -u ${AURAOS_USER} bash -lc "xauth add :99 . $(xxd -l 16 -p /dev/urandom)" || true
+    fi
+    if [ ! -d /opt/auraos/gui_agent/venv ]; then
+        python3 -m venv /opt/auraos/gui_agent/venv || true
+        # Try to ensure pip is present in venv. Use ensurepip or fallback to get-pip.py
+        /opt/auraos/gui_agent/venv/bin/python3 -m ensurepip --upgrade >/dev/null 2>&1 || true
+        if ! /opt/auraos/gui_agent/venv/bin/python3 -m pip --version >/dev/null 2>&1; then
+            echo "Bootstrapping pip into venv..."
+            curl -sS https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py || true
+            /opt/auraos/gui_agent/venv/bin/python3 /tmp/get-pip.py || true
+        fi
+        /opt/auraos/gui_agent/venv/bin/python3 -m pip install --upgrade pip setuptools >/dev/null 2>&1 || true
+    fi
+/opt/auraos/gui_agent/venv/bin/python3 -m pip install flask pyautogui pillow requests numpy || true
+
+# Write systemd unit to point to the venv python
+cat > /etc/systemd/system/auraos-gui-agent.service <<UNIT
+[Unit]
+Description=AuraOS GUI Automation Agent
+After=network.target auraos-x11vnc.service auraos-desktop.service
+
+[Service]
+Type=simple
+User=${AURAOS_USER}
+Environment=DISPLAY=:99
+Environment=HOME=/home/${AURAOS_USER}
+Environment=XAUTHORITY=/home/${AURAOS_USER}/.Xauthority
+Environment=OLLAMA_URL=http://192.168.2.1:11434
+WorkingDirectory=/opt/auraos/gui_agent
+ExecStart=/opt/auraos/gui_agent/venv/bin/python /opt/auraos/gui_agent/agent.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+systemctl daemon-reload || true
+systemctl enable --now auraos-gui-agent.service || true
+AGENT_SETUP
+
+echo ""
+echo -e "${GREEN}✓ Agent ensure script finished; check service status if needed${NC}"
+}
+
+cmd_agent_logs() {
+    VM_NAME="auraos-multipass"
+    multipass exec "$VM_NAME" -- sudo journalctl -u auraos-gui-agent.service -n 200 --no-pager || true
 }
 
 cmd_disable_screensaver() {
@@ -900,8 +1009,8 @@ User=${AURAOS_USER}
 Environment=DISPLAY=:99
 Environment=HOME=/home/${AURAOS_USER}
 Environment=OLLAMA_URL=http://192.168.2.1:11434
-WorkingDirectory=/home/${AURAOS_USER}
-ExecStart=/usr/bin/python3 /home/${AURAOS_USER}/gui_agent.py
+WorkingDirectory=/opt/auraos/gui_agent
+ExecStart=/opt/auraos/gui_agent/venv/bin/python /opt/auraos/gui_agent/agent.py
 Restart=on-failure
 RestartSec=5
 
@@ -954,7 +1063,7 @@ VNC_START
     multipass transfer auraos_browser.py "$VM_NAME:/tmp/auraos_browser.py" 2>/dev/null || true
     multipass transfer auraos_launcher.py "$VM_NAME:/tmp/auraos_launcher.py" 2>/dev/null || true
     multipass transfer auraos_onboarding.py "$VM_NAME:/tmp/auraos_onboarding.py" 2>/dev/null || true
-    multipass transfer gui_agent.py "$VM_NAME:/home/${AURAOS_USER}/gui_agent.py" 2>/dev/null || true
+    multipass transfer gui_agent.py "$VM_NAME:/tmp/gui_agent.py" 2>/dev/null || true
     
 # multipass AURAOS_APPS: ensure AURAOS_USER is set inside remote environment
     multipass exec "$VM_NAME" -- sudo bash <<'AURAOS_APPS'
@@ -991,6 +1100,21 @@ fi
 if [ -f /tmp/auraos_onboarding.py ]; then
     cp /tmp/auraos_onboarding.py /opt/auraos/bin/auraos_onboarding.py
     chmod +x /opt/auraos/bin/auraos_onboarding.py
+fi
+
+# If gui agent was transferred, ensure it lands in /opt and create a venv with minimal deps
+if [ -f /tmp/gui_agent.py ]; then
+    mkdir -p /opt/auraos/gui_agent
+    mv /tmp/gui_agent.py /opt/auraos/gui_agent/agent.py
+    chown -R ${AURAOS_USER}:${AURAOS_USER} /opt/auraos/gui_agent
+    chmod +x /opt/auraos/gui_agent/agent.py
+    if [ ! -d /opt/auraos/gui_agent/venv ]; then
+        python3 -m venv /opt/auraos/gui_agent/venv
+        /opt/auraos/gui_agent/venv/bin/python3 -m pip install --upgrade pip setuptools >/dev/null 2>&1 || true
+    fi
+    /opt/auraos/gui_agent/venv/bin/python3 -m pip install flask pyautogui pillow requests numpy >/dev/null 2>&1 || true
+    systemctl daemon-reload
+    systemctl enable --now auraos-gui-agent.service || true
 fi
 
 # Install ChatGPT-style AuraOS Terminal with Hamburger Menu
@@ -2064,6 +2188,8 @@ cmd_help() {
     echo "  status             - Show VM and service status"
     echo "  health             - Run comprehensive system health check"
     echo "  gui-reset          - Complete clean restart of VNC/noVNC services"
+    echo "  agent-ensure       - Ensure gui agent is installed, venv created and service enabled"
+    echo "  agent-logs         - Show GUI agent logs (journalctl)"
     echo "  forward            - Manage port forwarders: forward <start|stop|status>"
     echo "  screenshot         - Capture current VM screen"
     echo "  automate \"<task>\" - Run AI-powered automation task"
@@ -2130,6 +2256,12 @@ case "$1" in
         ;;
     logs)
         cmd_logs
+        ;;
+    agent-ensure)
+        cmd_agent_ensure
+        ;;
+    agent-logs)
+        cmd_agent_logs
         ;;
     restart)
         cmd_restart
