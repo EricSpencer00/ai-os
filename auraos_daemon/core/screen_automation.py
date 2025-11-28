@@ -19,17 +19,20 @@ from core.key_manager import KeyManager
 
 
 class ScreenAutomation:
-    """AI-powered screen automation using vision models"""
+    """AI-powered screen automation using vision models (via local inference server)"""
     
     def __init__(self, agent_url: str = "http://localhost:8765", 
-                 api_key: Optional[str] = None):
+                 api_key: Optional[str] = None,
+                 inference_url: str = "http://localhost:8081"):
         """Initialize screen automation
         
         Args:
             agent_url: URL of the GUI agent running in the VM
             api_key: API key for the agent (default: from KeyManager)
+            inference_url: URL of the local inference server
         """
         self.agent_url = agent_url.rstrip('/')
+        self.inference_url = inference_url.rstrip('/')
         self.km = KeyManager()
         self.api_key = api_key or self.km.get_key("agent") or "auraos_dev_key"
         
@@ -39,7 +42,7 @@ class ScreenAutomation:
         self._configure_vision()
     
     def _configure_vision(self):
-        """Configure vision model (GPT-4V, Claude-3, or Ollama Farà-7B)"""
+        """Configure vision model (GPT-4V, Claude-3, or local inference server with llava:13b or Fara-7B)"""
         # Try OpenAI GPT-4V first
         openai_key = self.km.get_key("openai")
         if openai_key:
@@ -54,14 +57,10 @@ class ScreenAutomation:
             self.vision_api_key = anthropic_key
             return
         
-        # Fallback to local Ollama with Farà-7B
-        ollama_config = self.km.get_ollama_config()
-        if ollama_config:
-            self.vision_provider = "ollama"
-            self.vision_api_key = None  # Local, no key needed
-            return
-        
-        print("Warning: No vision model configured. Add OpenAI, Anthropic, or enable Ollama.")
+        # Fallback to local inference server (supports both llava:13b and Fara-7B)
+        self.vision_provider = "local_inference"
+        self.vision_api_key = None  # Local, no key needed
+        return
     
     def _extract_element_hints(self, task: str) -> str:
         """Extract search hints from task description"""

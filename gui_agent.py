@@ -34,7 +34,7 @@ app = Flask(__name__)
 # Configuration
 SCREENSHOT_DIR = "/tmp/auraos_screenshots"
 os.makedirs(SCREENSHOT_DIR, exist_ok=True)
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://host.lima.internal:11434") # Default for macOS Multipass
+INFERENCE_SERVER_URL = os.environ.get("AURAOS_INFERENCE_URL", "http://localhost:8081")  # Local inference server
 
 # PyAutoGUI safety settings
 pyautogui.FAILSAFE = False
@@ -96,12 +96,12 @@ class ScreenMonitor(threading.Thread):
             return self.history[-limit:]
 
 class VisionClient:
-    """Client for interacting with Vision LLM (Ollama)."""
+    """Client for interacting with Vision LLM (local inference server)."""
     def __init__(self, base_url):
-        self.base_url = base_url
+        self.base_url = base_url  # Expected: http://localhost:8081
 
     def ask(self, query, image_paths):
-        url = f"{self.base_url}/api/generate"
+        url = f"{self.base_url}/ask"
         
         images_b64 = []
         for _, path in image_paths:
@@ -111,7 +111,7 @@ class VisionClient:
             except Exception as e:
                 logging.error(f"Failed to read image {path}: {e}")
 
-        # If no images, just send text
+        # Craft a prompt for the vision model
         prompt = f"""You are an AI OS Assistant controlling a computer.
 User Request: "{query}"
 Based on the attached screenshots of the user's screen, output a JSON list of actions to perform.
@@ -126,17 +126,15 @@ Output ONLY the JSON list. Example: [{{"action": "click", "x": 10, "y": 10}}]
 """
         
         payload = {
-            "model": "fara-7b",  # Using Farà-7B via Ollama
-            "prompt": prompt,
-            "stream": False,
-            "images": images_b64 if images_b64 else None,
-            "format": "json" 
+            "query": prompt,
+            "images": images_b64 if images_b64 else [],
+            "parse_json": True
         }
 
         try:
-            logging.info(f"Sending request to Ollama at {url}...")
-            # Increased timeout to 120s for slower models/hardware
-            response = requests.post(url, json=payload, timeout=120)
+            logging.info(f"Sending request to local inference server at {url}...")
+            # Increased timeout to 180s for slower models/hardware
+            response = requests.post(url, json=payload, timeout=180)
             response.raise_for_status()
             result = response.json()
             return result.get("response", "")
@@ -147,7 +145,7 @@ Output ONLY the JSON list. Example: [{{"action": "click", "x": 10, "y": 10}}]
 # Initialize components
 monitor = ScreenMonitor()
 monitor.start()
-vision_client = VisionClient(OLLAMA_URL)
+vision_client = VisionClient(INFERENCE_SERVER_URL)
 
 @app.route('/ask', methods=['POST'])
 def ask():
