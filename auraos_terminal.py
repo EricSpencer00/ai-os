@@ -401,21 +401,19 @@ class AuraOSTerminal:
             self.update_status("Ready", "#6db783")
 
     def execute_chat(self, message):
-        """Send message directly to Ollama for chat."""
+        """Send message directly to inference server for chat."""
         self.is_processing = True
-        self.update_status("Chatting with Ollama...", "#dcdcaa")
-        self.append("⟳ Sending message to Ollama...\n", "info")
+        self.update_status("Chatting with AI...", "#dcdcaa")
+        self.append("⟳ Sending message to inference server...\n", "info")
         
         try:
-            # Send to Ollama directly
+            # Send to unified inference server /generate endpoint
             response = requests.post(
-                "http://localhost:11434/api/generate",
+                "http://localhost:8081/generate",
                 json={
-                    "model": "fara-7b",  # Farà-7B model via Ollama
-                    "prompt": message,
-                    "stream": False
+                    "prompt": message
                 },
-                timeout=120
+                timeout=180
             )
             
             if response.status_code == 200:
@@ -424,21 +422,23 @@ class AuraOSTerminal:
                 self.append(f"{ai_response}\n\n", "output")
                 self.log_event("CHAT_SUCCESS", message)
             else:
-                self.append(f"✗ Ollama Error: {response.text}\n", "error")
+                self.append(f"✗ Inference Server Error: {response.text}\n", "error")
                 self.log_event("CHAT_ERROR", response.text)
                 
         except requests.exceptions.ConnectionError:
-            self.append(f"✗ Connection failed: Cannot reach Ollama\n", "error")
+            self.append(f"✗ Connection failed: Cannot reach inference server\n", "error")
             self.append("  \n", "output")
             self.append("  Troubleshooting:\n", "warning")
-            self.append("  1. Ensure Ollama is running: OLLAMA_HOST=0.0.0.0 ollama serve\n", "info")
-            self.append("  2. Pull Farà-7B model: ollama pull fara-7b\n", "info")
-            self.append("  3. View settings: Click '⚙️ Settings' button\n\n", "info")
+            self.append("  1. Start the inference server:\n", "info")
+            self.append("     python3 auraos_daemon/inference_server.py\n", "info")
+            self.append("  2. Or use the automated start command:\n", "info")
+            self.append("     ./auraos.sh inference start\n", "info")
+            self.append("  3. The server will auto-detect available models (Ollama or Transformers)\n\n", "info")
             self.log_event("CHAT_EXCEPTION", "Connection refused")
         except requests.exceptions.Timeout:
-            self.append(f"✗ Request timed out (2 minutes)\n", "error")
+            self.append(f"✗ Request timed out (3 minutes)\n", "error")
             self.append("  The AI model may be processing slowly.\n", "info")
-            self.append("  Try a shorter message or check Ollama status.\n\n", "info")
+            self.append("  Try a shorter message or check inference server status.\n\n", "info")
             self.log_event("CHAT_EXCEPTION", "Timeout")
         except Exception as e:
             self.append(f"✗ Unexpected error: {e}\n", "error")
@@ -631,11 +631,12 @@ The AuraOS Terminal has three modes:
 
 1. AI Mode: Connects to GUI Agent for automation tasks
    • GUI Agent: http://localhost:8765/ask
-   • Ollama Host: http://192.168.2.1:11434 (configured in VM)
+   • Inference Server: http://localhost:8081 (auto-detects backends)
 
-2. Chat Mode: Direct connection to Ollama for conversation
-   • Ollama: http://localhost:11434/api/generate
-   • Model: fara-7b (default, requires: ollama pull fara-7b)
+2. Chat Mode: Direct connection to Inference Server for conversation
+   • Inference Server: http://localhost:8081/generate
+   • Supports: llava:13b (via Ollama) or microsoft/Fara-7B (via Transformers)
+   • Auto-detection: Tries Ollama first, falls back to Transformers
 
 3. Regular Mode: Standard terminal with AI file search
 
@@ -655,28 +656,32 @@ Connection Status:
             info_text.insert(tk.END, "  ✗ GUI Agent: OFFLINE\n", 'error')
         
         try:
-            # Check Ollama
-            response = requests.get("http://localhost:11434/api/tags", timeout=2)
+            # Check inference server
+            response = requests.get("http://localhost:8081/health", timeout=2)
             if response.status_code == 200:
-                info_text.insert(tk.END, "  ✓ Ollama: ONLINE\n", 'success')
+                info_text.insert(tk.END, "  ✓ Inference Server: ONLINE\n", 'success')
             else:
-                info_text.insert(tk.END, "  ✗ Ollama: ERROR\n", 'error')
+                info_text.insert(tk.END, "  ✗ Inference Server: ERROR\n", 'error')
         except:
-            info_text.insert(tk.END, "  ✗ Ollama: OFFLINE\n\n", 'error')
+            info_text.insert(tk.END, "  ✗ Inference Server: OFFLINE\n\n", 'error')
             info_text.insert(tk.END, "Troubleshooting:\n", 'warning')
-            info_text.insert(tk.END, "  1. Start Ollama: OLLAMA_HOST=0.0.0.0 ollama serve\n")
-            info_text.insert(tk.END, "  2. Pull model: ollama pull llama2\n")
-            info_text.insert(tk.END, "  3. For GUI Agent: ./auraos.sh health\n\n")
+            info_text.insert(tk.END, "  1. Start inference server: python3 auraos_daemon/inference_server.py\n")
+            info_text.insert(tk.END, "  2. Or use: ./auraos.sh inference start\n")
+            info_text.insert(tk.END, "  3. Server auto-detects available models\n\n")
         
-        info_text.insert(tk.END, "\nOllama Configuration:\n", 'info')
-        info_text.insert(tk.END, "  Chat Mode uses Ollama directly on localhost:11434 (fara-7b model)\n")
-        info_text.insert(tk.END, "  AI Mode uses GUI Agent which connects to Ollama on host\n")
-        info_text.insert(tk.END, "  Ensure Ollama is running with:\n")
-        info_text.insert(tk.END, "  OLLAMA_HOST=0.0.0.0 ollama serve\n")
-        info_text.insert(tk.END, "  Then pull Farà-7B:\n")
-        info_text.insert(tk.END, "  ollama pull fara-7b\n\n")
+        info_text.insert(tk.END, "\nInference Server Configuration:\n", 'info')
+        info_text.insert(tk.END, "  Chat Mode uses Inference Server on localhost:8081\n")
+        info_text.insert(tk.END, "  AI Mode uses GUI Agent which connects to Inference Server\n")
+        info_text.insert(tk.END, "  \n")
+        info_text.insert(tk.END, "  Start the server with one of these:\n")
+        info_text.insert(tk.END, "  1. Direct: python3 auraos_daemon/inference_server.py\n")
+        info_text.insert(tk.END, "  2. Via script: ./auraos.sh inference start\n")
+        info_text.insert(tk.END, "  \n")
+        info_text.insert(tk.END, "  Backends (auto-detected):\n")
+        info_text.insert(tk.END, "  • Ollama with llava:13b (if Ollama running and model available)\n")
+        info_text.insert(tk.END, "  • Transformers with microsoft/Fara-7B (if torch/transformers installed)\n\n")
         
-        info_text.insert(tk.END, "To configure API keys or models:\n", 'info')
+        info_text.insert(tk.END, "To configure models or API keys:\n", 'info')
         info_text.insert(tk.END, "  ./auraos.sh keys onboard\n")
         
         info_text.config(state='disabled')

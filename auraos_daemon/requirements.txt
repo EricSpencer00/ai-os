@@ -22,6 +22,12 @@ paramiko>=2.11.0
 scp>=0.14.0
 
 # Local LLM support
+# For Ollama integration (optional)
+# For Hugging Face Transformers backend (optional, used by inference server)
+# Uncomment these to enable Transformers backend:
+# transformers>=4.30.0
+# torch>=2.0.0
+# accelerate>=0.20.0
 
 
 # Screen diff detection and delta encoding

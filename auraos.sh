@@ -343,7 +343,7 @@ PY
     echo ""
     
     # Check 7: Web Server (with automated recovery)
-    echo -e "${YELLOW}[7/7]${NC} Web Server"
+    echo -e "${YELLOW}[7/10]${NC} Web Server"
     # Use a short timeout so check is responsive
     HTTP_CODE=$(curl -s -m 10 -o /dev/null -w "%{http_code}" http://localhost:6080/vnc.html 2>&1 || echo "000")
 
@@ -385,7 +385,7 @@ PY
     echo ""
 
     # Check 8: GUI Agent
-    echo -e "${YELLOW}[8/8]${NC} GUI Agent Service"
+    echo -e "${YELLOW}[8/10]${NC} GUI Agent Service"
     if multipass exec "$VM_NAME" -- systemctl is-active --quiet auraos-gui-agent.service; then
         echo -e "${GREEN}✓ GUI Agent running${NC}"
     else
@@ -395,7 +395,7 @@ PY
     echo ""
 
     # Check 9: Ollama service & Farà-7B model
-    echo -e "${YELLOW}[9/9]${NC} Ollama (local LLM)"
+    echo -e "${YELLOW}[9/10]${NC} Ollama (local LLM)"
     OLLAMA_UP=0
     # Quick reachability check
     if curl -s -m 3 http://localhost:11434/api/tags >/dev/null 2>&1; then
@@ -447,6 +447,24 @@ PY
             echo -e "${YELLOW}⚠ ollama CLI not installed; cannot verify or pull models${NC}"
             health_failed=1
         fi
+    fi
+    echo ""
+
+    # Check 10: Inference Server
+    echo -e "${YELLOW}[10/10]${NC} Inference Server (localhost:8081)"
+    INFERENCE_UP=0
+    if curl -s -m 3 http://localhost:8081/health >/dev/null 2>&1; then
+        INFERENCE_UP=1
+        echo -e "${GREEN}✓ Inference server reachable on localhost:8081${NC}"
+        # Show available models
+        MODELS=$(curl -s -m 3 http://localhost:8081/models 2>/dev/null | python3 -m json.tool 2>/dev/null | head -10 || echo "")
+        if [ -n "$MODELS" ]; then
+            echo -e "${YELLOW}  Available models:${NC}"
+            echo "$MODELS" | sed 's/^/    /'
+        fi
+    else
+        echo -e "${YELLOW}→ Inference server not running. Start with: ./auraos.sh inference start${NC}"
+        echo -e "${YELLOW}   The inference server is optional but recommended for chat and vision tasks.${NC}"
     fi
     echo ""
 
@@ -2236,6 +2254,100 @@ PY
     fi
 }
 
+cmd_inference() {
+    activate_venv
+    
+    case "$1" in
+        start)
+            echo -e "${GREEN}Starting inference server...${NC}"
+            cd "$SCRIPT_DIR/auraos_daemon"
+            nohup python inference_server.py > /tmp/auraos_inference_server.log 2>&1 &
+            INFERENCE_PID=$!
+            echo $INFERENCE_PID > /tmp/auraos_inference_server.pid
+            echo -e "${GREEN}✓ Inference server started (PID: $INFERENCE_PID)${NC}"
+            echo -e "${YELLOW}  Logs: tail -f /tmp/auraos_inference_server.log${NC}"
+            sleep 2
+            
+            # Verify it's running
+            if curl -s http://localhost:8081/health > /dev/null 2>&1; then
+                echo -e "${GREEN}✓ Inference server is responding on localhost:8081${NC}"
+                curl -s http://localhost:8081/models | python3 -m json.tool 2>/dev/null || echo "  (couldn't parse models response)"
+            else
+                echo -e "${YELLOW}⚠ Inference server not yet responding (may still be initializing)${NC}"
+                echo -e "${YELLOW}  Check logs: tail -f /tmp/auraos_inference_server.log${NC}"
+            fi
+            ;;
+        stop)
+            echo -e "${GREEN}Stopping inference server...${NC}"
+            if [ -f /tmp/auraos_inference_server.pid ]; then
+                INFERENCE_PID=$(cat /tmp/auraos_inference_server.pid)
+                if kill $INFERENCE_PID 2>/dev/null; then
+                    echo -e "${GREEN}✓ Inference server stopped${NC}"
+                    rm -f /tmp/auraos_inference_server.pid
+                else
+                    echo -e "${RED}✗ Could not stop inference server (PID: $INFERENCE_PID)${NC}"
+                fi
+            else
+                # Try to kill by name
+                pkill -f "python.*inference_server" && echo -e "${GREEN}✓ Inference server stopped${NC}" || echo -e "${YELLOW}⚠ No running inference server found${NC}"
+            fi
+            ;;
+        status)
+            echo -e "${BLUE}Inference Server Status:${NC}"
+            if [ -f /tmp/auraos_inference_server.pid ]; then
+                INFERENCE_PID=$(cat /tmp/auraos_inference_server.pid)
+                if ps -p $INFERENCE_PID > /dev/null 2>&1; then
+                    echo -e "${GREEN}✓ Running (PID: $INFERENCE_PID)${NC}"
+                else
+                    echo -e "${RED}✗ Not running (stale PID file)${NC}"
+                    rm -f /tmp/auraos_inference_server.pid
+                fi
+            else
+                if pgrep -f "python.*inference_server" > /dev/null; then
+                    echo -e "${GREEN}✓ Running (no PID file)${NC}"
+                else
+                    echo -e "${RED}✗ Not running${NC}"
+                fi
+            fi
+            
+            # Check if responding
+            echo ""
+            echo -e "${BLUE}Health Check:${NC}"
+            if curl -s http://localhost:8081/health > /dev/null 2>&1; then
+                echo -e "${GREEN}✓ Responding on localhost:8081${NC}"
+                HEALTH=$(curl -s http://localhost:8081/health)
+                echo "$HEALTH" | python3 -m json.tool 2>/dev/null || echo "$HEALTH"
+            else
+                echo -e "${RED}✗ Not responding on localhost:8081${NC}"
+            fi
+            ;;
+        logs)
+            echo -e "${BLUE}Inference Server Logs:${NC}"
+            if [ -f /tmp/auraos_inference_server.log ]; then
+                tail -f /tmp/auraos_inference_server.log
+            else
+                echo -e "${YELLOW}No log file found${NC}"
+            fi
+            ;;
+        restart)
+            echo -e "${GREEN}Restarting inference server...${NC}"
+            cmd_inference stop
+            sleep 1
+            cmd_inference start
+            ;;
+        *)
+            echo -e "${YELLOW}Usage: $0 inference <start|stop|status|logs|restart>${NC}"
+            echo ""
+            echo -e "  ${BLUE}start${NC}   - Start the inference server (auto-detects Ollama or Transformers)"
+            echo -e "  ${BLUE}stop${NC}    - Stop the inference server"
+            echo -e "  ${BLUE}status${NC}  - Check if inference server is running and responding"
+            echo -e "  ${BLUE}logs${NC}    - Show real-time inference server logs"
+            echo -e "  ${BLUE}restart${NC} - Restart the inference server"
+            exit 1
+            ;;
+    esac
+}
+
 cmd_help() {
     print_header
     echo ""
@@ -2246,6 +2358,7 @@ cmd_help() {
     echo "  vm-setup           - Create Ubuntu VM with AI terminal, desktop, and full stack"
     echo "  status             - Show VM and service status"
     echo "  health             - Run comprehensive system health check"
+    echo "  inference          - Manage AI inference server: start|stop|status|logs|restart"
     echo "  gui-reset          - Complete clean restart of VNC/noVNC services"
     echo "  agent-ensure       - Ensure gui agent is installed, venv created and service enabled"
     echo "  agent-logs         - Show GUI agent logs (journalctl)"
@@ -2287,6 +2400,10 @@ case "$1" in
         ;;
     health)
         cmd_health
+        ;;
+    inference)
+        shift
+        cmd_inference "$@"
         ;;
     gui-reset)
         cmd_gui_reset
