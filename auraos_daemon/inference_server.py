@@ -85,7 +85,20 @@ class OllamaBackend:
             
             resp = requests.post(url, json=payload, timeout=120)
             if resp.status_code == 200:
-                return resp.json().get("response", "")
+                response = resp.json().get("response", "")
+                
+                # If this was a vision task and response doesn't look like JSON list, wrap it
+                if images and response and "parse_json" in kwargs and kwargs["parse_json"]:
+                    response = response.strip()
+                    # If response is a JSON object but not a list, wrap it
+                    if response.startswith("{") and not response.startswith("["):
+                        try:
+                            json.loads(response)  # Verify it's valid JSON
+                            response = f"[{response}]"  # Wrap in array
+                        except json.JSONDecodeError:
+                            pass  # Not valid JSON, return as-is
+                
+                return response
             else:
                 logger.error(f"Ollama error: {resp.status_code} {resp.text}")
                 return ""
