@@ -429,23 +429,21 @@ PY
         fi
     fi
 
-    # Ensure fara-7b model is installed when Ollama is up
+    # Check whether the configured Ollama model is present (non-fatal)
     if [ $OLLAMA_UP -eq 1 ]; then
         if command -v ollama >/dev/null 2>&1; then
             if ollama list 2>/dev/null | grep -q "fara-7b"; then
                 echo -e "${GREEN}✓ fara-7b model present${NC}"
             else
-                echo -e "${YELLOW}→ fara-7b model not found; pulling now (may take several minutes)...${NC}"
-                if ollama pull fara-7b >/dev/null 2>&1; then
-                    echo -e "${GREEN}✓ fara-7b pulled successfully${NC}"
-                else
-                    echo -e "${RED}✗ Failed to pull fara-7b model${NC}"
-                    health_failed=1
-                fi
+                echo -e "${YELLOW}→ fara-7b model not found.${NC}"
+                echo -e "   To install: run: ${BLUE}ollama pull fara-7b${NC} (may take several minutes)"
+                echo -e "   Or skip if you prefer the Transformers backend (inference server will fallback)."
+                # Do not mark health as failed for a missing model; it's optional
             fi
         else
-            echo -e "${YELLOW}⚠ ollama CLI not installed; cannot verify or pull models${NC}"
-            health_failed=1
+            echo -e "${YELLOW}⚠ ollama CLI not installed; cannot verify models.${NC}"
+            echo -e "   If you want to use local Ollama models, install the ollama CLI and start the service."
+            # Not fatal; continue
         fi
     fi
     echo ""
