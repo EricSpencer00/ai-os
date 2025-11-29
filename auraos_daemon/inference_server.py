@@ -87,16 +87,24 @@ class OllamaBackend:
             if resp.status_code == 200:
                 response = resp.json().get("response", "")
                 
-                # If this was a vision task and response doesn't look like JSON list, wrap it
-                if images and response and "parse_json" in kwargs and kwargs["parse_json"]:
+                # Log raw response for debugging
+                if images:
+                    logger.info(f"Raw Ollama response (first 200 chars): {response[:200]}")
+                
+                # If this looks like a JSON object but not a list, wrap it in an array
+                # This handles cases where llava:13b returns {"action": "..."} instead of [{"action": "..."}]
+                if response and images and ("action" in response or response.startswith("{")):
                     response = response.strip()
-                    # If response is a JSON object but not a list, wrap it
                     if response.startswith("{") and not response.startswith("["):
                         try:
-                            json.loads(response)  # Verify it's valid JSON
-                            response = f"[{response}]"  # Wrap in array
-                        except json.JSONDecodeError:
-                            pass  # Not valid JSON, return as-is
+                            # Verify it's valid JSON
+                            parsed = json.loads(response)
+                            # Wrap in array
+                            response = f"[{response}]"
+                            logger.info(f"✓ Wrapped single JSON object in array")
+                        except json.JSONDecodeError as e:
+                            # Not valid JSON, return as-is
+                            logger.warning(f"Failed to parse response as JSON: {e}")
                 
                 return response
             else:
