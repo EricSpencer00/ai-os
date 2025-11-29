@@ -157,6 +157,10 @@ def ask():
             
         logging.info(f"Received AI query: {query}")
         
+        # Check if this is an app installation request
+        if any(keyword in query.lower() for keyword in ["install ", "install application", "install app"]):
+            return handle_app_installation(query)
+        
         # Get context
         recent_screens = monitor.get_recent_screenshots()
         
@@ -206,6 +210,98 @@ def ask():
     except Exception as e:
         logging.error(f"Ask failed: {e}")
         return jsonify({"error": str(e)}), 500
+
+def handle_app_installation(query):
+    """
+    Smart app installer for AuraOS.
+    Handles requests like "install firefox", "install chromium", etc.
+    Uses apt-get inside the VM.
+    """
+    try:
+        # Extract app name from query
+        app_name = None
+        keywords = ["install", "application", "app"]
+        words = query.lower().split()
+        
+        for i, word in enumerate(words):
+            if word == "install" and i + 1 < len(words):
+                # Get the next word(s) as app name
+                potential_app = words[i + 1]
+                if potential_app not in keywords:
+                    app_name = potential_app
+                    break
+        
+        if not app_name:
+            return jsonify({"error": "Could not determine which app to install"}), 400
+        
+        logging.info(f"Installing app: {app_name}")
+        
+        # Map common app names to package names
+        package_map = {
+            "firefox": "firefox",
+            "chromium": "chromium-browser",
+            "chrome": "chromium-browser",
+            "git": "git",
+            "python": "python3",
+            "node": "nodejs",
+            "npm": "npm",
+            "docker": "docker.io",
+            "curl": "curl",
+            "wget": "wget",
+            "vlc": "vlc",
+            "gimp": "gimp",
+            "blender": "blender",
+        }
+        
+        package_name = package_map.get(app_name.lower(), app_name.lower())
+        
+        # Install via multipass
+        install_cmd = [
+            "multipass", "exec", "auraos-multipass", "--",
+            "sudo", "bash", "-c",
+            f"apt-get update -qq && apt-get install -y {package_name}"
+        ]
+        
+        logging.info(f"Running install command: {' '.join(install_cmd)}")
+        
+        result = subprocess.run(
+            install_cmd,
+            capture_output=True,
+            text=True,
+            timeout=300  # 5 minute timeout
+        )
+        
+        if result.returncode == 0:
+            logging.info(f"Successfully installed {app_name}")
+            return jsonify({
+                "status": "success",
+                "message": f"{app_name} installed successfully",
+                "executed": [{"action": "install", "app": app_name, "status": "success"}]
+            }), 200
+        else:
+            error_msg = result.stderr or result.stdout or "Unknown error"
+            logging.error(f"Failed to install {app_name}: {error_msg}")
+            return jsonify({
+                "status": "error",
+                "message": f"Failed to install {app_name}",
+                "error": error_msg[:200],
+                "executed": []
+            }), 500
+            
+    except subprocess.TimeoutExpired:
+        logging.error(f"Installation timeout for {app_name}")
+        return jsonify({
+            "status": "error",
+            "message": f"Installation timeout for {app_name}",
+            "executed": []
+        }), 500
+    except Exception as e:
+        logging.error(f"App installation error: {e}")
+        return jsonify({
+            "status": "error",
+            "message": f"Installation error: {str(e)}",
+            "executed": []
+        }), 500
 
 @app.route('/health', methods=['GET'])
 def health():

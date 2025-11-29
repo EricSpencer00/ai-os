@@ -36,6 +36,7 @@ class AuraOSBrowser:
         self.history_index = -1
         self.firefox_pid = None
         self.is_processing = False
+        self.app_install_cache = {}  # Cache for app availability checks
         
         self.setup_ui()
         self.log_event("STARTUP", "AuraOS Browser initialized")
@@ -156,6 +157,112 @@ class AuraOSBrowser:
         # Focus search input
         self.search_input.focus()
     
+    def ensure_app_installed(self, app_name):
+        """
+        Smart app installer - checks if app is installed and installs if needed.
+        Works on Linux VMs (Ubuntu/Debian).
+        
+        Args:
+            app_name: Name of app to check/install (e.g., 'firefox', 'chromium')
+        
+        Returns:
+            bool: True if app is available, False if installation failed
+        """
+        # Check cache first
+        if app_name in self.app_install_cache:
+            return self.app_install_cache[app_name]
+        
+        try:
+            # Check if app is already installed
+            if shutil.which(app_name):
+                self.app_install_cache[app_name] = True
+                return True
+            
+            # App not found locally - try to install via GUI Agent
+            self.append(f"⟳ {app_name.title()} not found. Installing via smart installer...\n", "info")
+            self.log_event("APP_INSTALL_START", f"Installing {app_name}")
+            
+            # Send install request to GUI Agent
+            install_query = f"install {app_name} application"
+            response = requests.post(
+                "http://localhost:8765/ask",
+                json={"query": install_query},
+                timeout=300  # Allow up to 5 minutes for installation
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                executed = result.get("executed", [])
+                
+                # Verify installation
+                if shutil.which(app_name):
+                    self.append(f"✓ {app_name.title()} installed successfully!\n", "success")
+                    self.app_install_cache[app_name] = True
+                    self.log_event("APP_INSTALL_SUCCESS", app_name)
+                    return True
+                else:
+                    self.append(f"⚠ Installation attempted but {app_name} still not found.\n", "warning")
+                    self.log_event("APP_INSTALL_VERIFY_FAILED", app_name)
+                    self.app_install_cache[app_name] = False
+                    return False
+            else:
+                self.append(f"✗ Failed to install {app_name}: {response.text[:100]}\n", "error")
+                self.log_event("APP_INSTALL_ERROR", f"{app_name}: {response.text[:50]}")
+                self.app_install_cache[app_name] = False
+                return False
+                
+        except requests.exceptions.ConnectionError:
+            self.append(f"✗ Cannot reach installer: GUI Agent offline\n", "error")
+            self.log_event("APP_INSTALL_CONNECTION_ERROR", app_name)
+            self.app_install_cache[app_name] = False
+            return False
+        except Exception as e:
+            self.append(f"✗ Installation error: {str(e)}\n", "error")
+            self.log_event("APP_INSTALL_EXCEPTION", f"{app_name}: {str(e)}")
+            self.app_install_cache[app_name] = False
+            return False
+    
+    def _perform_install_on_vm(self, app_name):
+        """
+        Direct VM installation using multipass (fallback method).
+        Installs app via apt-get inside the Multipass VM.
+        """
+        try:
+            # Map common app names to package names
+            app_map = {
+                "firefox": "firefox",
+                "chromium": "chromium-browser",
+                "chrome": "chromium-browser",
+                "git": "git",
+                "python": "python3",
+                "node": "nodejs",
+                "npm": "npm",
+                "docker": "docker.io",
+            }
+            
+            package_name = app_map.get(app_name.lower(), app_name.lower())
+            
+            # Try multipass install
+            cmd = [
+                "multipass", "exec", "auraos-multipass", "--",
+                "sudo", "bash", "-c",
+                f"apt-get update -qq && apt-get install -y {package_name}"
+            ]
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=300
+            )
+            
+            if result.returncode == 0:
+                return True
+            else:
+                return False
+        except Exception:
+            return False
+    
     def _setup_text_tags(self):
         """Setup text formatting tags"""
         tags = {
@@ -225,7 +332,17 @@ class AuraOSBrowser:
         try:
             self.is_processing = True
             self.update_status("Searching with AI...", "#00ff88")
-            self.append("⟳ Sending search request to GUI Agent...\n\n", "info")
+            self.append("⟳ Ensuring Firefox is available...\n", "info")
+            
+            # Ensure Firefox is installed before searching
+            if not self.ensure_app_installed("firefox"):
+                self.append("✗ Firefox could not be installed. Cannot perform search.\n", "error")
+                self.append("  Please install Firefox manually: sudo apt-get install -y firefox\n", "info")
+                self.is_processing = False
+                self.update_status("Ready", "#6db783")
+                return
+            
+            self.append("✓ Firefox available. Sending search request to GUI Agent...\n\n", "success")
             
             # Send request to GUI Agent
             search_request = f"open firefox and search for: {query}"
@@ -270,12 +387,22 @@ class AuraOSBrowser:
         self.update_status("Ready", "#6db783")
 
     def open_firefox(self):
-        """Open Firefox browser using GUI Agent"""
+        """Open Firefox browser using GUI Agent (with smart installation)"""
         try:
             self.update_status("Opening Firefox...", "#ff7f50")
-            self.append("⟳ Opening Firefox via GUI Agent...\n", "info")
+            self.append("⟳ Checking Firefox availability...\n", "info")
             
-            # Send request to GUI Agent
+            # Ensure Firefox is installed
+            if not self.ensure_app_installed("firefox"):
+                self.append("✗ Firefox could not be installed. Please install manually:\n", "error")
+                self.append("  In VM terminal: sudo apt-get install -y firefox\n", "info")
+                self.update_status("Error", "#f48771")
+                self.log_event("FIREFOX_UNAVAILABLE", "Installation failed")
+                return
+            
+            self.append("✓ Firefox is available. Opening now...\n", "success")
+            
+            # Send request to GUI Agent to open Firefox
             response = requests.post(
                 "http://localhost:8765/ask",
                 json={"query": "open firefox"},
