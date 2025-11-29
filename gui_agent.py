@@ -34,7 +34,9 @@ app = Flask(__name__)
 # Configuration
 SCREENSHOT_DIR = "/tmp/auraos_screenshots"
 os.makedirs(SCREENSHOT_DIR, exist_ok=True)
-INFERENCE_SERVER_URL = os.environ.get("AURAOS_INFERENCE_URL", "http://localhost:8081")  # Local inference server
+# Default: if running in VM, use host gateway; if running on host, use localhost
+DEFAULT_INFERENCE_URL = "http://192.168.2.1:8081" if os.path.exists("/opt/auraos") else "http://localhost:8081"
+INFERENCE_SERVER_URL = os.environ.get("AURAOS_INFERENCE_URL", DEFAULT_INFERENCE_URL)
 
 # PyAutoGUI safety settings
 pyautogui.FAILSAFE = False
