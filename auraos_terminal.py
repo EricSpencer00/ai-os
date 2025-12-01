@@ -29,6 +29,22 @@ import requests
 from datetime import datetime
 from pathlib import Path
 
+# Smart URL detection: use host gateway IP when running inside VM
+def get_inference_url():
+    """Get the correct inference server URL based on environment."""
+    if os.path.exists("/opt/auraos"):
+        # Running inside VM - use host gateway (192.168.2.1 for Multipass)
+        return "http://192.168.2.1:8081"
+    return "http://localhost:8081"
+
+def get_agent_url():
+    """Get the correct GUI agent URL based on environment."""
+    # Agent always runs locally (inside VM or on host)
+    return "http://localhost:8765"
+
+INFERENCE_URL = get_inference_url()
+AGENT_URL = get_agent_url()
+
 
 class AuraOSTerminal:
     """Tri-mode terminal: AI mode (default), Chat mode, and Regular mode"""
@@ -445,12 +461,12 @@ class AuraOSTerminal:
         """Send message directly to inference server for chat."""
         self.is_processing = True
         self.update_status("Chatting with AI...", "#dcdcaa")
-        self.append("⟳ Sending message to inference server...\n", "info")
+        self.append(f"⟳ Connecting to {INFERENCE_URL}...\n", "info")
         
         try:
             # Send to unified inference server /generate endpoint
             response = requests.post(
-                "http://localhost:8081/generate",
+                f"{INFERENCE_URL}/generate",
                 json={
                     "prompt": message
                 },
@@ -460,7 +476,10 @@ class AuraOSTerminal:
             if response.status_code == 200:
                 result = response.json()
                 ai_response = result.get("response", "").strip()
-                self.append(f"{ai_response}\n\n", "output")
+                if ai_response:
+                    self.append(f"{ai_response}\n\n", "output")
+                else:
+                    self.append("(Empty response from model)\n\n", "warning")
                 self.log_event("CHAT_SUCCESS", message)
             else:
                 self.append(f"✗ Inference Server Error: {response.text}\n", "error")
@@ -468,13 +487,13 @@ class AuraOSTerminal:
                 
         except requests.exceptions.ConnectionError:
             self.append(f"✗ Connection failed: Cannot reach inference server\n", "error")
+            self.append(f"  URL: {INFERENCE_URL}\n", "info")
             self.append("  \n", "output")
             self.append("  Troubleshooting:\n", "warning")
-            self.append("  1. Start the inference server:\n", "info")
-            self.append("     python3 auraos_daemon/inference_server.py\n", "info")
-            self.append("  2. Or use the automated start command:\n", "info")
+            self.append("  1. On the HOST machine, start the inference server:\n", "info")
             self.append("     ./auraos.sh inference start\n", "info")
-            self.append("  3. The server will auto-detect available models (Ollama or Transformers)\n\n", "info")
+            self.append("  2. Make sure Ollama is running on the host\n", "info")
+            self.append("  3. Check if server is listening: curl http://localhost:8081/health\n\n", "info")
             self.log_event("CHAT_EXCEPTION", "Connection refused")
         except requests.exceptions.Timeout:
             self.append(f"✗ Request timed out (3 minutes)\n", "error")

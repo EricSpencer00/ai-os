@@ -21,6 +21,13 @@ import requests
 from datetime import datetime
 from pathlib import Path
 
+# Smart URL detection: use host gateway IP when running inside VM
+def get_agent_url():
+    """Get the correct GUI agent URL - always localhost since agent runs locally."""
+    return "http://localhost:8765"
+
+AGENT_URL = get_agent_url()
+
 
 class AuraOSBrowser:
     """AI-powered browser with Firefox integration"""
@@ -185,7 +192,7 @@ class AuraOSBrowser:
             # Send install request to GUI Agent
             install_query = f"install {app_name} application"
             response = requests.post(
-                "http://localhost:8765/ask",
+                f"{AGENT_URL}/ask",
                 json={"query": install_query},
                 timeout=300  # Allow up to 5 minutes for installation
             )
@@ -366,7 +373,7 @@ class AuraOSBrowser:
             try:
                 search_request = f"open firefox and navigate to {search_url}"
                 response = requests.post(
-                    "http://localhost:8765/ask",
+                    f"{AGENT_URL}/ask",
                     json={"query": search_request},
                     timeout=180
                 )
@@ -437,7 +444,7 @@ class AuraOSBrowser:
             try:
                 query = f"open firefox{' and navigate to ' + url if url else ''}"
                 response = requests.post(
-                    "http://localhost:8765/ask",
+                    f"{AGENT_URL}/ask",
                     json={"query": query},
                     timeout=60
                 )
