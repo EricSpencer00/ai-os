@@ -1,20 +1,19 @@
 #!/usr/bin/env python3
 """
-AuraOS Terminal - Tri-Mode Application
+AuraOS Terminal - English to Command AI Terminal
+Converts natural language to terminal commands and executes them.
+
 Modes:
-  1. AI Mode (Default): ChatGPT-like interface for automation tasks
-     - Natural language requests (e.g., "open firefox", "make an excel sheet")
-     - Auto-execution via ./auraos.sh automate
-     - Full daemon integration
+  1. AI Mode (Default): English -> Terminal Commands
+     - "show me all python files" -> find . -name "*.py"
+     - "how much disk space do I have" -> df -h
+     - "list large files" -> find . -size +100M
   
   2. Chat Mode: Direct conversation with Ollama
      - Chat with AI models running locally
-     - No automation, just conversation
   
-  3. Regular Mode: Standard terminal with AI file search
-     - Shell command execution
-     - AI-powered file search (prefix commands with "ai:" for smart search)
-     - Command history navigation
+  3. Regular Mode: Standard terminal
+     - Direct shell command execution
 """
 import tkinter as tk
 from tkinter import scrolledtext, messagebox
@@ -25,6 +24,7 @@ import time
 import sys
 import os
 import json
+import re
 import requests
 from datetime import datetime
 from pathlib import Path
@@ -45,6 +45,69 @@ def get_agent_url():
 INFERENCE_URL = get_inference_url()
 AGENT_URL = get_agent_url()
 
+# Built-in English to Command mappings (works offline)
+COMMAND_PATTERNS = {
+    # File operations
+    r"list\s*(all\s*)?(files|directories|folders)?": "ls -la",
+    r"show\s*(all\s*)?(files|directories|folders)?": "ls -la",
+    r"show\s*hidden\s*files": "ls -la",
+    r"(find|search|show)\s*(all\s*)?python\s*files": 'find . -name "*.py" -type f 2>/dev/null',
+    r"(find|search|show)\s*(all\s*)?javascript\s*files": 'find . -name "*.js" -type f 2>/dev/null',
+    r"(find|search|show)\s*(all\s*)?text\s*files": 'find . -name "*.txt" -type f 2>/dev/null',
+    r"(find|search)\s*large\s*files": 'find . -size +100M -type f 2>/dev/null | head -20',
+    r"(find|search)\s*files\s*(larger|bigger)\s*than\s*(\d+)\s*(mb|gb|kb)?": lambda m: f'find . -size +{m.group(3)}{(m.group(4) or "M")[0].upper()} -type f 2>/dev/null',
+    r"count\s*(all\s*)?(files|lines)": "find . -type f | wc -l",
+    r"show\s*current\s*(directory|folder|path)": "pwd",
+    r"(what|where)\s*(is|am)\s*(the\s*)?(current\s*)?(directory|folder|path|i)": "pwd",
+    r"go\s*to\s*home": "cd ~",
+    r"(go|change)\s*(to\s*)?(directory\s*)?(.+)": lambda m: f'cd {m.group(4).strip()}',
+    
+    # System info
+    r"(show|check|what\s*is)\s*(the\s*)?(disk|storage)\s*(space|usage)?": "df -h",
+    r"how\s*much\s*(disk\s*)?(space|storage)": "df -h",
+    r"(show|check|what\s*is)\s*(the\s*)?(memory|ram)\s*(usage)?": "free -h",
+    r"how\s*much\s*(memory|ram)": "free -h",
+    r"(show|what)\s*(is\s*)?(the\s*)?(cpu|processor)\s*(info|usage)?": "top -bn1 | head -10",
+    r"(show|list)\s*(running\s*)?processes": "ps aux | head -20",
+    r"who\s*(is|am)\s*(logged\s*in|i)": "whoami",
+    r"what\s*(time|date)\s*(is\s*it)?": "date",
+    r"(show|check)\s*(system\s*)?(info|information)": "uname -a && lsb_release -a 2>/dev/null",
+    r"(show|check)\s*(uptime|how\s*long)": "uptime",
+    
+    # Network
+    r"(show|what\s*is|check)\s*(my\s*)?(ip|address)": "ip addr show | grep -oP '(?<=inet ).*(?=/)'",
+    r"(ping|check)\s*(connection\s*to\s*)?google": "ping -c 3 google.com",
+    r"(check|test)\s*(internet|network|connection)": "ping -c 3 8.8.8.8",
+    r"(show|list)\s*(network\s*)?(ports|connections)": "netstat -tuln 2>/dev/null || ss -tuln",
+    
+    # Git
+    r"(show|check)\s*(git\s*)?(status)": "git status",
+    r"(show|list)\s*(git\s*)?(branches)": "git branch -a",
+    r"(show|list)\s*(git\s*)?(log|history)": "git log --oneline -10",
+    r"(show|what\s*is)\s*(the\s*)?(current\s*)?(branch)": "git branch --show-current",
+    
+    # Docker
+    r"(show|list)\s*(docker\s*)?(containers)": "docker ps -a",
+    r"(show|list)\s*(docker\s*)?(images)": "docker images",
+    
+    # Package management
+    r"(update|upgrade)\s*(system|packages)?": "sudo apt update && sudo apt upgrade -y",
+    r"install\s+(.+)": lambda m: f'sudo apt install -y {m.group(1).strip()}',
+    
+    # File content
+    r"(show|cat|read|display)\s+(the\s*)?(contents?\s*of\s*)?(.+\.[\w]+)": lambda m: f'cat {m.group(4).strip()}',
+    r"(head|first\s*\d*\s*lines)\s*(of\s*)?(.+)": lambda m: f'head -20 {m.group(3).strip()}',
+    r"(tail|last\s*\d*\s*lines)\s*(of\s*)?(.+)": lambda m: f'tail -20 {m.group(3).strip()}',
+    
+    # Misc
+    r"(clear|cls)\s*(screen|terminal)?": "clear",
+    r"(exit|quit|close)\s*(terminal)?": "exit",
+    r"(make|create)\s*(a\s*)?(new\s*)?(directory|folder)\s+(named\s+)?(.+)": lambda m: f'mkdir -p {m.group(6).strip()}',
+    r"(remove|delete)\s+(file\s+)?(.+)": lambda m: f'rm -i {m.group(3).strip()}',
+    r"(copy|cp)\s+(.+)\s+to\s+(.+)": lambda m: f'cp {m.group(2).strip()} {m.group(3).strip()}',
+    r"(move|mv)\s+(.+)\s+to\s+(.+)": lambda m: f'mv {m.group(2).strip()} {m.group(3).strip()}',
+}
+
 
 class AuraOSTerminal:
     """Tri-mode terminal: AI mode (default), Chat mode, and Regular mode"""
@@ -60,6 +123,8 @@ class AuraOSTerminal:
         self.command_history = []
         self.history_index = -1
         self.is_processing = False
+        self.pending_command = None
+        self.awaiting_confirmation = False
         
         self.setup_ui()
         self.log_event("STARTUP", "AuraOS Terminal initialized (AI mode)")
@@ -184,17 +249,19 @@ class AuraOSTerminal:
         self.output_area.config(state='disabled')
         
         if self.mode == "ai":
-            self.append("⚡ AuraOS Terminal - AI Mode\n", "system")
-            self.append("ChatGPT-like Interface for Automation\n\n", "system")
-            self.append("Examples of what you can ask:\n", "info")
-            self.append("  • open firefox\n", "output")
-            self.append("  • make an excel sheet with top 5 presidents by salary\n", "output")
-            self.append("  • create a backup of important files\n", "output")
-            self.append("  • find all files larger than 100MB\n", "output")
-            self.append("  • install python dependencies\n", "output")
-            self.append("  • download and extract the latest release\n\n", "output")
-            self.append("Just describe what you want to do in plain English!\n", "success")
-            self.append("Type 'help' for more information.\n", "info")
+            self.append("⚡ AuraOS Terminal - English to Command\n", "system")
+            self.append("Say what you want in plain English!\n\n", "system")
+            self.append("Examples (try these!):\n", "info")
+            self.append("  • show me all files           → ls -la\n", "output")
+            self.append("  • find python files           → find . -name \"*.py\"\n", "output")
+            self.append("  • how much disk space         → df -h\n", "output")
+            self.append("  • check memory usage          → free -h\n", "output")
+            self.append("  • show running processes      → ps aux\n", "output")
+            self.append("  • what's my IP address        → ip addr\n", "output")
+            self.append("  • open firefox                → [launches Firefox]\n", "output")
+            self.append("  • create folder named test    → mkdir -p test\n\n", "output")
+            self.append("Works offline for common commands.\n", "success")
+            self.append("Complex requests use AI inference.\n", "info")
         elif self.mode == "chat":
             self.append("💬 AuraOS Terminal - Chat Mode\n", "system")
             self.append("Direct Conversation with Ollama\n\n", "system")
@@ -253,6 +320,24 @@ class AuraOSTerminal:
         if not text:
             return
         
+        # Handle confirmation for pending commands
+        if self.awaiting_confirmation:
+            if text.lower() in ('y', 'yes'):
+                self.awaiting_confirmation = False
+                cmd = self.pending_command
+                self.pending_command = None
+                self.append(f"✓ Executing: {cmd}\n\n", "success")
+                threading.Thread(target=self._run_translated_command, args=(cmd,), daemon=True).start()
+            elif text.lower() in ('n', 'no'):
+                self.awaiting_confirmation = False
+                self.pending_command = None
+                self.append("✗ Command cancelled.\n\n", "warning")
+                self.update_status("Ready", "#6db783")
+            else:
+                self.append("Please enter 'y' or 'n'\n", "info")
+            self.input_field.delete(0, tk.END)
+            return
+        
         self.command_history.append(text)
         self.history_index = len(self.command_history)
         self.input_field.delete(0, tk.END)
@@ -287,16 +372,61 @@ class AuraOSTerminal:
                 # Regular shell command
                 threading.Thread(target=self.execute_shell_command, args=(text,), daemon=True).start()
     
+    def english_to_command(self, text):
+        """
+        Convert English text to a terminal command using pattern matching.
+        Returns (command, confidence) tuple. Confidence is 'high', 'medium', or None.
+        """
+        text_lower = text.lower().strip()
+        
+        # Try built-in patterns first (offline, fast)
+        for pattern, command in COMMAND_PATTERNS.items():
+            match = re.search(pattern, text_lower)
+            if match:
+                if callable(command):
+                    try:
+                        cmd = command(match)
+                        return (cmd, 'high')
+                    except:
+                        continue
+                else:
+                    return (command, 'high')
+        
+        return (None, None)
+    
     def execute_ai_task(self, request_text):
-        """Send request to the Vision Agent with smart fallback for common commands."""
+        """
+        AI Mode: Convert English to terminal command and execute.
+        Uses pattern matching for common commands, falls back to inference server.
+        """
         self.is_processing = True
-        self.update_status("Processing...", "#00ff88")
+        self.update_status("Translating...", "#00ff88")
         
-        # Check for common commands that can be executed directly
+        # Step 1: Try local pattern matching (fast, offline)
+        command, confidence = self.english_to_command(request_text)
+        
+        if command and confidence == 'high':
+            self.append(f"📝 Translated: {request_text}\n", "info")
+            self.append(f"⚡ Command: ", "ai")
+            self.append(f"{command}\n\n", "output")
+            
+            # Ask for confirmation for dangerous commands
+            dangerous = ['rm ', 'sudo ', 'mv ', 'dd ', 'mkfs', '> /', 'chmod', 'chown']
+            if any(d in command for d in dangerous):
+                self.append("⚠️ This command may modify files. Execute? (y/n)\n", "warning")
+                self.pending_command = command
+                self.awaiting_confirmation = True
+                self.is_processing = False
+                self.update_status("Awaiting confirmation", "#dcdcaa")
+                return
+            
+            # Execute directly
+            self._run_translated_command(command)
+            return
+        
+        # Step 2: Check for app launch commands (direct execution)
         request_lower = request_text.lower().strip()
-        
-        # Direct execution for simple commands (when agent might be unavailable)
-        direct_commands = {
+        app_commands = {
             "open firefox": ["firefox"],
             "launch firefox": ["firefox"],
             "start firefox": ["firefox"],
@@ -306,92 +436,102 @@ class AuraOSTerminal:
             "open files": ["thunar"],
         }
         
-        # Check if this is a direct command we can handle
-        for pattern, cmd in direct_commands.items():
+        for pattern, cmd in app_commands.items():
             if pattern in request_lower:
-                self.append(f"⟳ Executing: {' '.join(cmd)}...\n", "info")
+                self.append(f"📝 Translated: {request_text}\n", "info")
+                self.append(f"⚡ Command: {' '.join(cmd)}\n\n", "output")
                 try:
                     env = os.environ.copy()
                     env["DISPLAY"] = env.get("DISPLAY", ":99")
-                    subprocess.Popen(
-                        cmd,
-                        env=env,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        start_new_session=True
-                    )
-                    self.append(f"✓ Launched {cmd[0]}\n", "success")
+                    subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL,
+                                   stderr=subprocess.DEVNULL, start_new_session=True)
+                    self.append(f"✓ Launched {cmd[0]}\n\n", "success")
                     self.log_event("AI_DIRECT", f"Executed: {' '.join(cmd)}")
-                    self.is_processing = False
-                    self.update_status("Ready", "#6db783")
-                    self.input_field.focus()
-                    return
                 except Exception as e:
-                    self.append(f"⚠ Direct execution failed: {e}\n", "warning")
-                    self.append("⟳ Trying via Vision Agent...\n", "info")
-                break
+                    self.append(f"✗ Failed: {e}\n\n", "error")
+                self.is_processing = False
+                self.update_status("Ready", "#6db783")
+                return
         
-        # Try Vision Agent for complex requests
-        self.append("⟳ Sending request to Vision Agent...\n", "info")
+        # Step 3: Try AI inference for complex requests
+        self.append(f"🤔 Analyzing: {request_text}\n", "info")
+        self.append("⟳ Asking AI for command suggestion...\n", "info")
         
         try:
+            # Build a prompt to get a terminal command
+            prompt = f"""Convert this English request to a single Linux terminal command.
+Request: {request_text}
+Reply with ONLY the command, no explanation. If you cannot convert it, reply with: CANNOT_CONVERT"""
+            
             response = requests.post(
-                "http://localhost:8765/ask",
-                json={"query": request_text},
-                timeout=180
+                f"{INFERENCE_URL}/generate",
+                json={"prompt": prompt},
+                timeout=30
             )
             
             if response.status_code == 200:
                 result = response.json()
-                # Prefer structured fields: 'suggested' and 'executed'
-                suggested = result.get("suggested", []) if isinstance(result, dict) else []
-                executed = result.get("executed", []) if isinstance(result, dict) else []
-
-                # Show suggested actions if present
-                if suggested:
-                    self.append(f"✓ Agent suggested {len(suggested)} actions.\n", "info")
-                    for a in suggested:
-                        self.append(f"  • {self.format_action(a)}\n", "output")
-
-                # Show executed actions
-                self.append(f"✓ Agent executed {len(executed)} actions.\n", "success")
-                for action in executed:
-                    self.append(f"  - {self.format_action(action)}\n", "output")
-
-                # Persist structured action log for replay/demo
-                try:
-                    self.record_action_log(request_text, executed or suggested)
-                except Exception:
-                    pass
-
-                self.log_event("AI_SUCCESS", request_text)
+                ai_command = result.get("response", "").strip()
+                
+                # Clean up the response
+                ai_command = ai_command.replace("```bash", "").replace("```", "").strip()
+                ai_command = ai_command.split('\n')[0].strip()  # Take first line only
+                
+                if ai_command and "CANNOT_CONVERT" not in ai_command and len(ai_command) < 500:
+                    self.append(f"📝 AI suggests: ", "ai")
+                    self.append(f"{ai_command}\n\n", "output")
+                    self.append("Execute this command? (y/n)\n", "warning")
+                    self.pending_command = ai_command
+                    self.awaiting_confirmation = True
+                    self.is_processing = False
+                    self.update_status("Awaiting confirmation", "#dcdcaa")
+                    return
+                else:
+                    self.append("✗ Could not translate to a command.\n", "error")
+                    self.append("  Try being more specific, or use Regular mode.\n\n", "info")
             else:
-                self.append(f"✗ Agent Error: {response.text}\n", "error")
-                self.log_event("AI_ERROR", response.text)
+                self.append(f"✗ AI Error: {response.text[:100]}\n", "error")
                 
         except requests.exceptions.ConnectionError:
-            self.append("✗ Cannot reach GUI Agent\n", "error")
-            self.append("\n", "output")
-            self.append("  The Vision Agent is not running.\n", "info")
-            self.append("  \n", "output")
-            self.append("  You can still use:\n", "warning")
-            self.append("  • Switch to Regular mode for shell commands\n", "info")
-            self.append("  • Switch to Chat mode for AI conversation\n", "info")
-            self.append("  \n", "output")
-            self.append("  To start the agent:\n", "info")
-            self.append("  ./auraos.sh health\n\n", "info")
-            self.log_event("AI_EXCEPTION", "Connection refused")
-        except requests.exceptions.Timeout:
-            self.append("✗ Request timed out (3 minutes)\n", "error")
-            self.append("  Try a simpler request.\n\n", "info")
-            self.log_event("AI_EXCEPTION", "Timeout")
+            self.append("✗ Inference server offline. Using pattern matching only.\n", "warning")
+            self.append("  Start server: ./auraos.sh inference start\n\n", "info")
         except Exception as e:
-            self.append(f"✗ Unexpected error: {e}\n", "error")
-            self.log_event("AI_EXCEPTION", str(e))
-            
+            self.append(f"✗ Error: {e}\n", "error")
+        
         self.is_processing = False
         self.update_status("Ready", "#6db783")
-        self.input_field.focus()
+    
+    def _run_translated_command(self, command):
+        """Execute a translated command"""
+        try:
+            self.update_status("Executing...", "#00ff88")
+            
+            result = subprocess.run(
+                command, shell=True, capture_output=True, text=True,
+                timeout=60, cwd=os.path.expanduser("~")
+            )
+            
+            if result.stdout:
+                self.append(result.stdout, "output")
+            
+            if result.returncode == 0:
+                if not result.stdout:
+                    self.append("✓ Command executed successfully\n", "success")
+                self.log_event("AI_EXEC", f"{command} (success)")
+            else:
+                if result.stderr:
+                    self.append(f"⚠ {result.stderr}", "warning")
+                self.append(f"✗ Exit code: {result.returncode}\n", "error")
+                
+            self.append("\n", "output")
+            
+        except subprocess.TimeoutExpired:
+            self.append("✗ Command timed out (60s limit)\n\n", "error")
+        except Exception as e:
+            self.append(f"✗ Error: {e}\n\n", "error")
+        
+        self.is_processing = False
+        self.update_status("Ready", "#6db783")
 
     def format_action(self, action):
         """Return a human-friendly string for an action dict or simple value."""
