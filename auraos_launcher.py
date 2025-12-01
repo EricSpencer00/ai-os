@@ -9,6 +9,24 @@ import os
 import sys
 import threading
 import webbrowser
+import shutil
+
+def find_app_path(app_name):
+    """Find the path to an AuraOS application"""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # Search paths in order of preference
+    search_paths = [
+        os.path.join(script_dir, app_name),  # Same directory as launcher
+        os.path.join("/opt/auraos/bin", app_name),  # VM install location
+        os.path.join(os.path.expanduser("~"), "auraos", app_name),  # User home
+    ]
+    
+    for path in search_paths:
+        if os.path.exists(path):
+            return path
+    
+    return None
 
 class AuraOSLauncher:
     def __init__(self, root):
@@ -16,6 +34,10 @@ class AuraOSLauncher:
         self.root.title("AuraOS")
         self.root.geometry("600x400")
         self.root.configure(bg='#0a0e27')
+        
+        # Set DISPLAY for VM environment
+        if "DISPLAY" not in os.environ:
+            os.environ["DISPLAY"] = ":99"
         
         self.setup_ui()
         
@@ -78,57 +100,106 @@ class AuraOSLauncher:
 
     def launch_terminal(self):
         self.status_label.config(text="Launching Terminal...", fg='#00d4ff')
-        try:
-            subprocess.Popen([sys.executable, "/opt/auraos/bin/auraos_terminal.py"])
-            self.status_label.config(text="System Ready", fg='#6db783')
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to launch Terminal: {e}")
-            self.status_label.config(text="Error launching Terminal", fg='#ff0000')
+        self.root.update_idletasks()
+        
+        def _launch():
+            try:
+                terminal_path = find_app_path("auraos_terminal.py")
+                if terminal_path:
+                    subprocess.Popen(
+                        [sys.executable, terminal_path],
+                        env=os.environ.copy(),
+                        start_new_session=True
+                    )
+                else:
+                    # Fallback: try system terminal
+                    if shutil.which("xfce4-terminal"):
+                        subprocess.Popen(["xfce4-terminal"], start_new_session=True)
+                    else:
+                        raise FileNotFoundError("No terminal application found")
+                self.status_label.config(text="System Ready", fg='#6db783')
+            except Exception as e:
+                self.status_label.config(text=f"Error: {str(e)[:30]}", fg='#ff0000')
+        
+        threading.Thread(target=_launch, daemon=True).start()
 
     def launch_browser(self):
         self.status_label.config(text="Launching Browser...", fg='#ff7f50')
-        try:
-            # Get the directory of this script and run browser from there
-            script_dir = os.path.dirname(os.path.abspath(__file__))
-            browser_path = os.path.join(script_dir, "auraos_browser.py")
-            subprocess.Popen([sys.executable, browser_path])
-            self.status_label.config(text="System Ready", fg='#6db783')
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to launch Browser: {e}")
-            self.status_label.config(text="Error launching Browser", fg='#ff0000')
+        self.root.update_idletasks()
+        
+        def _launch():
+            try:
+                browser_path = find_app_path("auraos_browser.py")
+                if browser_path:
+                    subprocess.Popen(
+                        [sys.executable, browser_path],
+                        env=os.environ.copy(),
+                        start_new_session=True
+                    )
+                else:
+                    # Fallback: try Firefox directly
+                    if shutil.which("firefox"):
+                        subprocess.Popen(["firefox"], start_new_session=True)
+                    else:
+                        raise FileNotFoundError("No browser application found")
+                self.status_label.config(text="System Ready", fg='#6db783')
+            except Exception as e:
+                self.status_label.config(text=f"Error: {str(e)[:30]}", fg='#ff0000')
+        
+        threading.Thread(target=_launch, daemon=True).start()
 
     def launch_vision_os(self):
         self.status_label.config(text="Starting Vision Desktop...", fg='#00ff88')
-        try:
-            # Try to open VNC in browser
-            import webbrowser as wb
-            success = wb.open("http://localhost:6080/vnc.html")
-            if success:
-                self.status_label.config(text="Vision Desktop Opened", fg='#6db783')
-                messagebox.showinfo("Vision Desktop", "Opening VNC viewer in browser.\n\nPassword: auraos123")
-            else:
-                # Fallback: try Firefox directly
-                try:
-                    subprocess.Popen(["firefox", "http://localhost:6080/vnc.html"], 
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.root.update_idletasks()
+        
+        def _launch():
+            try:
+                # Try to open VNC in browser
+                import webbrowser as wb
+                vnc_url = "http://localhost:6080/vnc.html"
+                
+                # Try Firefox first (more reliable in VM)
+                if shutil.which("firefox"):
+                    subprocess.Popen(
+                        ["firefox", vnc_url],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        start_new_session=True
+                    )
                     self.status_label.config(text="Vision Desktop Opened", fg='#6db783')
-                    messagebox.showinfo("Vision Desktop", "Opening VNC in Firefox.\n\nPassword: auraos123")
-                except:
-                    messagebox.showwarning("Vision Desktop", 
-                        "Could not open browser automatically.\n\nPlease open manually:\nhttp://localhost:6080/vnc.html\n\nPassword: auraos123")
-                    self.status_label.config(text="Manual browser open required", fg='#dcdcaa')
-        except Exception as e:
-            messagebox.showerror("Error", f"Vision Desktop Error: {e}\n\nTry opening manually:\nhttp://localhost:6080/vnc.html")
-            self.status_label.config(text="Error opening Vision Desktop", fg='#ff0000')
+                elif wb.open(vnc_url):
+                    self.status_label.config(text="Vision Desktop Opened", fg='#6db783')
+                else:
+                    self.status_label.config(text="Open: " + vnc_url, fg='#dcdcaa')
+            except Exception as e:
+                self.status_label.config(text=f"Error: {str(e)[:30]}", fg='#ff0000')
+        
+        threading.Thread(target=_launch, daemon=True).start()
 
     def launch_settings(self):
         self.status_label.config(text="Opening Settings...", fg='#9cdcfe')
-        try:
-            subprocess.Popen([sys.executable, "/opt/auraos/bin/auraos_onboarding.py"])
-            self.status_label.config(text="System Ready", fg='#6db783')
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to launch Settings: {e}")
-            self.status_label.config(text="Error launching Settings", fg='#ff0000')
+        self.root.update_idletasks()
+        
+        def _launch():
+            try:
+                settings_path = find_app_path("auraos_onboarding.py")
+                if settings_path:
+                    subprocess.Popen(
+                        [sys.executable, settings_path],
+                        env=os.environ.copy(),
+                        start_new_session=True
+                    )
+                else:
+                    # Fallback: try system settings
+                    if shutil.which("xfce4-settings-manager"):
+                        subprocess.Popen(["xfce4-settings-manager"], start_new_session=True)
+                    else:
+                        raise FileNotFoundError("No settings application found")
+                self.status_label.config(text="System Ready", fg='#6db783')
+            except Exception as e:
+                self.status_label.config(text=f"Error: {str(e)[:30]}", fg='#ff0000')
+        
+        threading.Thread(target=_launch, daemon=True).start()
 
 if __name__ == "__main__":
     root = tk.Tk()

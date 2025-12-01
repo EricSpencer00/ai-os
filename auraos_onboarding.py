@@ -128,9 +128,29 @@ class AuraOSOnboarding:
     def launch_home(self):
         """Launch AuraOS Home and close onboarding"""
         try:
-            # Launch AuraOS Home launcher
-            subprocess.Popen([sys.executable, "/opt/auraos/bin/auraos_launcher.py"],
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            # Find the launcher script
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            launcher_paths = [
+                os.path.join(script_dir, "auraos_launcher.py"),
+                "/opt/auraos/bin/auraos_launcher.py",
+                os.path.join(os.path.expanduser("~"), "auraos_launcher.py"),
+            ]
+            
+            launcher_path = None
+            for path in launcher_paths:
+                if os.path.exists(path):
+                    launcher_path = path
+                    break
+            
+            if launcher_path:
+                subprocess.Popen(
+                    [sys.executable, launcher_path],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True
+                )
+            else:
+                print("Warning: Could not find auraos_launcher.py")
         except Exception as e:
             print(f"Failed to launch AuraOS Home: {e}")
         

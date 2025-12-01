@@ -13,6 +13,8 @@ import base64
 import json
 import math
 import operator
+import subprocess
+import shutil
 from functools import reduce
 from flask import Flask, request, jsonify, send_file
 import pyautogui

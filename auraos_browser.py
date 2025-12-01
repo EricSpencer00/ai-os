@@ -328,103 +328,136 @@ class AuraOSBrowser:
         threading.Thread(target=self._perform_search, args=(query,), daemon=True).start()
     
     def _perform_search(self, query):
-        """Perform actual search using GUI Agent"""
+        """Perform actual search - opens Firefox with search URL directly"""
         try:
             self.is_processing = True
-            self.update_status("Searching with AI...", "#00ff88")
-            self.append("⟳ Ensuring Firefox is available...\n", "info")
+            self.update_status("Searching...", "#00ff88")
             
-            # Ensure Firefox is installed before searching
-            if not self.ensure_app_installed("firefox"):
-                self.append("✗ Firefox could not be installed. Cannot perform search.\n", "error")
-                self.append("  Please install Firefox manually: sudo apt-get install -y firefox\n", "info")
-                self.is_processing = False
-                self.update_status("Ready", "#6db783")
-                return
+            # Build search URL (use DuckDuckGo for privacy)
+            import urllib.parse
+            search_url = f"https://duckduckgo.com/?q={urllib.parse.quote(query)}"
             
-            self.append("✓ Firefox available. Sending search request to GUI Agent...\n\n", "success")
+            self.append(f"⟳ Searching for: {query}\n", "info")
+            self.append(f"⟳ Opening: {search_url}\n", "info")
             
-            # Send request to GUI Agent
-            search_request = f"open firefox and search for: {query}"
-            response = requests.post(
-                "http://localhost:8765/ask",
-                json={"query": search_request},
-                timeout=180
-            )
+            # Try direct Firefox launch first
+            if shutil.which("firefox"):
+                try:
+                    env = os.environ.copy()
+                    env["DISPLAY"] = env.get("DISPLAY", ":99")
+                    
+                    subprocess.Popen(
+                        ["firefox", search_url],
+                        env=env,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        start_new_session=True
+                    )
+                    self.append("✓ Search opened in Firefox\n", "success")
+                    self.log_event("SEARCH_SUCCESS", f"Direct: {query[:60]}")
+                    self.is_processing = False
+                    self.update_status("Ready", "#6db783")
+                    return
+                except Exception as e:
+                    self.append(f"⚠ Direct launch failed: {e}\n", "warning")
             
-            if response.status_code == 200:
-                result = response.json()
-                executed = result.get("executed", [])
-                self.append(f"✓ Agent executed {len(executed)} actions.\n", "success")
-                for action in executed:
-                    act = action.get("action", {})
-                    self.append(f"  - {act}\n", "output")
-                self.log_event("SEARCH_SUCCESS", f"Agent search: {query[:60]}")
-            else:
-                self.append(f"✗ Agent Error: {response.text}\n", "error")
-                self.log_event("SEARCH_ERROR", response.text)
+            # Fallback to GUI Agent
+            self.append("⟳ Trying via GUI Agent...\n", "info")
+            try:
+                search_request = f"open firefox and navigate to {search_url}"
+                response = requests.post(
+                    "http://localhost:8765/ask",
+                    json={"query": search_request},
+                    timeout=180
+                )
                 
-        except requests.exceptions.ConnectionError:
-            self.append(f"✗ Connection failed: Cannot reach GUI Agent\n", "error")
-            self.append("  \n", "output")
-            self.append("  Troubleshooting:\n", "warning")
-            self.append("  1. Ensure the VM is running\n", "info")
-            self.append("  2. Check agent status: ./auraos.sh health\n", "info")
-            self.append("  3. Restart services: ./auraos.sh restart\n", "info")
-            self.append("  4. View settings: Click '⚙️ Settings' button\n\n", "info")
-            self.log_event("SEARCH_EXCEPTION", "Connection refused")
-        except requests.exceptions.Timeout:
-            self.append(f"✗ Request timed out (3 minutes)\n", "error")
-            self.append("  The AI model may be processing slowly.\n", "info")
-            self.append("  Try a simpler search or check Ollama status.\n\n", "info")
-            self.log_event("SEARCH_EXCEPTION", "Timeout")
+                if response.status_code == 200:
+                    result = response.json()
+                    executed = result.get("executed", [])
+                    self.append(f"✓ Agent executed {len(executed)} actions.\n", "success")
+                    for action in executed:
+                        act = action.get("action", {})
+                        self.append(f"  - {act}\n", "output")
+                    self.log_event("SEARCH_SUCCESS", f"Agent search: {query[:60]}")
+                else:
+                    self.append(f"✗ Agent Error: {response.text}\n", "error")
+                    self.log_event("SEARCH_ERROR", response.text)
+                    
+            except requests.exceptions.ConnectionError:
+                self.append("✗ Cannot reach GUI Agent\n", "error")
+                self.append(f"\n  Fallback: Open Firefox manually and go to:\n", "info")
+                self.append(f"  {search_url}\n\n", "info")
+                self.log_event("SEARCH_EXCEPTION", "Connection refused")
+            except requests.exceptions.Timeout:
+                self.append("✗ Request timed out\n", "error")
+                self.log_event("SEARCH_EXCEPTION", "Timeout")
+                
         except Exception as e:
             self.append(f"✗ Unexpected error: {e}\n", "error")
-            self.append("  Click '⚙️ Settings' for connection info.\n\n", "info")
             self.log_event("SEARCH_EXCEPTION", str(e))
             
         self.is_processing = False
         self.update_status("Ready", "#6db783")
 
-    def open_firefox(self):
-        """Open Firefox browser using GUI Agent (with smart installation)"""
+    def open_firefox(self, url=None):
+        """Open Firefox browser - direct launch with fallback to GUI Agent"""
         try:
             self.update_status("Opening Firefox...", "#ff7f50")
-            self.append("⟳ Checking Firefox availability...\n", "info")
+            self.append("⟳ Starting Firefox...\n", "info")
             
-            # Ensure Firefox is installed
-            if not self.ensure_app_installed("firefox"):
-                self.append("✗ Firefox could not be installed. Please install manually:\n", "error")
-                self.append("  In VM terminal: sudo apt-get install -y firefox\n", "info")
-                self.update_status("Error", "#f48771")
-                self.log_event("FIREFOX_UNAVAILABLE", "Installation failed")
-                return
+            # Try direct launch first (works when running inside VM)
+            firefox_cmd = ["firefox"]
+            if url:
+                firefox_cmd.append(url)
             
-            self.append("✓ Firefox is available. Opening now...\n", "success")
+            # Check if firefox is available locally
+            if shutil.which("firefox"):
+                try:
+                    # Set DISPLAY for VM environment
+                    env = os.environ.copy()
+                    env["DISPLAY"] = env.get("DISPLAY", ":99")
+                    
+                    subprocess.Popen(
+                        firefox_cmd,
+                        env=env,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        start_new_session=True
+                    )
+                    self.append("✓ Firefox launched directly\n", "success")
+                    self.update_status("Ready", "#6db783")
+                    self.log_event("FIREFOX_OPENED", "direct launch")
+                    return
+                except Exception as e:
+                    self.append(f"⚠ Direct launch failed: {e}\n", "warning")
+                    self.log_event("FIREFOX_DIRECT_FAILED", str(e))
             
-            # Send request to GUI Agent to open Firefox
-            response = requests.post(
-                "http://localhost:8765/ask",
-                json={"query": "open firefox"},
-                timeout=60
-            )
-            
-            if response.status_code == 200:
-                result = response.json()
-                executed = result.get("executed", [])
-                self.append(f"✓ Firefox opened - {len(executed)} actions executed\n", "success")
-                self.log_event("FIREFOX_OPENED", "via agent")
-            else:
-                self.append(f"✗ Agent Error: {response.text}\n", "error")
-                self.log_event("FIREFOX_ERROR", response.text)
+            # Fallback: Try via GUI Agent
+            self.append("⟳ Trying via GUI Agent...\n", "info")
+            try:
+                query = f"open firefox{' and navigate to ' + url if url else ''}"
+                response = requests.post(
+                    "http://localhost:8765/ask",
+                    json={"query": query},
+                    timeout=60
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    executed = result.get("executed", [])
+                    self.append(f"✓ Firefox opened via agent - {len(executed)} actions\n", "success")
+                    self.log_event("FIREFOX_OPENED", "via agent")
+                else:
+                    self.append(f"✗ Agent Error: {response.text}\n", "error")
+                    self.log_event("FIREFOX_ERROR", response.text)
+            except requests.exceptions.ConnectionError:
+                self.append("✗ GUI Agent not reachable\n", "error")
+                self.append("  Firefox may not be installed. Run:\n", "info")
+                self.append("  sudo apt-get install -y firefox\n", "info")
+                self.log_event("FIREFOX_ERROR", "Connection refused")
                 
             self.update_status("Ready", "#6db783")
         
-        except requests.exceptions.ConnectionError:
-            self.append(f"✗ Connection failed: Cannot reach GUI Agent\n", "error")
-            self.append("  Ensure VM is running: ./auraos.sh health\n", "info")
-            self.update_status("Error", "#f48771")
-            self.log_event("FIREFOX_ERROR", "Connection refused")
         except Exception as e:
             self.append(f"✗ Error opening Firefox: {str(e)}\n", "error")
             self.update_status("Error", "#f48771")

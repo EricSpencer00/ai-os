@@ -272,13 +272,53 @@ class AuraOSTerminal:
                 threading.Thread(target=self.execute_shell_command, args=(text,), daemon=True).start()
     
     def execute_ai_task(self, request_text):
-        """Send request to the Vision Agent."""
+        """Send request to the Vision Agent with smart fallback for common commands."""
         self.is_processing = True
-        self.update_status("Processing with Vision Agent...", "#00ff88")
+        self.update_status("Processing...", "#00ff88")
+        
+        # Check for common commands that can be executed directly
+        request_lower = request_text.lower().strip()
+        
+        # Direct execution for simple commands (when agent might be unavailable)
+        direct_commands = {
+            "open firefox": ["firefox"],
+            "launch firefox": ["firefox"],
+            "start firefox": ["firefox"],
+            "open browser": ["firefox"],
+            "open terminal": ["xfce4-terminal"],
+            "open file manager": ["thunar"],
+            "open files": ["thunar"],
+        }
+        
+        # Check if this is a direct command we can handle
+        for pattern, cmd in direct_commands.items():
+            if pattern in request_lower:
+                self.append(f"⟳ Executing: {' '.join(cmd)}...\n", "info")
+                try:
+                    env = os.environ.copy()
+                    env["DISPLAY"] = env.get("DISPLAY", ":99")
+                    subprocess.Popen(
+                        cmd,
+                        env=env,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        start_new_session=True
+                    )
+                    self.append(f"✓ Launched {cmd[0]}\n", "success")
+                    self.log_event("AI_DIRECT", f"Executed: {' '.join(cmd)}")
+                    self.is_processing = False
+                    self.update_status("Ready", "#6db783")
+                    self.input_field.focus()
+                    return
+                except Exception as e:
+                    self.append(f"⚠ Direct execution failed: {e}\n", "warning")
+                    self.append("⟳ Trying via Vision Agent...\n", "info")
+                break
+        
+        # Try Vision Agent for complex requests
         self.append("⟳ Sending request to Vision Agent...\n", "info")
         
         try:
-            # Try Vision Agent first
             response = requests.post(
                 "http://localhost:8765/ask",
                 json={"query": request_text},
@@ -314,22 +354,23 @@ class AuraOSTerminal:
                 self.log_event("AI_ERROR", response.text)
                 
         except requests.exceptions.ConnectionError:
-            self.append(f"✗ Connection failed: Cannot reach GUI Agent\n", "error")
+            self.append("✗ Cannot reach GUI Agent\n", "error")
+            self.append("\n", "output")
+            self.append("  The Vision Agent is not running.\n", "info")
             self.append("  \n", "output")
-            self.append("  Troubleshooting:\n", "warning")
-            self.append("  1. Ensure the VM is running\n", "info")
-            self.append("  2. Check agent status: ./auraos.sh health\n", "info")
-            self.append("  3. Restart services: ./auraos.sh restart\n", "info")
-            self.append("  4. View settings: Click '⚙️ Settings' button\n\n", "info")
+            self.append("  You can still use:\n", "warning")
+            self.append("  • Switch to Regular mode for shell commands\n", "info")
+            self.append("  • Switch to Chat mode for AI conversation\n", "info")
+            self.append("  \n", "output")
+            self.append("  To start the agent:\n", "info")
+            self.append("  ./auraos.sh health\n\n", "info")
             self.log_event("AI_EXCEPTION", "Connection refused")
         except requests.exceptions.Timeout:
-            self.append(f"✗ Request timed out (3 minutes)\n", "error")
-            self.append("  The AI model may be processing slowly.\n", "info")
-            self.append("  Try a simpler request or check Ollama status.\n\n", "info")
+            self.append("✗ Request timed out (3 minutes)\n", "error")
+            self.append("  Try a simpler request.\n\n", "info")
             self.log_event("AI_EXCEPTION", "Timeout")
         except Exception as e:
             self.append(f"✗ Unexpected error: {e}\n", "error")
-            self.append("  Click '⚙️ Settings' for connection info.\n\n", "info")
             self.log_event("AI_EXCEPTION", str(e))
             
         self.is_processing = False
