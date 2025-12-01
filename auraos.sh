@@ -8,7 +8,8 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 VENV_DIR="$SCRIPT_DIR/auraos_daemon/venv"
 
 # Configurable VM username (default matches Multipass cloud images)
-AURAOS_USER="${AURAOS_USER:-ubuntu}"
+# Default runtime user is `auraos` (was 'ubuntu') to match VM setup
+AURAOS_USER="${AURAOS_USER:-auraos}"
 
 # Colors
 GREEN='\033[0;32m'
@@ -40,9 +41,15 @@ cmd_status() {
     echo ""
     echo -e "${BLUE}VM Status:${NC}"
     multipass list
-    echo ""
-    echo -e "${BLUE}VM Services:${NC}"
-    multipass exec auraos-multipass -- bash -c 'ps aux | grep -E "[x]11vnc|[w]ebsockify" | head -2' || echo "Services not running"
+    
+    # Only check services if VM exists and is running
+    VM_NAME="auraos-multipass"
+    if multipass list 2>/dev/null | grep -q "^${VM_NAME}\b" && multipass list 2>/dev/null | grep "^${VM_NAME}" | grep -q "Running"; then
+        echo ""
+        echo -e "${BLUE}VM Services:${NC}"
+        multipass exec "$VM_NAME" -- bash -c 'ps aux | grep -E "[x]11vnc|[w]ebsockify" | head -2' 2>/dev/null || echo "Services not running"
+    fi
+    
     echo ""
     echo -e "${BLUE}Ports:${NC}"
     lsof -i :5901 -i :6080 -i :8765 2>/dev/null | grep LISTEN || echo "No ports listening"
@@ -72,18 +79,25 @@ cmd_keys() {
         echo -e "${GREEN}Adding API key for $2...${NC}"
         python core/key_manager.py add "$2" "$3"
     elif [ "$1" == "ollama" ]; then
-        MODEL="${2:-llava:13b}"
+        MODEL="${2:-fara-7b}"
         VISION_MODEL="${3:-$MODEL}"
         echo -e "${GREEN}Setting Ollama: model=$MODEL, vision_model=$VISION_MODEL${NC}"
         python core/key_manager.py enable-ollama "$MODEL" "$VISION_MODEL"
     else
-        echo -e "${YELLOW}Usage: $0 keys <list|add|ollama>${NC}"
+        echo -e "${YELLOW}Usage: $0 keys <list|add|onboard|ollama>${NC}"
         echo -e "${YELLOW}  keys list                  - List all configured keys${NC}"
         echo -e "${YELLOW}  keys add <provider> <key>  - Add API key${NC}"
+        echo -e "${YELLOW}  keys onboard               - Interactive API key onboarding (new system)${NC}"
         echo -e "${YELLOW}  keys ollama [model] [vision_model] - Configure Ollama${NC}"
-        echo -e "${YELLOW}Example: $0 keys ollama llava:13b qwen2.5-coder:7b${NC}"
+        echo -e "${YELLOW}Example: $0 keys ollama fara-7b qwen2.5-coder:7b${NC}"
         exit 1
     fi
+}
+
+cmd_keys_onboard() {
+    echo -e "${GREEN}Starting interactive API key onboarding...${NC}"
+    cd "$SCRIPT_DIR"
+    python3 -m core.api_key_cli
 }
 
 cmd_automate() {
@@ -115,14 +129,76 @@ cmd_restart() {
 }
 
 cmd_health() {
+    # Temporarily disable exit on error for health checks
+    set +e
+    
     echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
     echo -e "${BLUE}║       AuraOS System Health Check       ║${NC}"
     echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
     echo ""
     
+    local health_failed=0
+    VM_NAME="auraos-multipass"
+    
     # Check 1: VM Running
     echo -e "${YELLOW}[1/7]${NC} VM Status"
-    multipass list | grep auraos-multipass || { echo -e "${RED}✗ VM not running${NC}"; return 1; }
+    VM_STATE=$(multipass list 2>/dev/null | grep "$VM_NAME" | awk '{print $2}')
+    
+    if [ -z "$VM_STATE" ]; then
+        echo -e "${RED}✗ VM not found${NC}"
+        echo -e "${YELLOW}  Run: ./auraos.sh vm-setup${NC}"
+        set -e
+        return 1
+    fi
+    
+    if [ "$VM_STATE" = "Unknown" ]; then
+        echo -e "${YELLOW}⚠ VM in Unknown state, attempting recovery...${NC}"
+        echo -e "${YELLOW}  Restarting multipass daemon...${NC}"
+        sudo launchctl stop com.canonical.multipassd 2>/dev/null || true
+        sleep 3
+        sudo launchctl start com.canonical.multipassd 2>/dev/null || true
+        sleep 5
+        VM_STATE=$(multipass list 2>/dev/null | grep auraos-multipass | awk '{print $2}')
+        
+        if [ "$VM_STATE" = "Stopped" ]; then
+            echo -e "${YELLOW}  Starting VM after daemon restart...${NC}"
+            START_OUTPUT=$(multipass start auraos-multipass 2>&1)
+            START_EXIT=$?
+            
+            if [ $START_EXIT -ne 0 ]; then
+                echo "$START_OUTPUT" | head -5
+                
+                # Check for corrupt image
+                if echo "$START_OUTPUT" | grep -q "Image is corrupt"; then
+                    echo -e "${RED}✗ VM image is corrupted${NC}"
+                    echo -e "${YELLOW}Recovery options:${NC}"
+                    echo -e "  1. Delete and recreate: multipass delete auraos-multipass && multipass purge && ./auraos.sh vm-setup"
+                    echo -e "  2. Try repair: multipass stop auraos-multipass && multipass start auraos-multipass"
+                    set -e
+                    return 1
+                fi
+            fi
+            
+            sleep 5
+            VM_STATE=$(multipass list 2>/dev/null | grep auraos-multipass | awk '{print $2}')
+        fi
+    fi
+    
+    if [ "$VM_STATE" != "Running" ]; then
+        if [ "$VM_STATE" = "Stopped" ]; then
+            echo -e "${YELLOW}  Starting VM...${NC}"
+            multipass start auraos-multipass 2>&1 | head -5
+            sleep 5
+            VM_STATE=$(multipass list 2>/dev/null | grep auraos-multipass | awk '{print $2}')
+        fi
+        
+        if [ "$VM_STATE" != "Running" ]; then
+            echo -e "${RED}✗ VM is $VM_STATE (failed to start)${NC}"
+            set -e
+            return 1
+        fi
+    fi
+    
     echo -e "${GREEN}✓ VM running${NC}"
     echo ""
     
@@ -133,7 +209,10 @@ cmd_health() {
     else
         echo -e "${RED}✗ x11vnc not running${NC}"
         echo "  Starting..."
-        multipass exec auraos-multipass -- sudo systemctl start auraos-x11vnc.service
+        if ! multipass exec auraos-multipass -- sudo systemctl start auraos-x11vnc.service 2>/dev/null; then
+            echo -e "${RED}  Failed to start x11vnc service${NC}"
+            health_failed=1
+        fi
         sleep 3
     fi
     echo ""
@@ -145,18 +224,36 @@ cmd_health() {
     else
         echo -e "${RED}✗ noVNC not running${NC}"
         echo "  Starting..."
-        multipass exec auraos-multipass -- sudo systemctl start auraos-novnc.service
+        if ! multipass exec auraos-multipass -- sudo systemctl start auraos-novnc.service 2>/dev/null; then
+            echo -e "${RED}  Failed to start noVNC service${NC}"
+            health_failed=1
+        fi
         sleep 2
     fi
     echo ""
     
     # Check 4: VNC Password File
     echo -e "${YELLOW}[4/7]${NC} VNC Authentication"
-    if multipass exec auraos-multipass -- [ -f /home/${AURAOS_USER}/.vnc/passwd ] 2>/dev/null; then
+    if multipass exec auraos-multipass -- sudo test -f /home/${AURAOS_USER}/.vnc/passwd 2>/dev/null; then
         echo -e "${GREEN}✓ Password file exists${NC}"
     else
         echo -e "${RED}✗ Password file missing${NC}"
-        return 1
+        # Try to auto-create it inside the VM
+        echo "→ Attempting to create VNC password inside VM..."
+        multipass exec auraos-multipass -- sudo bash <<CREATE_VNC 2>/dev/null || true
+mkdir -p /home/${AURAOS_USER}/.vnc
+printf 'auraos123\nauraos123\ny\n' | x11vnc -storepasswd /home/${AURAOS_USER}/.vnc/passwd >/dev/null 2>&1 || true
+chown -R ${AURAOS_USER}:${AURAOS_USER} /home/${AURAOS_USER}/.vnc || true
+chmod 600 /home/${AURAOS_USER}/.vnc/passwd || true
+CREATE_VNC
+
+        # Re-check
+        if multipass exec auraos-multipass -- sudo test -f /home/${AURAOS_USER}/.vnc/passwd 2>/dev/null; then
+            echo -e "${GREEN}✓ Password file created and present${NC}"
+        else
+            echo -e "${RED}✗ Password file still missing after attempt${NC}"
+            health_failed=1
+        fi
     fi
     echo ""
     
@@ -166,7 +263,7 @@ cmd_health() {
         echo -e "${GREEN}✓ Listening on 5900${NC}"
     else
         echo -e "${RED}✗ Not listening on 5900${NC}"
-        return 1
+        health_failed=1
     fi
     echo ""
     
@@ -235,35 +332,160 @@ PY
                 echo -e "${GREEN}✓ Forwarder started: localhost:6080 -> ${VM_IP}:6080${NC}"
             else
                 echo -e "${RED}✗ Failed to start forwarder for 6080${NC}"
-                return 1
+                health_failed=1
             fi
 
         else
             echo -e "${RED}✗ Not listening on 6080 inside VM${NC}"
-            return 1
+            health_failed=1
         fi
     fi
     echo ""
     
-    # Check 7: Web Server
-    echo -e "${YELLOW}[7/7]${NC} Web Server"
-    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:6080/vnc.html 2>&1)
+    # Check 7: Web Server (with automated recovery)
+    echo -e "${YELLOW}[7/10]${NC} Web Server"
+    # Use a short timeout so check is responsive
+    HTTP_CODE=$(curl -s -m 10 -o /dev/null -w "%{http_code}" http://localhost:6080/vnc.html 2>&1 || echo "000")
+
     if [ "$HTTP_CODE" = "200" ]; then
         echo -e "${GREEN}✓ noVNC web server responding${NC}"
     else
         echo -e "${RED}✗ Web server returned: $HTTP_CODE${NC}"
-        return 1
+        echo -e "${YELLOW}→ Attempting automated recovery: restart forwarders, then GUI reset${NC}"
+
+        # Try restarting host forwarders first
+        set +e
+        echo "-> Restarting port forwarders..."
+        cmd_forward stop >/dev/null 2>&1 || true
+        sleep 0.5
+        cmd_forward start >/dev/null 2>&1 || true
+        sleep 1
+
+        # Re-check endpoint
+        HTTP_CODE=$(curl -s -m 10 -o /dev/null -w "%{http_code}" http://localhost:6080/vnc.html 2>&1 || echo "000")
+        if [ "$HTTP_CODE" = "200" ]; then
+            echo -e "${GREEN}✓ Recovered: noVNC web server responding after forwarder restart${NC}"
+        else
+            echo -e "${YELLOW}→ Forwarder restart did not recover web UI; running GUI reset as fallback...${NC}"
+            # Run gui-reset which restarts x11vnc and noVNC inside VM
+            cmd_gui_reset >/dev/null 2>&1 || true
+            sleep 3
+
+            # Final re-check
+            HTTP_CODE=$(curl -s -m 10 -o /dev/null -w "%{http_code}" http://localhost:6080/vnc.html 2>&1 || echo "000")
+            if [ "$HTTP_CODE" = "200" ]; then
+                echo -e "${GREEN}✓ Recovered: noVNC web server responding after GUI reset${NC}"
+            else
+                echo -e "${RED}✗ Web server still returning: $HTTP_CODE${NC}"
+                echo -e "${RED}✗ Automated recovery failed; please inspect logs or run './auraos.sh gui-reset' manually.${NC}"
+                health_failed=1
+            fi
+        fi
     fi
     echo ""
-    
-    # Summary
-    echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}✓ All systems operational!${NC}"
-    echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
+
+    # Check 8: GUI Agent
+    echo -e "${YELLOW}[8/10]${NC} GUI Agent Service"
+    if multipass exec "$VM_NAME" -- systemctl is-active --quiet auraos-gui-agent.service; then
+        echo -e "${GREEN}✓ GUI Agent running${NC}"
+    else
+        echo -e "${RED}✗ GUI Agent not running, try running ./auraos.sh gui-reset${NC}"
+        health_failed=1
+    fi
     echo ""
-    echo -e "${YELLOW}Access the GUI:${NC}"
-    echo -e "  Browser: ${GREEN}http://localhost:6080/vnc.html${NC}"
-    echo -e "  Password: ${GREEN}auraos123${NC}"
+
+    # Check 9: Ollama service & Farà-7B model
+    echo -e "${YELLOW}[9/10]${NC} Ollama (local LLM)"
+    OLLAMA_UP=0
+    # Quick reachability check
+    if curl -s -m 3 http://localhost:11434/api/tags >/dev/null 2>&1; then
+        OLLAMA_UP=1
+        echo -e "${GREEN}✓ Ollama reachable on localhost:11434${NC}"
+    else
+        echo -e "${YELLOW}→ Ollama not reachable on localhost:11434; attempting to start...${NC}"
+        # Try brew service first (macOS)
+        if command -v brew >/dev/null 2>&1; then
+            brew services start ollama 2>/dev/null || true
+        fi
+        # Also try launching ollama serve in background if CLI available
+        if command -v ollama >/dev/null 2>&1; then
+            nohup ollama serve --host 0.0.0.0 >/tmp/ollama_serve.log 2>&1 &
+        fi
+
+        # Wait up to 20 seconds for Ollama to become available
+        for i in {1..20}; do
+            if curl -s -m 3 http://localhost:11434/api/tags >/dev/null 2>&1; then
+                OLLAMA_UP=1
+                break
+            fi
+            sleep 1
+        done
+
+        if [ $OLLAMA_UP -eq 1 ]; then
+            echo -e "${GREEN}✓ Ollama started and reachable${NC}"
+        else
+            echo -e "${RED}✗ Ollama still not reachable after attempts${NC}"
+            health_failed=1
+        fi
+    fi
+
+    # Check whether the configured Ollama model is present (non-fatal)
+    if [ $OLLAMA_UP -eq 1 ]; then
+        if command -v ollama >/dev/null 2>&1; then
+            if ollama list 2>/dev/null | grep -q "fara-7b"; then
+                echo -e "${GREEN}✓ fara-7b model present${NC}"
+            else
+                echo -e "${YELLOW}→ fara-7b model not found.${NC}"
+                echo -e "   To install: run: ${BLUE}ollama pull fara-7b${NC} (may take several minutes)"
+                echo -e "   Or skip if you prefer the Transformers backend (inference server will fallback)."
+                # Do not mark health as failed for a missing model; it's optional
+            fi
+        else
+            echo -e "${YELLOW}⚠ ollama CLI not installed; cannot verify models.${NC}"
+            echo -e "   If you want to use local Ollama models, install the ollama CLI and start the service."
+            # Not fatal; continue
+        fi
+    fi
+    echo ""
+
+    # Check 10: Inference Server
+    echo -e "${YELLOW}[10/10]${NC} Inference Server (localhost:8081)"
+    INFERENCE_UP=0
+    if curl -s -m 3 http://localhost:8081/health >/dev/null 2>&1; then
+        INFERENCE_UP=1
+        echo -e "${GREEN}✓ Inference server reachable on localhost:8081${NC}"
+        # Show available models
+        MODELS=$(curl -s -m 3 http://localhost:8081/models 2>/dev/null | python3 -m json.tool 2>/dev/null | head -10 || echo "")
+        if [ -n "$MODELS" ]; then
+            echo -e "${YELLOW}  Available models:${NC}"
+            echo "$MODELS" | sed 's/^/    /'
+        fi
+    else
+        echo -e "${YELLOW}→ Inference server not running. Start with: ./auraos.sh inference start${NC}"
+        echo -e "${YELLOW}   The inference server is optional but recommended for chat and vision tasks.${NC}"
+    fi
+    echo ""
+
+    # Summary
+    if [ $health_failed -eq 0 ]; then
+        echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
+        echo -e "${GREEN}✓ All systems operational!${NC}"
+        echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
+        echo ""
+        echo -e "${YELLOW}Access the GUI:${NC}"
+        echo -e "  Browser: ${GREEN}http://localhost:6080/vnc.html${NC}"
+        echo -e "  Password: ${GREEN}auraos123${NC}"
+    else
+        echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
+        echo -e "${YELLOW}⚠ Health check completed with warnings${NC}"
+        echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
+        echo ""
+        echo -e "${YELLOW}Some services may need attention. See errors above.${NC}"
+    fi
+    
+    # Re-enable exit on error
+    set -e
+    return $health_failed
 }
 
 cmd_gui_reset() {
@@ -281,41 +503,33 @@ cmd_gui_reset() {
     
     # Step 2: Kill orphaned processes
     echo -e "${YELLOW}[2/7]${NC} Cleaning up orphaned processes..."
-    multipass exec "$VM_NAME" -- bash -c '
-      sudo pkill -9 x11vnc 2>/dev/null || true
-      sudo pkill -9 Xvfb 2>/dev/null || true
-      sudo pkill -9 websockify 2>/dev/null || true
-      sudo pkill -9 novnc_proxy 2>/dev/null || true
-    ' 2>/dev/null
+        multipass exec "$VM_NAME" -- bash -c '
+            sudo pkill -9 x11vnc 2>/dev/null || true
+            sudo pkill -9 Xvfb 2>/dev/null || true
+            sudo pkill -9 websockify 2>/dev/null || true
+            sudo pkill -9 novnc_proxy 2>/dev/null || true
+        ' 2>/dev/null &
     sleep 2
     
     # Step 3: Setup VNC password
     echo -e "${YELLOW}[3/7]${NC} Setting up VNC authentication..."
-        multipass exec "$VM_NAME" -- sudo bash << 'VNC_PASSWORD_EOF' 2>/dev/null
-            mkdir -p /home/${AURAOS_USER}/.vnc
-            rm -f /home/${AURAOS_USER}/.vnc/passwd
-      
-            expect << 'EXPECT_EOF'
-                set timeout 5
-                spawn x11vnc -storepasswd /home/${AURAOS_USER}/.vnc/passwd
-                expect "Enter VNC password:"
-                send "auraos123\r"
-                expect "Verify password:"
-                send "auraos123\r"
-                expect "Write password"
-                send "y\r"
-                expect eof
-EXPECT_EOF
-      
-            chown ${AURAOS_USER}:${AURAOS_USER} /home/${AURAOS_USER}/.vnc/passwd
-            chmod 600 /home/${AURAOS_USER}/.vnc/passwd
-            echo "✓ Password file created at /home/${AURAOS_USER}/.vnc/passwd"
+    multipass exec "$VM_NAME" -- sudo bash <<VNC_PASSWORD_EOF 2>/dev/null
+        mkdir -p /home/${AURAOS_USER}/.vnc
+        rm -f /home/${AURAOS_USER}/.vnc/passwd
+        printf 'auraos123\nauraos123\ny\n' | x11vnc -storepasswd /home/${AURAOS_USER}/.vnc/passwd >/dev/null 2>&1 || true
+        chown ${AURAOS_USER}:${AURAOS_USER} /home/${AURAOS_USER}/.vnc/passwd || true
+        chmod 600 /home/${AURAOS_USER}/.vnc/passwd || true
+        echo "✓ Password file created"
 VNC_PASSWORD_EOF
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}✗ VNC password setup failed${NC}"
+        return 1
+    fi
     
     # Step 4: Fix noVNC service configuration
     echo -e "${YELLOW}[4/7]${NC} Configuring noVNC service..."
-    multipass exec "$VM_NAME" -- sudo bash << 'SERVICE_EOF' 2>/dev/null
-cat > /etc/systemd/system/auraos-novnc.service << "CONFIG_EOF"
+    multipass exec "$VM_NAME" -- sudo bash <<SERVICE_EOF 2>/dev/null
+cat > /etc/systemd/system/auraos-novnc.service << 'CONFIG_EOF'
 [Unit]
 Description=AuraOS noVNC web proxy
 After=network.target auraos-x11vnc.service
@@ -335,10 +549,17 @@ CONFIG_EOF
 systemctl daemon-reload
 echo "✓ noVNC service configured"
 SERVICE_EOF
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}✗ noVNC service configuration failed${NC}"
+        return 1
+    fi
     
     # Step 5: Start x11vnc
     echo -e "${YELLOW}[5/7]${NC} Starting x11vnc and Xvfb..."
-    multipass exec "$VM_NAME" -- sudo systemctl start auraos-x11vnc.service
+    if ! multipass exec "$VM_NAME" -- sudo systemctl start auraos-x11vnc.service; then
+        echo -e "${RED}✗ Failed to start x11vnc service${NC}"
+        return 1
+    fi
     sleep 5
     
     # Step 6: Verify x11vnc is listening (robust host-driven check)
@@ -359,15 +580,18 @@ SERVICE_EOF
     else
         echo -e "${RED}✗ x11vnc did not appear on port 5900 after 10s${NC}"
         echo -e "${YELLOW}Gathering diagnostic information...${NC}"
-        multipass exec "$VM_NAME" -- sudo systemctl status auraos-x11vnc.service --no-pager || true
-        multipass exec "$VM_NAME" -- sudo journalctl -u auraos-x11vnc.service -n 80 --no-pager || true
+        multipass exec "$VM_NAME" -- sudo systemctl status auraos-x11vnc.service --no-pager 2>/dev/null || true
+        multipass exec "$VM_NAME" -- sudo journalctl -u auraos-x11vnc.service -n 80 --no-pager 2>/dev/null || true
         echo -e "${YELLOW}You can inspect the VM logs or retry the GUI reset.${NC}"
         return 1
     fi
     
     # Step 7: Start noVNC
     echo -e "${YELLOW}[7/7]${NC} Starting noVNC web server..."
-    multipass exec "$VM_NAME" -- sudo systemctl start auraos-novnc.service
+    if ! multipass exec "$VM_NAME" -- sudo systemctl start auraos-novnc.service; then
+        echo -e "${RED}✗ Failed to start noVNC service${NC}"
+        return 1
+    fi
     sleep 4
     
     # Verify noVNC (host-driven check)
@@ -385,8 +609,8 @@ SERVICE_EOF
     else
         echo -e "${RED}✗ noVNC did not appear on port 6080 after 10s${NC}"
         echo -e "${YELLOW}Gathering diagnostic information...${NC}"
-        multipass exec "$VM_NAME" -- sudo systemctl status auraos-novnc.service --no-pager || true
-        multipass exec "$VM_NAME" -- sudo journalctl -u auraos-novnc.service -n 80 --no-pager || true
+        multipass exec "$VM_NAME" -- sudo systemctl status auraos-novnc.service --no-pager 2>/dev/null || true
+        multipass exec "$VM_NAME" -- sudo journalctl -u auraos-novnc.service -n 80 --no-pager 2>/dev/null || true
         return 1
     fi
     
@@ -398,6 +622,180 @@ SERVICE_EOF
     echo -e "${YELLOW}Access:${NC}"
     echo -e "  ${GREEN}http://localhost:6080/vnc.html${NC}"
     echo -e "  Password: ${GREEN}auraos123${NC}"
+
+    # Step 8: Ensure GUI agent is present and started (best-effort)
+    echo ""
+    echo -e "${YELLOW}[8/8]${NC} Ensuring auraos-gui-agent is present and running..."
+    # If local gui_agent.py exists, transfer it; also try to install minimal deps and start service
+    if multipass exec "$VM_NAME" -- sudo test -f /home/${AURAOS_USER}/gui_agent.py 2>/dev/null; then
+        echo -e "${GREEN}→ GUI agent file already present in VM${NC}"
+        multipass exec "$VM_NAME" -- sudo pip3 install --upgrade flask pyautogui pillow requests numpy >/dev/null 2>&1 || true
+        multipass exec "$VM_NAME" -- sudo systemctl daemon-reload || true
+        multipass exec "$VM_NAME" -- sudo systemctl enable --now auraos-gui-agent.service || true
+    else
+        if [ -f "$SCRIPT_DIR/gui_agent.py" ]; then
+            echo -e "${YELLOW}→ Uploading local gui_agent.py to VM...${NC}"
+            # Use /tmp as transfer target and then move with sudo
+            multipass transfer "$SCRIPT_DIR/gui_agent.py" "$VM_NAME:/tmp/gui_agent.py" 2>/dev/null || true
+            multipass exec "$VM_NAME" -- sudo mv /tmp/gui_agent.py /home/${AURAOS_USER}/gui_agent.py || true
+            multipass exec "$VM_NAME" -- sudo chown ${AURAOS_USER}:${AURAOS_USER} /home/${AURAOS_USER}/gui_agent.py || true
+            multipass exec "$VM_NAME" -- sudo chmod +x /home/${AURAOS_USER}/gui_agent.py || true
+            multipass exec "$VM_NAME" -- sudo pip3 install --upgrade flask pyautogui pillow requests numpy >/dev/null 2>&1 || true
+            multipass exec "$VM_NAME" -- sudo systemctl daemon-reload || true
+            multipass exec "$VM_NAME" -- sudo systemctl enable --now auraos-gui-agent.service || true
+        else
+            echo -e "${YELLOW}⚠ No local gui_agent.py found; unable to install GUI agent${NC}"
+        fi
+    fi
+
+    # Report agent status
+    if multipass exec "$VM_NAME" -- sudo systemctl is-active --quiet auraos-gui-agent.service; then
+        echo -e "${GREEN}✓ GUI Agent running${NC}"
+    else
+        echo -e "${RED}✗ GUI Agent not running after restart; review logs with: ./auraos.sh logs${NC}"
+    fi
+
+    # Also run the agent installer/ensure logic for consistent behavior
+    cmd_agent_ensure >/dev/null 2>&1 || true
+}
+
+cmd_agent_ensure() {
+    echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
+    echo -e "${BLUE}║   Ensure GUI Agent Installed & Running ║${NC}"
+    echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
+    echo ""
+
+    VM_NAME="auraos-multipass"
+    # Transfer agent if present locally
+    if [ -f "$SCRIPT_DIR/gui_agent.py" ]; then
+        echo -e "${YELLOW}→ Transferring local gui_agent.py to VM...${NC}"
+        multipass transfer "$SCRIPT_DIR/gui_agent.py" "$VM_NAME:/tmp/gui_agent.py" 2>/dev/null || true
+    fi
+
+    multipass exec "$VM_NAME" -- sudo bash <<'AGENT_SETUP' || true
+AURAOS_USER='auraos'
+apt-get update -qq || true
+apt-get install -y python3-venv python3-pip xauth gnome-screenshot >/dev/null 2>&1 || true
+mkdir -p /opt/auraos/gui_agent
+    if [ -f /tmp/gui_agent.py ]; then
+    mv /tmp/gui_agent.py /opt/auraos/gui_agent/agent.py
+    chown -R ${AURAOS_USER}:${AURAOS_USER} /opt/auraos/gui_agent
+    chmod +x /opt/auraos/gui_agent/agent.py || true
+fi
+    # Create Xauthority for the auraos user if missing
+    if [ ! -f /home/${AURAOS_USER}/.Xauthority ]; then
+        mkdir -p /home/${AURAOS_USER}
+        chown ${AURAOS_USER}:${AURAOS_USER} /home/${AURAOS_USER}
+        sudo -u ${AURAOS_USER} bash -lc "xauth add :99 . $(xxd -l 16 -p /dev/urandom)" || true
+    fi
+    if [ ! -d /opt/auraos/gui_agent/venv ]; then
+        python3 -m venv /opt/auraos/gui_agent/venv || true
+        # Try to ensure pip is present in venv. Use ensurepip or fallback to get-pip.py
+        /opt/auraos/gui_agent/venv/bin/python3 -m ensurepip --upgrade >/dev/null 2>&1 || true
+        if ! /opt/auraos/gui_agent/venv/bin/python3 -m pip --version >/dev/null 2>&1; then
+            echo "Bootstrapping pip into venv..."
+            curl -sS https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py || true
+            /opt/auraos/gui_agent/venv/bin/python3 /tmp/get-pip.py || true
+        fi
+        /opt/auraos/gui_agent/venv/bin/python3 -m pip install --upgrade pip setuptools >/dev/null 2>&1 || true
+    fi
+/opt/auraos/gui_agent/venv/bin/python3 -m pip install flask pyautogui pillow requests numpy || true
+
+# Write systemd unit to point to the venv python
+cat > /etc/systemd/system/auraos-gui-agent.service <<UNIT
+[Unit]
+Description=AuraOS GUI Automation Agent
+After=network.target auraos-x11vnc.service auraos-desktop.service
+
+[Service]
+Type=simple
+User=${AURAOS_USER}
+Environment=DISPLAY=:99
+Environment=HOME=/home/${AURAOS_USER}
+Environment=XAUTHORITY=/home/${AURAOS_USER}/.Xauthority
+Environment=OLLAMA_URL=http://192.168.2.1:11434
+WorkingDirectory=/opt/auraos/gui_agent
+ExecStart=/opt/auraos/gui_agent/venv/bin/python /opt/auraos/gui_agent/agent.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+systemctl daemon-reload || true
+systemctl enable --now auraos-gui-agent.service || true
+AGENT_SETUP
+
+echo ""
+echo -e "${GREEN}✓ Agent ensure script finished; check service status if needed${NC}"
+}
+
+cmd_agent_logs() {
+    VM_NAME="auraos-multipass"
+    multipass exec "$VM_NAME" -- sudo journalctl -u auraos-gui-agent.service -n 200 --no-pager || true
+}
+
+cmd_disable_screensaver() {
+        VM_NAME="${1:-auraos-multipass}"
+        USER_NAME="${2:-$AURAOS_USER}"
+
+        echo -e "${BLUE}Disabling screensaver/lock inside VM '$VM_NAME' for user '$USER_NAME'...${NC}"
+
+        multipass exec "$VM_NAME" -- sudo bash -s "$USER_NAME" <<'DISABLE_EOF'
+#!/usr/bin/env bash
+set -e
+USER_NAME="$1"
+HOME_DIR="/home/$USER_NAME"
+
+echo "Applying session-level disable settings for $USER_NAME"
+
+# Disable X blanking and DPMS (if X available)
+export DISPLAY=:0
+xset s off 2>/dev/null || true
+xset s noblank 2>/dev/null || true
+xset -dpms 2>/dev/null || true
+
+# Kill common locker daemons
+pkill light-locker 2>/dev/null || true
+pkill xscreensaver 2>/dev/null || true
+pkill xss-lock 2>/dev/null || true
+
+# Create autostart to re-apply settings on login
+AUTOSTART_DIR="$HOME_DIR/.config/autostart"
+mkdir -p "$AUTOSTART_DIR"
+cat > "$AUTOSTART_DIR/disable-screensaver.desktop" <<'DESK'
+[Desktop Entry]
+Type=Application
+Name=Disable Screensaver
+Exec=/usr/local/bin/disable-screensaver-session.sh
+X-GNOME-Autostart-enabled=true
+NoDisplay=true
+DESK
+
+# Create session helper
+cat > /usr/local/bin/disable-screensaver-session.sh <<'SH'
+#!/usr/bin/env bash
+export DISPLAY=:0
+xset s off 2>/dev/null || true
+xset s noblank 2>/dev/null || true
+xset -dpms 2>/dev/null || true
+pkill light-locker 2>/dev/null || true
+pkill xscreensaver 2>/dev/null || true
+SH
+
+chmod +x /usr/local/bin/disable-screensaver-session.sh || true
+chown -R "$USER_NAME:$USER_NAME" "$AUTOSTART_DIR" || true
+chown root:root /usr/local/bin/disable-screensaver-session.sh || true
+
+# Disable light-locker autostart if present
+if [ -f "$HOME_DIR/.config/autostart/light-locker.desktop" ]; then
+    sed -i.bak 's/X-GNOME-Autostart-enabled=true/X-GNOME-Autostart-enabled=false/' "$HOME_DIR/.config/autostart/light-locker.desktop" || true
+    chown "$USER_NAME:$USER_NAME" "$HOME_DIR/.config/autostart/light-locker.desktop" || true
+fi
+
+echo "Done. Re-login or reboot the VM for all changes to take effect."
+DISABLE_EOF
 }
 
 cmd_install() {
@@ -466,12 +864,12 @@ cmd_install() {
     done
     echo ""
 
-    echo -e "${BLUE}Step 5/8: Downloading vision model (llava:13b)...${NC}"
-    if ollama list 2>/dev/null | grep -q "llava:13b"; then
-        echo -e "${GREEN}✓ llava:13b model already installed${NC}"
+    echo -e "${BLUE}Step 5/8: Downloading vision model (fara-7b)...${NC}"
+    if ollama list 2>/dev/null | grep -q "fara-7b"; then
+        echo -e "${GREEN}✓ fara-7b model already installed${NC}"
     else
-        echo "Downloading llava:13b model (this may take several minutes)..."
-        ollama pull llava:13b
+        echo "Downloading fara-7b model (this may take several minutes)..."
+        ollama pull fara-7b
         echo -e "${GREEN}✓ Model downloaded${NC}"
     fi
     echo ""
@@ -507,8 +905,8 @@ cmd_install() {
 
     echo -e "${BLUE}Step 8/8: Configuring Ollama for vision tasks...${NC}"
     source venv/bin/activate
-    python core/key_manager.py enable-ollama llava:13b llava:13b 2>/dev/null || echo "Configured Ollama"
-    echo -e "${GREEN}✓ Ollama configured with llava:13b for vision${NC}"
+    python core/key_manager.py enable-ollama fara-7b fara-7b 2>/dev/null || echo "Configured Ollama"
+    echo -e "${GREEN}✓ Ollama configured with fara-7b for vision${NC}"
     echo ""
 
     echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
@@ -517,18 +915,15 @@ cmd_install() {
     echo ""
     echo -e "${GREEN}Next Steps:${NC}"
     echo ""
-    echo -e "  1. Set up Ubuntu VM:"
+    echo -e "  1. Set up Ubuntu VM with AI terminal and all improvements:"
     echo -e "     ${BLUE}./auraos.sh vm-setup${NC}"
     echo ""
-    echo -e "  2. (Optional) Install v2 improvements:"
-    echo -e "     ${BLUE}./auraos.sh setup-v2${NC}"
-    echo -e "     ${YELLOW}(10-12x faster inference, delta detection, local planner)${NC}"
-    echo ""
-    echo -e "  3. Check system health:"
+    echo -e "  2. Check system health:"
     echo -e "     ${BLUE}./auraos.sh health${NC}"
     echo ""
-    echo -e "  4. Try AI automation:"
+    echo -e "  3. Try AI automation:"
     echo -e "     ${BLUE}./auraos.sh automate \"click on Firefox\"${NC}"
+    echo -e "     (Ensure Ollama is running with OLLAMA_HOST=0.0.0.0)"
     echo ""
 }
 
@@ -586,10 +981,31 @@ cmd_vm_setup() {
     echo -e "${GREEN}✓ noVNC installed${NC}"
     echo ""
 
+    echo -e "${YELLOW}[3.5/5]${NC} Creating auraos user..."
+    multipass exec "$VM_NAME" -- sudo bash <<'USER_SETUP'
+if ! id -u auraos >/dev/null 2>&1; then
+    useradd -m -s /bin/bash auraos
+    usermod -aG sudo auraos
+    echo "auraos:auraos123" | chpasswd
+fi
+# Copy SSH keys from ubuntu user if they exist to allow passwordless SSH
+if [ -d /home/ubuntu/.ssh ]; then
+    mkdir -p /home/auraos/.ssh
+    cp -r /home/ubuntu/.ssh/authorized_keys /home/auraos/.ssh/authorized_keys 2>/dev/null || true
+    chown -R auraos:auraos /home/auraos/.ssh
+    chmod 700 /home/auraos/.ssh
+    chmod 600 /home/auraos/.ssh/authorized_keys
+fi
+USER_SETUP
+    echo -e "${GREEN}✓ User auraos created${NC}"
+    echo ""
+
     echo -e "${YELLOW}[4/5]${NC} Setting up VNC services..."
-    multipass exec "$VM_NAME" -- sudo bash << 'SERVICE_SETUP'
+# multipass SERVICE_SETUP: ensure AURAOS_USER is set inside remote environment
+    multipass exec "$VM_NAME" -- sudo bash <<'SERVICE_SETUP'
+AURAOS_USER='auraos'
 # Create x11vnc systemd service
-cat > /etc/systemd/system/auraos-x11vnc.service << 'EOF'
+cat > /etc/systemd/system/auraos-x11vnc.service <<EOF
 [Unit]
 Description=AuraOS x11vnc VNC Server
 After=network.target
@@ -599,7 +1015,7 @@ Type=simple
 User=${AURAOS_USER}
 Environment=DISPLAY=:99
 Environment=HOME=/home/${AURAOS_USER}
-ExecStartPre=/usr/bin/Xvfb :99 -screen 0 1280x720x24 -ac -nolisten tcp &
+ExecStartPre=/bin/sh -c 'Xvfb :99 -screen 0 1280x720x24 -ac -nolisten tcp >/tmp/xvfb.log 2>&1 & sleep 1'
 ExecStart=/usr/bin/x11vnc -display :99 -forever -shared -rfbauth /home/${AURAOS_USER}/.vnc/passwd -rfbport 5900
 Restart=on-failure
 RestartSec=5
@@ -609,7 +1025,7 @@ WantedBy=multi-user.target
 EOF
 
 # Create noVNC systemd service
-cat > /etc/systemd/system/auraos-novnc.service << 'EOF'
+cat > /etc/systemd/system/auraos-novnc.service <<EOF
 [Unit]
 Description=AuraOS noVNC web proxy
 After=network.target auraos-x11vnc.service
@@ -626,8 +1042,38 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 
+# Create XFCE startup script
+cat > /tmp/start-xfce4-session.sh <<XFCE_SCRIPT
+#!/bin/bash
+export DISPLAY=:99
+export HOME=/home/${AURAOS_USER}
+export XDG_RUNTIME_DIR=/run/user/1000
+exec xfce4-session
+XFCE_SCRIPT
+chmod +x /tmp/start-xfce4-session.sh
+
+# Create XFCE Desktop systemd service
+cat > /etc/systemd/system/auraos-desktop.service <<EOF
+[Unit]
+Description=AuraOS XFCE Desktop Environment
+After=auraos-x11vnc.service
+
+[Service]
+Type=simple
+User=${AURAOS_USER}
+Environment=DISPLAY=:99
+Environment=HOME=/home/${AURAOS_USER}
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+ExecStart=/tmp/start-xfce4-session.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
 # Create GUI agent service
-cat > /etc/systemd/system/auraos-gui-agent.service << 'EOF'
+cat > /etc/systemd/system/auraos-gui-agent.service <<EOF
 [Unit]
 Description=AuraOS GUI Automation Agent
 After=network.target auraos-x11vnc.service
@@ -637,8 +1083,9 @@ Type=simple
 User=${AURAOS_USER}
 Environment=DISPLAY=:99
 Environment=HOME=/home/${AURAOS_USER}
-WorkingDirectory=/home/${AURAOS_USER}
-ExecStart=/usr/bin/python3 /home/${AURAOS_USER}/gui_agent.py
+Environment=OLLAMA_URL=http://192.168.2.1:11434
+WorkingDirectory=/opt/auraos/gui_agent
+ExecStart=/opt/auraos/gui_agent/venv/bin/python /opt/auraos/gui_agent/agent.py
 Restart=on-failure
 RestartSec=5
 
@@ -652,38 +1099,53 @@ SERVICE_SETUP
     echo ""
 
     echo -e "${YELLOW}[5/7]${NC} Setting up VNC password and starting services..."
-    multipass exec "$VM_NAME" -- sudo bash << 'VNC_START'
-# Create VNC password
+# multipass VNC_START: ensure AURAOS_USER is set inside remote environment
+    multipass exec "$VM_NAME" -- sudo bash <<'VNC_START'
+AURAOS_USER='auraos'
+# Create VNC password BEFORE starting services
 mkdir -p /home/${AURAOS_USER}/.vnc
 rm -f /home/${AURAOS_USER}/.vnc/passwd
 
-expect << 'EXPECT_EOF'
-set timeout 5
-spawn x11vnc -storepasswd /home/${AURAOS_USER}/.vnc/passwd
-expect "Enter VNC password:"
-send "auraos123\r"
-expect "Verify password:"
-send "auraos123\r"
-expect "Write password"
-send "y\r"
-expect eof
-EXPECT_EOF
+# Use printf to avoid interactive prompts
+printf 'auraos123\nauraos123\ny\n' | x11vnc -storepasswd /home/${AURAOS_USER}/.vnc/passwd >/dev/null 2>&1 || true
 
+# Ensure correct permissions on password file
 chown -R ${AURAOS_USER}:${AURAOS_USER} /home/${AURAOS_USER}/.vnc
 chmod 600 /home/${AURAOS_USER}/.vnc/passwd
 
+# Verify password file exists before starting services
+if [ ! -f /home/${AURAOS_USER}/.vnc/passwd ]; then
+    echo "ERROR: VNC password file was not created" >&2
+    exit 1
+fi
+
 # Start services
-systemctl enable auraos-x11vnc.service auraos-novnc.service
+systemctl daemon-reload
+systemctl enable auraos-x11vnc.service auraos-desktop.service auraos-novnc.service auraos-gui-agent.service
 systemctl start auraos-x11vnc.service
 sleep 3
+systemctl start auraos-desktop.service
+sleep 2
 systemctl start auraos-novnc.service
+systemctl start auraos-gui-agent.service
 VNC_START
 
-    echo -e "${YELLOW}[6/7]${NC} Installing AuraOS applications (with error logging)..."
-    multipass exec "$VM_NAME" -- sudo bash << 'AURAOS_APPS'
+    echo -e "${YELLOW}[6/7]${NC} Installing AuraOS applications..."
+    
+    # Copy new dual-mode terminal and browser from local workspace
+    echo "Copying AuraOS Terminal (dual-mode) and Browser to VM..."
+    multipass transfer auraos_terminal.py "$VM_NAME:/tmp/auraos_terminal.py" 2>/dev/null || true
+    multipass transfer auraos_browser.py "$VM_NAME:/tmp/auraos_browser.py" 2>/dev/null || true
+    multipass transfer auraos_launcher.py "$VM_NAME:/tmp/auraos_launcher.py" 2>/dev/null || true
+    multipass transfer auraos_onboarding.py "$VM_NAME:/tmp/auraos_onboarding.py" 2>/dev/null || true
+    multipass transfer gui_agent.py "$VM_NAME:/tmp/gui_agent.py" 2>/dev/null || true
+    
+# multipass AURAOS_APPS: ensure AURAOS_USER is set inside remote environment
+    multipass exec "$VM_NAME" -- sudo bash <<'AURAOS_APPS'
+AURAOS_USER='auraos'
 # Install dependencies for AuraOS apps
-apt-get update -qq && apt-get install -y python3-tk python3-pip portaudio19-dev firefox >/dev/null 2>&1
-pip3 install speech_recognition pyaudio >/dev/null 2>&1
+apt-get update -qq && apt-get install -y python3-tk python3-pip portaudio19-dev firefox scrot >/dev/null 2>&1
+pip3 install speech_recognition pyaudio flask pyautogui pillow requests numpy >/dev/null 2>&1
 
 # Create AuraOS bin directory
 mkdir -p /opt/auraos/bin
@@ -694,7 +1156,45 @@ cat > /tmp/auraos_launcher.log << 'LOG_INIT'
 # Created at installation time
 LOG_INIT
 
+# Copy new applications if they were transferred
+if [ -f /tmp/auraos_terminal.py ]; then
+    cp /tmp/auraos_terminal.py /opt/auraos/bin/auraos_terminal.py
+    chmod +x /opt/auraos/bin/auraos_terminal.py
+fi
+
+if [ -f /tmp/auraos_browser.py ]; then
+    cp /tmp/auraos_browser.py /opt/auraos/bin/auraos_browser.py
+    chmod +x /opt/auraos/bin/auraos_browser.py
+fi
+
+if [ -f /tmp/auraos_launcher.py ]; then
+    cp /tmp/auraos_launcher.py /opt/auraos/bin/auraos_launcher.py
+    chmod +x /opt/auraos/bin/auraos_launcher.py
+fi
+
+if [ -f /tmp/auraos_onboarding.py ]; then
+    cp /tmp/auraos_onboarding.py /opt/auraos/bin/auraos_onboarding.py
+    chmod +x /opt/auraos/bin/auraos_onboarding.py
+fi
+
+# If gui agent was transferred, ensure it lands in /opt and create a venv with minimal deps
+if [ -f /tmp/gui_agent.py ]; then
+    mkdir -p /opt/auraos/gui_agent
+    mv /tmp/gui_agent.py /opt/auraos/gui_agent/agent.py
+    chown -R ${AURAOS_USER}:${AURAOS_USER} /opt/auraos/gui_agent
+    chmod +x /opt/auraos/gui_agent/agent.py
+    if [ ! -d /opt/auraos/gui_agent/venv ]; then
+        python3 -m venv /opt/auraos/gui_agent/venv
+        /opt/auraos/gui_agent/venv/bin/python3 -m pip install --upgrade pip setuptools >/dev/null 2>&1 || true
+    fi
+    /opt/auraos/gui_agent/venv/bin/python3 -m pip install flask pyautogui pillow requests numpy >/dev/null 2>&1 || true
+    systemctl daemon-reload
+    systemctl enable --now auraos-gui-agent.service || true
+fi
+
 # Install ChatGPT-style AuraOS Terminal with Hamburger Menu
+# Only install the built-in fallback if a transferred terminal was NOT copied
+if [ ! -f /opt/auraos/bin/auraos_terminal.py ]; then
 cat > /opt/auraos/bin/auraos_terminal.py << 'TERMINAL_EOF'
 #!/usr/bin/env python3
 """AuraOS Terminal - ChatGPT-Style AI Command Interface"""
@@ -704,6 +1204,8 @@ import subprocess
 import threading
 import sys
 import os
+import json
+import requests
 from datetime import datetime
 
 class AuraOSTerminal:
@@ -1030,62 +1532,36 @@ Press ☰ to hide
 
     def handle_ai_task(self, task_text):
         """Handle a natural-language task issued with the 'ai:' prefix.
-        This is a conservative implementation: it proposes commands and asks
-        for confirmation before running them.
-        GUI: uses a yes/no dialog. CLI: prompts for y/N.
+        Sends the request to the local Vision Agent (gui_agent).
         """
         self.log_event('AI_TASK', task_text)
         self.append_output(f"⟡ AI Task: {task_text}\n", 'info')
-        cmds, note = self.simple_plan(task_text)
-        self.append_output(f"Proposed actions:\n", 'info')
-        for c in cmds:
-            self.append_output(f"  $ {c}\n", 'output')
-        if note:
-            self.append_output(f"Note: {note}\n", 'info')
-
-        # Confirmation
-        run_now = False
+        self.append_output("⟳ Sending to Vision Agent...\n", 'info')
+        
         try:
-            # GUI path
-            if self.root:
-                msg = 'Run the proposed commands now? (They will run with the current user privileges)'
-                run_now = messagebox.askyesno('AI Task - Confirm', msg)
-        except Exception:
-            run_now = False
-
-        # CLI fallback: try reading from stdin
-        if not run_now:
-            try:
-                # In GUI this will be skipped; in CLI mode stdin is available
-                resp = input('Run proposed commands? (y/N): ').strip().lower()
-                run_now = (resp == 'y' or resp == 'yes')
-            except Exception:
-                run_now = False
-
-        if not run_now:
-            self.append_output('AI task aborted by user. No commands executed.\n', 'info')
-            return
-
-        # Execute commands sequentially
-        for c in cmds:
-            self.append_output(f'→ Executing: {c}\n', 'info')
-            self.log_event('AI_EXEC', c)
-            # run synchronously to preserve order
-            try:
-                res = subprocess.run(c, shell=True, capture_output=True, text=True, timeout=300, cwd=os.path.expanduser('~'))
-                if res.stdout:
-                    self.append_output(res.stdout, 'output')
-                if res.returncode != 0:
-                    if res.stderr:
-                        self.append_output(res.stderr, 'error')
-                    else:
-                        self.append_output(f'✗ Exit code: {res.returncode}\n', 'error')
-                else:
-                    self.append_output('✓ Completed\n', 'success')
-                self.log_event('AI_RESULT', f"cmd={c} exit={res.returncode}")
-            except Exception as e:
-                self.append_output(f'✗ Error running command: {e}\n', 'error')
-                self.log_event('AI_ERROR', str(e))
+            # Call the Vision Agent
+            response = requests.post(
+                "http://localhost:8765/ask",
+                json={"query": task_text},
+                timeout=120
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                executed = result.get("executed", [])
+                self.append_output(f"✓ Agent executed {len(executed)} actions.\n", "success")
+                for action in executed:
+                    act = action.get("action", {})
+                    self.append_output(f"  - {act}\n", "output")
+                self.log_event("AI_SUCCESS", task_text)
+            else:
+                self.append_output(f"✗ Agent Error: {response.text}\n", "error")
+                self.log_event("AI_ERROR", response.text)
+                
+        except Exception as e:
+            self.append_output(f"✗ Connection failed: {e}\n", "error")
+            self.append_output("  Is the GUI Agent running?\n", "warning")
+            self.log_event("AI_EXCEPTION", str(e))
     
      def show_help(self):
                      """Display help text"""
@@ -1182,8 +1658,10 @@ if __name__ == "__main__":
         app = AuraOSTerminal(root)
         root.mainloop()
 TERMINAL_EOF
+fi
 
-# Install Improved AuraOS Home Screen with Error Logging
+# Install fallback homescreen if not transferred
+if [ ! -f /opt/auraos/bin/auraos_homescreen.py ]; then
 cat > /opt/auraos/bin/auraos_homescreen.py << 'HOMESCREEN_EOF'
 #!/usr/bin/env python3
 """AuraOS Home Screen - Dashboard and Launcher with Error Logging"""
@@ -1392,40 +1870,103 @@ HOMESCREEN_EOF
 chmod +x /opt/auraos/bin/auraos_terminal.py
 chmod +x /opt/auraos/bin/auraos_homescreen.py
 chown -R ${AURAOS_USER}:${AURAOS_USER} /opt/auraos
+fi
 
 # Create/update command launchers
 cat > /usr/local/bin/auraos-terminal << 'TERM_LAUNCHER'
 #!/bin/bash
 cd /opt/auraos/bin
-exec python3 auraos_terminal.py "$@"
+exec python3 /opt/auraos/bin/auraos_terminal.py "$@"
 TERM_LAUNCHER
+
+cat > /usr/local/bin/auraos-browser << 'BROWSER_LAUNCHER'
+#!/bin/bash
+cd /opt/auraos/bin
+exec python3 auraos_browser.py "$@"
+BROWSER_LAUNCHER
 
 cat > /usr/local/bin/auraos-home << 'HOME_LAUNCHER'
 #!/bin/bash
 cd /opt/auraos/bin
-exec python3 auraos_homescreen.py
+exec python3 auraos_launcher.py
 HOME_LAUNCHER
 
 chmod +x /usr/local/bin/auraos-terminal
+chmod +x /usr/local/bin/auraos-browser
 chmod +x /usr/local/bin/auraos-home
 
 # Change terminal launcher to not use env var
 cat > /opt/auraos/bin/auraos-terminal << 'TERMINAL_SCRIPT'
 #!/bin/bash
-cd /opt/auraos/bin
-exec python3 auraos_terminal.py "$@"
+exec python3 /opt/auraos/bin/auraos_terminal.py "$@"
 TERMINAL_SCRIPT
 chmod +x /opt/auraos/bin/auraos-terminal
 
 echo "✓ AuraOS applications installed with error logging"
 AURAOS_APPS
 
+        # Install a lightweight VM-side automation shim so GUI apps inside the VM
+        # can call a minimal 'auraos.sh automate' subset without contacting the host.
+        echo -e "${YELLOW}[7/7]${NC} Installing VM-side automation shim..."
+        # Create shim scripts locally to avoid nested here-doc issues
+        cat > /tmp/auraos_shim_local.sh <<'SH'
+#!/usr/bin/env bash
+exec /usr/local/bin/auraos_vm_shim.sh "$@"
+SH
+        cat > /tmp/auraos_vm_shim_local.sh <<'SHIM2'
+#!/usr/bin/env bash
+# Simple VM-side automation shim
+set -e
+cmd="$1"; shift || true
+case "$cmd" in
+    automate)
+        request="$*"
+        if echo "$request" | grep -iq "open firefox"; then
+            nohup env DISPLAY=:99 firefox >/dev/null 2>&1 &
+            echo "Launched Firefox"
+            exit 0
+        fi
+        if echo "$request" | grep -iq "^find files:"; then
+            query=$(echo "$request" | sed -E 's/^find files:\s*//I')
+            q=$(printf "%s" "$query" | sed "s/'/'\\''/g")
+            bash -lc "find ~ -type f -iname '*$q*' 2>/dev/null | head -n 200"
+            exit 0
+        fi
+        if echo "$request" | grep -iq "^open url:"; then
+            url=$(echo "$request" | sed -E 's/^open url:\s*//I')
+            nohup env DISPLAY=:99 firefox "$url" >/dev/null 2>&1 &
+            echo "Opened $url"
+            exit 0
+        fi
+        echo "Unsupported request: $request" >&2
+        exit 2
+        ;;
+    *)
+        echo "Usage: $0 automate \"<request>\"" >&2
+        exit 1
+        ;;
+esac
+SHIM2
+
+        # Transfer and install
+        multipass transfer /tmp/auraos_shim_local.sh "$VM_NAME:/tmp/auraos.sh"
+        multipass transfer /tmp/auraos_vm_shim_local.sh "$VM_NAME:/tmp/auraos_vm_shim.sh"
+        multipass exec "$VM_NAME" -- sudo mv /tmp/auraos.sh /usr/local/bin/auraos.sh
+        multipass exec "$VM_NAME" -- sudo mv /tmp/auraos_vm_shim.sh /usr/local/bin/auraos_vm_shim.sh
+        multipass exec "$VM_NAME" -- sudo chmod +x /usr/local/bin/auraos.sh /usr/local/bin/auraos_vm_shim.sh || true
+        
+        # Cleanup local files
+        rm -f /tmp/auraos_shim_local.sh /tmp/auraos_vm_shim_local.sh
+        echo -e "${GREEN}✓ VM automation shim installed${NC}"
+        echo ""
+
     echo -e "${YELLOW}[7/7]${NC} Configuring AuraOS branding..."
-    multipass exec "$VM_NAME" -- sudo bash << 'BRANDING'
+# multipass BRANDING: ensure AURAOS_USER is set inside remote environment
+    multipass exec "$VM_NAME" -- sudo bash <<'BRANDING'
+AURAOS_USER='auraos'
 # Set hostname
 echo "auraos" > /etc/hostname
 sed -i 's/ubuntu-multipass/auraos/g' /etc/hosts
-sed -i 's/ubuntu/auraos/g' /etc/hosts
 
 # Configure desktop for ${AURAOS_USER} user
 sudo -u ${AURAOS_USER} bash << 'USER_CONFIG'
@@ -1456,23 +1997,25 @@ cat > ~/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-power-manager.xml << 'XML
 XML_EOF
 
 # Set AuraOS background
+# Download a cool AI/Tech wallpaper
+wget -q -O ~/.config/auraos_wallpaper.jpg "https://images.unsplash.com/photo-1620712943543-bcc4688e7485?q=80&w=1920&auto=format&fit=crop" || true
+
 cat > ~/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml << 'XML_EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <channel name="xfce4-desktop" version="1.0">
   <property name="backdrop" type="empty">
     <property name="screen0" type="empty">
-      <property name="monitorVNC-0" type="empty">
-        <property name="workspace0" type="empty">
-          <property name="color-style" type="int" value="0"/>
-          <property name="color1" type="array">
-            <value type="uint" value="4369"/>
-            <value type="uint" value="8738"/>
-            <value type="uint" value="13107"/>
-            <value type="uint" value="65535"/>
-          </property>
-          <property name="image-style" type="int" value="5"/>
-        </property>
+      <property name="monitor0" type="empty">
+        <property name="image-path" type="string" value="/home/auraos/.config/auraos_wallpaper.jpg"/>
+        <property name="image-style" type="int" value="5"/>
       </property>
+    </property>
+  </property>
+  <property name="desktop-icons" type="empty">
+    <property name="file-icons" type="empty">
+      <property name="show-home" type="bool" value="true"/>
+      <property name="show-filesystem" type="bool" value="false"/>
+      <property name="show-trash" type="bool" value="true"/>
     </property>
   </property>
 </channel>
@@ -1488,7 +2031,20 @@ Exec=auraos-home
 Hidden=false
 NoDisplay=false
 X-GNOME-Autostart-enabled=true
-X-GNOME-Autostart-Delay=2
+X-GNOME-Autostart-Delay=5
+DESKTOP_EOF
+
+# Create autostart for onboarding
+cat > ~/.config/autostart/auraos-onboarding.desktop << 'DESKTOP_EOF'
+[Desktop Entry]
+Type=Application
+Name=AuraOS Onboarding
+Comment=AuraOS Startup Experience
+Exec=/opt/auraos/bin/auraos_onboarding.py
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=1
 DESKTOP_EOF
 
 # Create desktop shortcuts
@@ -1497,11 +2053,23 @@ cat > ~/Desktop/AuraOS_Terminal.desktop << 'DESKTOP_EOF'
 Version=1.0
 Type=Application
 Name=AuraOS Terminal
-Comment=AI-Powered Terminal
+Comment=AI-Powered Dual-Mode Terminal
 Exec=auraos-terminal
 Icon=utilities-terminal
 Terminal=false
-Categories=System;TerminalEmulator;
+Categories=System;Development;
+DESKTOP_EOF
+
+cat > ~/Desktop/AuraOS_Browser.desktop << 'DESKTOP_EOF'
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=AuraOS Browser
+Comment=AI-Powered Web Search Browser
+Exec=auraos-browser
+Icon=web-browser
+Terminal=false
+Categories=Internet;
 DESKTOP_EOF
 
 cat > ~/Desktop/AuraOS_Home.desktop << 'DESKTOP_EOF'
@@ -1522,6 +2090,26 @@ USER_CONFIG
 
 echo "✓ AuraOS branding configured"
 BRANDING
+
+    # Additional safety: ensure xfce4-screensaver cannot lock the session.
+    # Remove per-user autostart, kill any running screensaver processes, and
+    # remove the package if present. These are non-fatal operations.
+    multipass exec "$VM_NAME" -- sudo bash -c '
+        # remove system autostart for xfce4-screensaver (if exists)
+        rm -f /etc/xdg/autostart/xfce4-screensaver.desktop || true
+
+        # remove per-user autostart for the auraos user
+        if [ -d "/home/${AURAOS_USER}/.config/autostart" ]; then
+            rm -f /home/${AURAOS_USER}/.config/autostart/xfce4-screensaver.desktop || true
+            chown -R ${AURAOS_USER}:${AURAOS_USER} /home/${AURAOS_USER}/.config || true
+        fi
+
+        # Kill any running screensaver processes
+        pkill -f xfce4-screensaver || true
+
+        # Try removing the xfce4-screensaver package to avoid re-enabling locks
+        DEBIAN_FRONTEND=noninteractive apt-get remove -y xfce4-screensaver >/dev/null 2>&1 || true
+    '
 
     # Set up port forwarding
     VM_IP=$(multipass info "$VM_NAME" | grep IPv4 | awk '{print $2}')
@@ -1564,9 +2152,12 @@ BRANDING
     echo -e "  Browser: ${BLUE}http://localhost:6080/vnc.html${NC}"
     echo -e "  Password: ${BLUE}auraos123${NC}"
     echo ""
+    echo -e "${YELLOW}Starting port forwarding...${NC}"
+    cmd_forward start
+    echo ""
     echo -e "${YELLOW}Commands:${NC}"
-    echo -e "  ${BLUE}./auraos.sh health${NC}        - System health check"
-    echo -e "  ${BLUE}./auraos.sh forward start${NC} - Start port forwarders"
+    echo -e "  ${BLUE}./auraos.sh health${NC}    - System health check"
+    echo -e "  ${BLUE}./auraos.sh status${NC}    - Quick status"
     echo ""
 }
 
@@ -1661,191 +2252,98 @@ PY
     fi
 }
 
-cmd_setup_v2() {
-    echo -e "${BLUE}╔════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║   AuraOS v2 Setup - Architecture Improvements             ║${NC}"
-    echo -e "${BLUE}║   Fast delta detection + local planner + WebSocket I/O    ║${NC}"
-    echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
-    echo ""
-
-    REPO_ROOT="$SCRIPT_DIR"
-    LOG_FILE="$REPO_ROOT/logs/v2_setup.log"
-    mkdir -p "$REPO_ROOT/logs"
-
-    log_v2() {
-        echo "[$(date -u +%H:%M:%S)] $@" | tee -a "$LOG_FILE"
-    }
-
-    log_v2_success() {
-        echo -e "${GREEN}✅ $@${NC}" | tee -a "$LOG_FILE"
-    }
-
-    log_v2_error() {
-        echo -e "${RED}❌ $@${NC}" | tee -a "$LOG_FILE"
-    }
-
-    log_v2 "===== AuraOS v2 Setup ====="
-
-    # Check 1: Verify dependencies
-    log_v2 "\n[1/5] Checking dependencies..."
-    
-    check_cmd() {
-        if command -v "$1" >/dev/null 2>&1; then
-            log_v2 "  ✓ $1 found"
-            return 0
-        else
-            log_v2 "  ✗ $1 NOT found"
-            return 1
-        fi
-    }
-
-    all_ok=true
-    check_cmd "python3" || all_ok=false
-    check_cmd "ollama" || all_ok=false
-    check_cmd "multipass" || all_ok=false
-
-    if [ "$all_ok" = false ]; then
-        log_v2_error "Missing required tools. Install: brew install python3 ollama multipass"
-        exit 1
-    fi
-
-    log_v2_success "All host dependencies present"
-
-    # Check 2: Ensure models are available
-    log_v2 "\n[2/5] Checking Ollama models..."
-
-    if ! curl -s http://localhost:11434/api/tags >/dev/null 2>&1; then
-        log_v2_error "Ollama not running. Start with: ollama serve"
-        exit 1
-    fi
-
-    # Pull models if not present
-    if ! ollama list 2>/dev/null | grep -q mistral; then
-        log_v2 "Pulling mistral model (for local planning)..."
-        ollama pull mistral &
-        log_v2 "Background pull started — may take a few minutes"
-    else
-        log_v2 "  ✓ mistral model available"
-    fi
-
-    if ! ollama list 2>/dev/null | grep -q llava; then
-        log_v2 "Pulling llava:13b model (for vision, on-demand)..."
-        ollama pull llava:13b &
-        log_v2 "Background pull started — may take several minutes"
-    else
-        log_v2 "  ✓ llava:13b model available"
-    fi
-
-    log_v2_success "Ollama models configured"
-
-    # Check 3: Install Python dependencies
-    log_v2 "\n[3/5] Installing Python dependencies..."
-
+cmd_inference() {
     activate_venv
-
-    if [ -d "$REPO_ROOT/auraos_daemon/venv" ]; then
-        log_v2 "Activating venv..."
-        source "$REPO_ROOT/auraos_daemon/venv/bin/activate"
-    fi
-
-    pip_cmd="python3 -m pip"
-    $pip_cmd install --upgrade pip setuptools wheel >/dev/null 2>&1 || true
-
-    # Install v2 dependencies
-    deps="pillow numpy websockets websocket-client pytesseract"
-    for dep in $deps; do
-        log_v2 "  Installing $dep..."
-        $pip_cmd install "$dep" >/dev/null 2>&1 || true
-    done
-
-    log_v2_success "Python dependencies installed"
-
-    # Check 4: Setup host tools
-    log_v2 "\n[4/5] Setting up host tools..."
-
-    mkdir -p "$REPO_ROOT/tools"
-
-    # Copy and make executable
-    for script in vm_wake_check.sh install_ws_agent.sh; do
-        if [ -f "$REPO_ROOT/tools/$script" ]; then
-            chmod +x "$REPO_ROOT/tools/$script"
-            log_v2 "  ✓ $script ready"
-        fi
-    done
-
-    # Setup launchd on macOS
-    if [ "$(uname -s)" = "Darwin" ]; then
-        log_v2 "Setting up macOS wake-check LaunchAgent..."
-        
-        PLIST="$HOME/Library/LaunchAgents/com.auraos.vm-wake-check.plist"
-        if [ ! -f "$PLIST" ]; then
-            mkdir -p "$(dirname "$PLIST")"
-            cp "$REPO_ROOT/tools/com.auraos.vm-wake-check.plist" "$PLIST"
+    
+    case "$1" in
+        start)
+            echo -e "${GREEN}Starting inference server...${NC}"
+            cd "$SCRIPT_DIR/auraos_daemon"
+            nohup python inference_server.py > /tmp/auraos_inference_server.log 2>&1 &
+            INFERENCE_PID=$!
+            echo $INFERENCE_PID > /tmp/auraos_inference_server.pid
+            echo -e "${GREEN}✓ Inference server started (PID: $INFERENCE_PID)${NC}"
+            echo -e "${YELLOW}  Logs: tail -f /tmp/auraos_inference_server.log${NC}"
+            sleep 2
             
-            # Update REPO_ROOT in plist
-            sed -i '' "s|HOME/GitHub/ai-os|$(echo "$REPO_ROOT" | sed 's|/|\\\/|g')|g" "$PLIST"
+            # Verify it's running
+            if curl -s http://localhost:8081/health > /dev/null 2>&1; then
+                echo -e "${GREEN}✓ Inference server is responding on localhost:8081${NC}"
+                curl -s http://localhost:8081/models | python3 -m json.tool 2>/dev/null || echo "  (couldn't parse models response)"
+            else
+                echo -e "${YELLOW}⚠ Inference server not yet responding (may still be initializing)${NC}"
+                echo -e "${YELLOW}  Check logs: tail -f /tmp/auraos_inference_server.log${NC}"
+            fi
+            ;;
+        stop)
+            echo -e "${GREEN}Stopping inference server...${NC}"
+            if [ -f /tmp/auraos_inference_server.pid ]; then
+                INFERENCE_PID=$(cat /tmp/auraos_inference_server.pid)
+                if kill $INFERENCE_PID 2>/dev/null; then
+                    echo -e "${GREEN}✓ Inference server stopped${NC}"
+                    rm -f /tmp/auraos_inference_server.pid
+                else
+                    echo -e "${RED}✗ Could not stop inference server (PID: $INFERENCE_PID)${NC}"
+                fi
+            else
+                # Try to kill by name
+                pkill -f "python.*inference_server" && echo -e "${GREEN}✓ Inference server stopped${NC}" || echo -e "${YELLOW}⚠ No running inference server found${NC}"
+            fi
+            ;;
+        status)
+            echo -e "${BLUE}Inference Server Status:${NC}"
+            if [ -f /tmp/auraos_inference_server.pid ]; then
+                INFERENCE_PID=$(cat /tmp/auraos_inference_server.pid)
+                if ps -p $INFERENCE_PID > /dev/null 2>&1; then
+                    echo -e "${GREEN}✓ Running (PID: $INFERENCE_PID)${NC}"
+                else
+                    echo -e "${RED}✗ Not running (stale PID file)${NC}"
+                    rm -f /tmp/auraos_inference_server.pid
+                fi
+            else
+                if pgrep -f "python.*inference_server" > /dev/null; then
+                    echo -e "${GREEN}✓ Running (no PID file)${NC}"
+                else
+                    echo -e "${RED}✗ Not running${NC}"
+                fi
+            fi
             
-            launchctl load "$PLIST" 2>/dev/null || true
-            log_v2 "  ✓ LaunchAgent loaded"
-        else
-            log_v2 "  ℹ LaunchAgent already installed"
-        fi
-    fi
-
-    log_v2_success "Host tools configured"
-
-    # Check 5: Verify VM setup
-    log_v2 "\n[5/5] Verifying VM setup..."
-
-    if multipass list 2>/dev/null | grep -q "auraos-multipass\|Running"; then
-        log_v2 "  ✓ VM is running"
-        
-        # Check for WebSocket agent in VM
-        if multipass exec auraos-multipass -- systemctl is-active auraos-ws-agent >/dev/null 2>&1; then
-            log_v2 "  ✓ WebSocket agent service active"
-        else
-            log_v2 "  ℹ WebSocket agent not yet installed (will be added on next vm-setup)"
-        fi
-    else
-        log_v2 "  ℹ No running VM detected"
-        log_v2 "  To set up: ./auraos.sh vm-setup"
-    fi
-
-    log_v2_success "VM verification complete"
-
-    # Summary
-    echo ""
-    echo -e "${BLUE}╔════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}✓ AuraOS v2 Setup Complete! 🚀${NC}"
-    echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
-    echo ""
-    echo -e "${YELLOW}Key Improvements Installed:${NC}"
-    echo -e "  ${GREEN}✓${NC} Delta screenshot detection (5-10x less bandwidth)"
-    echo -e "  ${GREEN}✓${NC} Local Mistral planner (10-15x faster reasoning)"
-    echo -e "  ${GREEN}✓${NC} WebSocket agent (50-100ms latency)"
-    echo -e "  ${GREEN}✓${NC} VM wake resilience (auto-recovery)"
-    echo ""
-    echo -e "${YELLOW}Expected Performance:${NC}"
-    echo -e "  ${BLUE}MVP (v1):${NC}       5-10 seconds per action"
-    echo -e "  ${BLUE}v2 (optimized):${NC} 500ms-1.2 seconds per action"
-    echo ""
-    echo -e "${YELLOW}Next Steps:${NC}"
-    echo -e "  1. Test components:"
-    echo -e "     ${BLUE}python3 tools/demo_v2_architecture.py${NC}"
-    echo -e ""
-    echo -e "  2. Read documentation:"
-    echo -e "     ${BLUE}cat ARCHITECTURE_V2.md${NC}"
-    echo ""
-    echo -e "  3. Run VM wake-check (macOS):"
-    echo -e "     ${BLUE}bash tools/vm_wake_check.sh${NC}"
-    echo ""
-    echo -e "${YELLOW}Documentation:${NC}"
-    echo -e "  - ARCHITECTURE_V2.md      Full technical reference"
-    echo -e "  - V2_INTEGRATION_GUIDE.md Step-by-step integration"
-    echo -e "  - QUICK_COMMANDS.md       Command reference"
-    echo ""
-    echo -e "${YELLOW}Logs saved to:${NC} ${BLUE}$LOG_FILE${NC}"
-    echo ""
+            # Check if responding
+            echo ""
+            echo -e "${BLUE}Health Check:${NC}"
+            if curl -s http://localhost:8081/health > /dev/null 2>&1; then
+                echo -e "${GREEN}✓ Responding on localhost:8081${NC}"
+                HEALTH=$(curl -s http://localhost:8081/health)
+                echo "$HEALTH" | python3 -m json.tool 2>/dev/null || echo "$HEALTH"
+            else
+                echo -e "${RED}✗ Not responding on localhost:8081${NC}"
+            fi
+            ;;
+        logs)
+            echo -e "${BLUE}Inference Server Logs:${NC}"
+            if [ -f /tmp/auraos_inference_server.log ]; then
+                tail -f /tmp/auraos_inference_server.log
+            else
+                echo -e "${YELLOW}No log file found${NC}"
+            fi
+            ;;
+        restart)
+            echo -e "${GREEN}Restarting inference server...${NC}"
+            cmd_inference stop
+            sleep 1
+            cmd_inference start
+            ;;
+        *)
+            echo -e "${YELLOW}Usage: $0 inference <start|stop|status|logs|restart>${NC}"
+            echo ""
+            echo -e "  ${BLUE}start${NC}   - Start the inference server (auto-detects Ollama or Transformers)"
+            echo -e "  ${BLUE}stop${NC}    - Stop the inference server"
+            echo -e "  ${BLUE}status${NC}  - Check if inference server is running and responding"
+            echo -e "  ${BLUE}logs${NC}    - Show real-time inference server logs"
+            echo -e "  ${BLUE}restart${NC} - Restart the inference server"
+            exit 1
+            ;;
+    esac
 }
 
 cmd_help() {
@@ -1855,45 +2353,31 @@ cmd_help() {
     echo ""
     echo "Commands:"
     echo "  install            - Install all dependencies (Homebrew, Multipass, Ollama, Python)"
-    echo "  setup-v2           - Install v2 improvements (delta detection, planner, WebSocket)"
-    echo "  vm-setup           - Create and configure Ubuntu VM with GUI"
+    echo "  vm-setup           - Create Ubuntu VM with AI terminal, desktop, and full stack"
     echo "  status             - Show VM and service status"
     echo "  health             - Run comprehensive system health check"
+    echo "  inference          - Manage AI inference server: start|stop|status|logs|restart"
     echo "  gui-reset          - Complete clean restart of VNC/noVNC services"
+    echo "  agent-ensure       - Ensure gui agent is installed, venv created and service enabled"
+    echo "  agent-logs         - Show GUI agent logs (journalctl)"
     echo "  forward            - Manage port forwarders: forward <start|stop|status>"
     echo "  screenshot         - Capture current VM screen"
     echo "  automate \"<task>\" - Run AI-powered automation task"
+    echo "  keys onboard       - Interactive API key onboarding (openrouter/openai/huggingface/other)"
     echo "  keys list          - List configured API keys"
     echo "  keys add           - Add API key: keys add <provider> <key>"
     echo "  keys ollama        - Configure Ollama models"
+    echo "  disable-screensaver - Disable VM screensaver/lock (usage: disable-screensaver [vm-name] [user])"
     echo "  logs               - Show GUI agent logs"
     echo "  restart            - Restart all VM services"
     echo "  help               - Show this help"
     echo ""
-    echo "Examples:"
-    echo "  $0 install                                   # First-time setup"
-    echo "  $0 vm-setup                                  # Create Ubuntu VM"
-    echo "  $0 health                                    # Check all systems"
-    echo "  $0 gui-reset                                 # Reset VNC/noVNC from scratch"
-    echo "  $0 screenshot                                # Capture desktop"
-    echo "  $0 automate \"click on file manager\"        # AI automation"
-    echo "  $0 keys ollama llava:13b llava:13b          # Configure vision model"
+    echo "Quick Start (3 commands):"
+    echo "  1. ./auraos.sh install       # Install all dependencies"
+    echo "  2. ./auraos.sh vm-setup      # Create VM with everything"
+    echo "  3. ./auraos.sh health        # Verify all systems"
     echo ""
-    echo "Examples:"
-    echo "  $0 install                                   # First-time setup"
-    echo "  $0 vm-setup                                  # Create Ubuntu VM"
-    echo "  $0 health                                    # Check all systems"
-    echo "  $0 forward start                             # Start port forwarders"
-    echo "  $0 gui-reset                                 # Reset VNC/noVNC from scratch"
-    echo "  $0 screenshot                                # Capture desktop"
-    echo "  $0 automate \"click on file manager\"        # AI automation"
-    echo "  $0 keys ollama llava:13b llava:13b          # Configure vision model"
-    echo ""
-    echo "Quick Start:"
-    echo "  1. ./auraos.sh install     # Install everything"
-    echo "  2. ./auraos.sh vm-setup    # Create Ubuntu VM with GUI"
-    echo "  3. ./auraos.sh health      # Verify all systems working"
-    echo "  4. Open http://localhost:6080/vnc.html (password: auraos123)"
+    echo "Then open: http://localhost:6080/vnc.html (password: auraos123)"
     echo ""
 }
 
@@ -1901,9 +2385,6 @@ cmd_help() {
 case "$1" in
     install)
         cmd_install
-        ;;
-    setup-v2)
-        cmd_setup_v2
         ;;
     vm-setup)
         cmd_vm_setup
@@ -1918,15 +2399,30 @@ case "$1" in
     health)
         cmd_health
         ;;
+    inference)
+        shift
+        cmd_inference "$@"
+        ;;
     gui-reset)
         cmd_gui_reset
+        ;;
+    disable-screensaver)
+        shift
+        cmd_disable_screensaver "$@"
         ;;
     screenshot)
         cmd_screenshot
         ;;
     keys)
         shift
-        cmd_keys "$@"
+        if [ "$1" == "onboard" ]; then
+            cmd_keys_onboard
+        else
+            cmd_keys "$@"
+        fi
+        ;;
+    onboard)
+        cmd_keys_onboard
         ;;
     automate)
         shift
@@ -1934,6 +2430,12 @@ case "$1" in
         ;;
     logs)
         cmd_logs
+        ;;
+    agent-ensure)
+        cmd_agent_ensure
+        ;;
+    agent-logs)
+        cmd_agent_logs
         ;;
     restart)
         cmd_restart

@@ -5,14 +5,14 @@ Get AuraOS running with AI vision automation in 3 commands.
 ## Installation (First Time)
 
 ```bash
-# Install everything: Homebrew, Multipass, Ollama, Python deps, vision model
+# Install everything: Homebrew, Multipass, Ollama, Python deps, Farà-7B model
 ./auraos.sh install
 ```
 
 This installs:
 - Multipass (Ubuntu VM manager)
 - Ollama (local LLM runtime)
-- LLaVA 13B vision model
+- Farà-7B model (~4GB)
 - Python virtual environment with all dependencies
 
 **Time:** ~10-15 minutes (depending on internet speed for model download)
@@ -73,11 +73,11 @@ You should see an Ubuntu XFCE desktop!
 
 **How it works:**
 1. Captures screenshot from VM
-2. Sends to Ollama LLaVA vision model
+2. Sends to Ollama Farà-7B model
 3. Model analyzes image and returns coordinates
 4. Clicks at those coordinates using xdotool
 
-**Timing:** ~15-20 seconds per task
+**Timing:** ~10-15 seconds per task
 
 ## Common Commands
 

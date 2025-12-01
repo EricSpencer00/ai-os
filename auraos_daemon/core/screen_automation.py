@@ -19,17 +19,20 @@ from core.key_manager import KeyManager
 
 
 class ScreenAutomation:
-    """AI-powered screen automation using vision models"""
+    """AI-powered screen automation using vision models (via local inference server)"""
     
     def __init__(self, agent_url: str = "http://localhost:8765", 
-                 api_key: Optional[str] = None):
+                 api_key: Optional[str] = None,
+                 inference_url: str = "http://localhost:8081"):
         """Initialize screen automation
         
         Args:
             agent_url: URL of the GUI agent running in the VM
             api_key: API key for the agent (default: from KeyManager)
+            inference_url: URL of the local inference server
         """
         self.agent_url = agent_url.rstrip('/')
+        self.inference_url = inference_url.rstrip('/')
         self.km = KeyManager()
         self.api_key = api_key or self.km.get_key("agent") or "auraos_dev_key"
         
@@ -39,7 +42,7 @@ class ScreenAutomation:
         self._configure_vision()
     
     def _configure_vision(self):
-        """Configure vision model (GPT-4V, Claude-3, or Ollama LLaVA)"""
+        """Configure vision model (GPT-4V, Claude-3, or local inference server with llava:13b or Fara-7B)"""
         # Try OpenAI GPT-4V first
         openai_key = self.km.get_key("openai")
         if openai_key:
@@ -54,14 +57,10 @@ class ScreenAutomation:
             self.vision_api_key = anthropic_key
             return
         
-        # Fallback to local Ollama with LLaVA
-        ollama_config = self.km.get_ollama_config()
-        if ollama_config:
-            self.vision_provider = "ollama"
-            self.vision_api_key = None  # Local, no key needed
-            return
-        
-        print("Warning: No vision model configured. Add OpenAI, Anthropic, or enable Ollama.")
+        # Fallback to local inference server (supports both llava:13b and Fara-7B)
+        self.vision_provider = "local_inference"
+        self.vision_api_key = None  # Local, no key needed
+        return
     
     def _extract_element_hints(self, task: str) -> str:
         """Extract search hints from task description"""
@@ -148,7 +147,7 @@ class ScreenAutomation:
             return self._analyze_with_openai(image_data, task)
         elif self.vision_provider == "anthropic":
             return self._analyze_with_anthropic(image_data, task)
-        elif self.vision_provider == "ollama":
+        elif self.vision_provider in ("ollama", "local_inference"):
             return self._analyze_with_ollama(screenshot_path, task)
         
         return None
@@ -262,135 +261,63 @@ Analyze the screenshot and provide the X,Y coordinates to click. Respond ONLY wi
             return None
     
     def _analyze_with_ollama(self, screenshot_path: str, task: str) -> Optional[Dict]:
-        """Analyze with local Ollama LLaVA - using chat API with image support"""
-        ollama_config = self.km.get_ollama_config()
-        base_url = ollama_config.get("base_url", "http://localhost:11434")
-        model = ollama_config.get("vision_model", "llava:13b")
-        
-        # Read and base64 encode the image for Ollama
+        """Analyze with local inference server (supports both Ollama and Transformers backends)"""
+        # Read and base64 encode the image
         with open(screenshot_path, 'rb') as f:
             image_b64 = base64.b64encode(f.read()).decode('utf-8')
         
-        # Parse the task to understand what element to find
-        task_lower = task.lower()
+        # Extract element hints for better context
         element_hints = self._extract_element_hints(task)
         
-        # Two-stage analysis: First get description, then extract coordinates
-        
-        # Stage 1: Get a detailed description of UI elements
-        description_prompt = f"""Analyze this desktop screenshot. List all UI elements you can see:
-- Icons on the left sidebar
-- Buttons in the taskbar
-- Window titles
-- Menu items
-- Text labels
+        # Prepare the vision task prompt
+        vision_prompt = f"""You are analyzing a desktop screenshot to help automate a task.
 
-Be specific about the location (top-left, top-right, center, bottom, etc.) of each element.
-Also note the approximate pixel coordinates for major elements if you can estimate them."""
-
-        try:
-            # Get description
-            response = requests.post(
-                f"{base_url}/api/chat",
-                json={
-                    "model": model,
-                    "messages": [
-                        {
-                            "role": "user",
-                            "content": description_prompt,
-                            "images": [image_b64]
-                        }
-                    ],
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.2,
-                        "num_predict": 300
-                    }
-                },
-                timeout=90
-            )
-            
-            description = ""
-            if response.status_code == 200:
-                result = response.json()
-                description = result.get("message", {}).get("content", "").strip()
-                print(f"📋 Element descriptions: {description[:200]}...")
-            
-            # Stage 2: Now ask for specific coordinates based on the description
-            coordinate_prompt = f"""Based on your analysis of the screenshot, you need to: {task}
-
+Task: {task}
 Looking for: {element_hints}
 
-From your previous analysis of the screenshot, where should I click?
-
-Respond with ONLY this JSON format:
-{{"action": "click", "x": <number>, "y": <number>, "confidence": <0.0-1.0>, "explanation": "<brief description>"}}
-
-Important: Use actual estimated pixel coordinates based on what you see, not defaults!
-The screen is typically 1280x720 pixels.
+Analyze the screenshot and identify the exact X,Y coordinates to click to complete this task.
+The screen is typically 1280x720 pixels:
 - Top-left corner is (0, 0)
 - Center is around (640, 360)
-- Icons on the left sidebar are typically at x: 50-100
+- Left sidebar icons are typically at x: 50-100
 - Taskbar items are at the bottom
 
-RESPOND WITH ONLY JSON."""
+Respond with ONLY valid JSON in this exact format:
+{{"action": "click", "x": <number>, "y": <number>, "confidence": <0.0-1.0>, "explanation": "<brief description>"}}
 
-            # Get coordinates
+If the task cannot be completed, respond with:
+{{"action": "none", "confidence": 0.0, "explanation": "Cannot find the required element"}}"""
+
+        try:
+            # Call the unified inference server /ask endpoint
             response = requests.post(
-                f"{base_url}/api/chat",
+                f"{self.inference_url}/ask",
                 json={
-                    "model": model,
-                    "messages": [
-                        {
-                            "role": "user",
-                            "content": coordinate_prompt,
-                            "images": [image_b64]
-                        }
-                    ],
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.1,
-                        "top_k": 10,
-                        "top_p": 0.9,
-                        "num_predict": 150
-                    }
+                    "prompt": vision_prompt,
+                    "image": image_b64
                 },
-                timeout=90
+                timeout=180
             )
             
             if response.status_code == 200:
                 result = response.json()
-                content = result.get("message", {}).get("content", "").strip()
                 
-                # Debug output
-                if content:
-                    print(f"🔍 Ollama response: {content[:200]}...")
-                
-                # Extract JSON from response
-                parsed = self._parse_response_json(content)
-                if parsed:
-                    return parsed
+                # The /ask endpoint returns parsed JSON directly
+                if "action" in result:
+                    print(f"🔍 Inference response: action={result.get('action')}, "
+                          f"x={result.get('x')}, y={result.get('y')}, "
+                          f"confidence={result.get('confidence', 0.0)}")
+                    return result
                 else:
-                    print("⚠ No valid JSON found in Ollama response")
-                    print(f"  Raw response: {content[:400]}")
-                    # Return a default fallback
-                    return {
-                        "action": "click",
-                        "x": 70,  # Left sidebar icons are typically here
-                        "y": 70,
-                        "confidence": 0.3,
-                        "explanation": "Fallback: guessing left sidebar icon"
-                    }
+                    print(f"⚠ Unexpected response format: {result}")
+                    return None
             else:
-                print(f"❌ Ollama API error: {response.status_code}")
+                print(f"❌ Inference server error: {response.status_code}")
                 if response.text:
                     print(f"   {response.text[:200]}")
                 return None
-        except json.JSONDecodeError as e:
-            print(f"❌ JSON parse error: {e}")
-            return None
         except Exception as e:
-            print(f"❌ Error calling Ollama: {e}")
+            print(f"❌ Error calling inference server at {self.inference_url}: {e}")
             return None
     
     def _parse_response_json(self, content: str) -> Optional[Dict]:

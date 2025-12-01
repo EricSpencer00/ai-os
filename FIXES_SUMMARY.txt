@@ -1,0 +1,60 @@
+# Quick Fix Reference
+
+## Problem
+x11vnc service failing: `Fatal server error: Unrecognized option: &`
+
+## Root Cause
+Systemd doesn't support shell operators like `&` in ExecStartPre
+
+## Solution
+Wrap command in bash shell:
+```bash
+ExecStartPre=/bin/bash -c 'Xvfb :99 -screen 0 1280x720x24 -ac -nolisten tcp &'
+```
+
+## File Changed
+- `auraos.sh` Line 662
+
+## Verification
+```bash
+# Check service status
+multipass exec auraos-multipass -- systemctl status auraos-x11vnc.service
+
+# Should show: Active: active (running)
+```
+
+## Access Point
+- Web: http://localhost:6080/vnc.html
+- Password: auraos123
+- Direct VNC: localhost:5900
+
+---
+
+# Setup Simplification Summary
+
+## Before (Confusing)
+```
+./auraos.sh install       # Install deps
+./auraos.sh vm-setup      # Basic VM
+./auraos.sh setup-v2      # Optional improvements?
+./auraos.sh setup-terminal # When needed?
+./auraos.sh health        # Verify
+```
+
+## After (Simple)
+```
+./auraos.sh install       # Install deps
+./auraos.sh vm-setup      # Everything included
+./auraos.sh health        # Verify
+```
+
+## What Changed
+- Merged 3 setup functions into 1
+- Removed ~250 lines of duplicate code
+- Updated help text
+- Deleted old terminal files
+
+## Result
+✅ Simpler user experience  
+✅ All features included by default  
+✅ No confusion about which commands to run

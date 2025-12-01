@@ -192,13 +192,13 @@ class KeyManager:
         }
     
     def enable_ollama(self, base_url: str = "http://localhost:11434", 
-                      model: str = "llava:13b", vision_model: str = "llava:13b"):
-        """Enable local Ollama as AI backend
+                      model: str = "fara-7b", vision_model: str = "fara-7b"):
+        """Enable local Ollama as AI backend with Farà-7B
         
         Args:
             base_url: Ollama server URL
-            model: Default LLM model
-            vision_model: Vision/image analysis model (for screenshots)
+            model: Default LLM model (fara-7b recommended)
+            vision_model: Vision/image analysis model (fara-7b recommended)
         """
         self.keys["providers"]["ollama"] = {
             "keys": [{"key": "local", "added": datetime.now().isoformat()}],
@@ -211,7 +211,7 @@ class KeyManager:
             }
         }
         self._save_keys()
-        print(f"✓ Enabled local Ollama (vision_model: {vision_model})")
+        print(f"✓ Enabled local Ollama with Farà-7B (model: {model}, vision_model: {vision_model})")
     
     def get_ollama_config(self) -> Optional[Dict]:
         """Get Ollama configuration if enabled"""

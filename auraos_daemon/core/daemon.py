@@ -11,6 +11,7 @@ from core.ability_tree import AbilityTree
 from core.dependency_checker import check_and_install_dependencies
 from core.logger import init_logger
 from core.output_validator import OutputValidator
+from core import llm_router
 
 class AuraOSDaemon:
     def __init__(self):
@@ -25,6 +26,13 @@ class AuraOSDaemon:
         self.app = Flask(__name__)
         self.plugin_manager = PluginManager(self.config)
         self.decision_engine = DecisionEngine(self.plugin_manager)
+        # Initialize a shared LLM router and expose it via the daemon for plugins
+        try:
+            self.llm_router = llm_router.get_router()
+            logging.info(f"LLM Router initialized: {self.llm_router is not None}")
+        except Exception as e:
+            logging.warning(f"Could not initialize LLM Router: {e}")
+
         self.self_improvement = SelfImprovement(self)
         self.ability_tree = self.self_improvement.ability_tree
         self.output_validator = OutputValidator(self.config)
@@ -81,6 +89,28 @@ class AuraOSDaemon:
             
             validation = self.output_validator.validate_output(intent, script, output, error)
             return jsonify(validation), 200
+
+        @self.app.route("/health", methods=["GET"]) 
+        def health():
+            """Return health status including LLM router status and plugin summary."""
+            status = {
+                "service": "auraos-daemon",
+                "status": "ok",
+            }
+            try:
+                if hasattr(self, 'llm_router') and self.llm_router:
+                    status['llm'] = self.llm_router.get_status()
+                else:
+                    status['llm'] = {"available": False}
+            except Exception as e:
+                status['llm_error'] = str(e)
+
+            try:
+                status['plugins'] = list(self.plugin_manager.plugins.keys())
+            except Exception:
+                status['plugins'] = []
+
+            return jsonify(status), 200
             
         @self.app.route("/improve_script", methods=["POST"])
         def improve_script():

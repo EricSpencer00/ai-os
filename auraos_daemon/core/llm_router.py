@@ -332,3 +332,18 @@ class LLMRouter:
                 'fallback_to_cloud': FALLBACK_TO_CLOUD
             }
         }
+
+
+# Module-level singleton for convenience across the codebase
+_GLOBAL_LLM_ROUTER = None
+
+def get_router():
+    """Return a shared LLMRouter instance (lazy init)."""
+    global _GLOBAL_LLM_ROUTER
+    if _GLOBAL_LLM_ROUTER is None:
+        try:
+            _GLOBAL_LLM_ROUTER = LLMRouter()
+        except Exception as e:
+            logging.error(f"Failed to initialize global LLMRouter: {e}")
+            _GLOBAL_LLM_ROUTER = None
+    return _GLOBAL_LLM_ROUTER

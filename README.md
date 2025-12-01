@@ -1,3 +1,4 @@
+![aura-os-ss.png](aura-os-ss.png)
 # AuraOS — AI-Powered OS Automation
 
 **Status:** Experimental (2025-11-09)
@@ -25,21 +26,36 @@ That's it! Your Ubuntu desktop is now accessible at: **http://localhost:6080/vnc
 
 ## Usage Examples
 
-### AuraOS Terminal (New!)
+### AuraOS Terminal (AI-Powered)
+
+The terminal is the easiest way to interact with the system using natural language:
 
 ```bash
-# Launch ChatGPT-style terminal
-auraos-terminal
+# Launch terminal
+./auraos.sh setup-terminal    # First time only
+auraos-terminal              # Or: python auraos_terminal.py
 
-# Or use CLI mode
-auraos-terminal --cli
+# Example AI commands (click ⚡ AI button or type "ai-"):
+ai- install python dependencies
+ai- backup important files
+ai- find large log files and compress them
+ai- list running processes using high CPU
 
-# Example commands:
+# Regular shell commands also work:
 help              # Show available commands
 ls                # List files
 whoami            # Current user
 date              # Show date/time
 ```
+
+**Key Features:**
+- ⚡ **AI Button**: One-click access to natural language mode
+- 🚀 **Auto-Execute**: Safe tasks run without confirmation
+- 📸 **Screen Context**: AI understands last 5 minutes of activity
+- 🔒 **Safe**: Dangerous operations blocked automatically
+- 📝 **Logged**: All actions tracked with full audit trail
+
+See `TERMINAL_README.md` for detailed terminal guide.
 
 ### AI Automation
 
@@ -82,6 +98,37 @@ date              # Show date/time
 4. **Action Execution**: xdotool performs clicks at coordinates
 
 **Pipeline Timing:** ~15-20 seconds per task (mostly vision analysis)
+
+## Health check (MVP)
+
+After starting the daemon you can verify the service and LLM availability with:
+
+```bash
+# start the daemon (from repo root) — this helper will create/activate the venv if needed
+./auraos_daemon/run.sh &
+
+# then check health
+curl http://localhost:5050/health | jq
+```
+
+The `/health` endpoint reports whether the local Ollama router is available and lists loaded plugins. This is useful for smoke tests and CI.
+
+## Preventing the VM from locking the screen (5-minute lock)
+
+If your VM goes to a lock screen after a short idle time (e.g. 5 minutes), run the helper script included in the repo to disable session blanking and common locker daemons inside the VM.
+
+To apply the fix (from the host):
+
+```bash
+# Copy the helper into the VM and run it as root (replace VM name and user if different)
+multipass transfer vm_resources/disable_screensaver.sh auraos-multipass:/tmp/disable_screensaver.sh
+multipass exec auraos-multipass -- sudo bash /tmp/disable_screensaver.sh ubuntu
+
+# Alternatively (pipe it directly):
+#sudo multipass exec auraos-multipass -- bash -s ubuntu < vm_resources/disable_screensaver.sh
+```
+
+Re-login to the VM desktop (or reboot) for autostart changes to fully apply. This helper creates a small autostart entry that runs xset to disable blanking and DPMS and attempts to stop common locker daemons (light-locker, xscreensaver, xss-lock).
 
 ## All Commands
 
@@ -137,15 +184,21 @@ multipass restart auraos-multipass
 - 8GB RAM (4GB for VM)
 - 30GB free disk space
 
+
 ## Documentation
 
 - Run `./auraos.sh help` for all commands
-- `QUICKSTART.md` - Fast setup guide
-- `AURAOS_TERMINAL.md` - **NEW:** ChatGPT-style terminal with voice & text commands
-- `DESKTOP_ACCESS.md` - Desktop access methods and troubleshooting
-- `SETUP_VERIFICATION.md` - Detailed system verification results
-- `VM_SETUP.md` - VM details
-- `IMPLEMENTATION.md` - Technical docs
+- [QUICKSTART.md](QUICKSTART.md) — Fast setup guide
+- [AURAOS_TERMINAL.md](AURAOS_TERMINAL.md) — ChatGPT-style terminal with voice & text commands
+- [DESKTOP_ACCESS.md](DESKTOP_ACCESS.md) — Desktop access methods and troubleshooting
+- [SETUP_VERIFICATION.md](SETUP_VERIFICATION.md) — System verification results
+- [VM_SETUP.md](VM_SETUP.md) — VM details
+- [IMPLEMENTATION.md](IMPLEMENTATION.md) — Technical docs
+- [TERMINAL_README.md](TERMINAL_README.md) — Terminal usage and features
+- [TERMINAL_V3_SETUP.md](TERMINAL_V3_SETUP.md) — Terminal v3 setup
+- [TERMINAL_V3_ARCHITECTURE.md](TERMINAL_V3_ARCHITECTURE.md) — Terminal v3 architecture
+- [TERMINAL_V3_QUICKREF.md](TERMINAL_V3_QUICKREF.md) — Terminal v3 quick reference
+- [TEST_PLAN.md](TEST_PLAN.md) — Testing plan and procedures
 
 ## License
 
