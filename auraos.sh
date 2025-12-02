@@ -1136,6 +1136,7 @@ VNC_START
     echo "Copying AuraOS Terminal (dual-mode) and Browser to VM..."
     multipass transfer auraos_terminal.py "$VM_NAME:/tmp/auraos_terminal.py" 2>/dev/null || true
     multipass transfer auraos_browser.py "$VM_NAME:/tmp/auraos_browser.py" 2>/dev/null || true
+    multipass transfer auraos_vision.py "$VM_NAME:/tmp/auraos_vision.py" 2>/dev/null || true
     multipass transfer auraos_launcher.py "$VM_NAME:/tmp/auraos_launcher.py" 2>/dev/null || true
     multipass transfer auraos_onboarding.py "$VM_NAME:/tmp/auraos_onboarding.py" 2>/dev/null || true
     multipass transfer gui_agent.py "$VM_NAME:/tmp/gui_agent.py" 2>/dev/null || true
@@ -1165,6 +1166,11 @@ fi
 if [ -f /tmp/auraos_browser.py ]; then
     cp /tmp/auraos_browser.py /opt/auraos/bin/auraos_browser.py
     chmod +x /opt/auraos/bin/auraos_browser.py
+fi
+
+if [ -f /tmp/auraos_vision.py ]; then
+    cp /tmp/auraos_vision.py /opt/auraos/bin/auraos_vision.py
+    chmod +x /opt/auraos/bin/auraos_vision.py
 fi
 
 if [ -f /tmp/auraos_launcher.py ]; then

@@ -106,30 +106,15 @@ class AuraOSLauncher:
             try:
                 terminal_path = find_app_path("auraos_terminal.py")
                 if terminal_path:
-                    # Terminal is CLI-based, open in a real terminal window
-                    if shutil.which("xfce4-terminal"):
-                        subprocess.Popen(
-                            ["xfce4-terminal", "-e", f"python3 {terminal_path}"],
-                            env=os.environ.copy(),
-                            start_new_session=True
-                        )
-                    elif shutil.which("gnome-terminal"):
-                        subprocess.Popen(
-                            ["gnome-terminal", "--", "python3", terminal_path],
-                            env=os.environ.copy(),
-                            start_new_session=True
-                        )
-                    elif shutil.which("xterm"):
-                        subprocess.Popen(
-                            ["xterm", "-e", f"python3 {terminal_path}"],
-                            env=os.environ.copy(),
-                            start_new_session=True
-                        )
-                    else:
-                        raise FileNotFoundError("No terminal emulator found")
+                    # Terminal is now a Tkinter GUI app, launch directly
+                    subprocess.Popen(
+                        [sys.executable, terminal_path],
+                        env=os.environ.copy(),
+                        start_new_session=True
+                    )
+                    self.status_label.config(text="System Ready", fg='#6db783')
                 else:
                     raise FileNotFoundError("auraos_terminal.py not found")
-                self.status_label.config(text="System Ready", fg='#6db783')
             except Exception as e:
                 self.status_label.config(text=f"Error: {str(e)[:30]}", fg='#ff0000')
         
