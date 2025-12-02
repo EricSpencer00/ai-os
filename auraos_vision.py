@@ -252,13 +252,13 @@ class AuraOSVision:
         try:
             self.append_text("[*] Sending to AI...\n", "info")
             
+            # Vision endpoint is /ask on the unified inference server
             response = requests.post(
-                f"{INFERENCE_URL}/api/generate",
+                f"{INFERENCE_URL}/ask",
                 json={
-                    "model": "llava:13b",
-                    "prompt": "Describe what you see on this screen. Be concise. What is visible and what actions could be taken?",
+                    "query": "Describe what you see on this screen. Be concise. What is visible and what actions could be taken?",
                     "images": [self.screenshot_data],
-                    "stream": False
+                    "parse_json": False
                 },
                 timeout=60
             )
@@ -328,7 +328,12 @@ Reply ONLY with JSON like:
                     "stream": False
                 }
                 
-                response = requests.post(f"{INFERENCE_URL}/api/generate", json=payload, timeout=60)
+                # Use the vision /ask endpoint which accepts images and a query
+                response = requests.post(f"{INFERENCE_URL}/ask", json={
+                    "query": payload.get("prompt"),
+                    "images": payload.get("images", []),
+                    "parse_json": False
+                }, timeout=60)
                 
                 if response.status_code == 200:
                     ai_text = response.json().get('response', '{}')
