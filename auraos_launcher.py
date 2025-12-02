@@ -161,28 +161,34 @@ class AuraOSLauncher:
         threading.Thread(target=_launch, daemon=True).start()
 
     def launch_vision_os(self):
-        self.status_label.config(text="Starting Vision Desktop...", fg='#00ff88')
+        self.status_label.config(text="Launching Vision Desktop...", fg='#00ff88')
         self.root.update_idletasks()
         
         def _launch():
             try:
-                # Try to open VNC in browser
-                import webbrowser as wb
-                vnc_url = "http://localhost:6080/vnc.html"
-                
-                # Try Firefox first (more reliable in VM)
-                if shutil.which("firefox"):
+                vision_path = find_app_path("auraos_vision.py")
+                if vision_path:
+                    # Launch the Vision app directly
                     subprocess.Popen(
-                        ["firefox", vnc_url],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
+                        [sys.executable, vision_path],
+                        env=os.environ.copy(),
                         start_new_session=True
                     )
-                    self.status_label.config(text="Vision Desktop Opened", fg='#6db783')
-                elif wb.open(vnc_url):
-                    self.status_label.config(text="Vision Desktop Opened", fg='#6db783')
+                    self.status_label.config(text="System Ready", fg='#6db783')
                 else:
-                    self.status_label.config(text="Open: " + vnc_url, fg='#dcdcaa')
+                    # Fallback: open VNC in browser
+                    import webbrowser as wb
+                    vnc_url = "http://localhost:6080/vnc.html"
+                    if shutil.which("firefox"):
+                        subprocess.Popen(
+                            ["firefox", vnc_url],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            start_new_session=True
+                        )
+                    else:
+                        wb.open(vnc_url)
+                    self.status_label.config(text="System Ready", fg='#6db783')
             except Exception as e:
                 self.status_label.config(text=f"Error: {str(e)[:30]}", fg='#ff0000')
         

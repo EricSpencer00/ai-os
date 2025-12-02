@@ -1,172 +1,221 @@
 #!/usr/bin/env python3
 """
-AuraOS Terminal - English to Bash Command Converter
-Simple, focused tool that converts natural language to executable bash commands.
-
-Usage:
-  "show me all python files" → find . -name "*.py"
-  "how much disk space do I have" → df -h
-  "list large files" → find . -size +100M
-  "create folder named test" → mkdir -p test
-  exit to quit
+AuraOS Terminal - English to Bash GUI
+Tkinter GUI for converting English to bash commands
 """
-import os
-import sys
-import readline
-import signal
+import tkinter as tk
+from tkinter import scrolledtext
 import subprocess
+import threading
+import sys
+import os
 import requests
-from datetime import datetime
 
 # Smart URL detection: use host gateway IP when running inside VM
 def get_inference_url():
     """Get the correct inference server URL based on environment."""
     if os.path.exists("/opt/auraos"):
-        # Running inside VM - use host gateway (192.168.2.1 for Multipass)
         return "http://192.168.2.1:8081"
     return "http://localhost:8081"
 
 INFERENCE_URL = get_inference_url()
 
-# Colored output helpers
-def colored(text, color):
-    colors = {
-        'cyan': '\033[36m',
-        'green': '\033[32m',
-        'yellow': '\033[33m',
-        'red': '\033[31m',
-        'reset': '\033[0m',
-        'blue': '\033[34m'
-    }
-    return f"{colors.get(color, '')}{text}{colors['reset']}"
-
-# Flag for graceful shutdown
-terminate_request = False
-
-def handle_termination(signum, frame):
-    global terminate_request
-    print(colored("\n\nGoodbye!", "cyan"))
-    sys.exit(0)
-
-signal.signal(signal.SIGINT, handle_termination)
-
-def convert_english_to_bash(text):
-    """
-    Convert English text to bash command.
-    Uses AI inference server for translation.
-    """
-    try:
-        prompt = f"""You are a bash command generator. Convert this English request to a SINGLE bash command.
+class AuraOSTerminal:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("AuraOS Terminal")
+        self.root.geometry("900x700")
+        self.root.configure(bg='#0a0e27')
+        
+        self.is_processing = False
+        self.setup_ui()
+        
+    def setup_ui(self):
+        # Title Bar
+        title_frame = tk.Frame(self.root, bg='#1a1e37', height=60)
+        title_frame.pack(fill='x')
+        
+        title = tk.Label(
+            title_frame, text="⚡ English to Bash Terminal",
+            font=('Arial', 16, 'bold'), fg='#00ff88', bg='#1a1e37'
+        )
+        title.pack(side='left', padx=20, pady=15)
+        
+        self.status_label = tk.Label(
+            title_frame, text="Ready", font=('Arial', 10),
+            fg='#6db783', bg='#1a1e37'
+        )
+        self.status_label.pack(side='right', padx=20, pady=15)
+        
+        # Output Area
+        output_frame = tk.Frame(self.root, bg='#0a0e27')
+        output_frame.pack(fill='both', expand=True, padx=15, pady=15)
+        
+        output_label = tk.Label(
+            output_frame, text="Output:", font=('Arial', 10),
+            fg='#9cdcfe', bg='#0a0e27'
+        )
+        output_label.pack(anchor='w')
+        
+        self.output_area = scrolledtext.ScrolledText(
+            output_frame, wrap=tk.WORD, bg='#0a0e27', fg='#d4d4d4',
+            font=('Menlo', 10), relief='flat', padx=10, pady=10
+        )
+        self.output_area.pack(fill='both', expand=True, pady=(5, 15))
+        self.output_area.config(state='disabled')
+        
+        # Configure tags
+        self.output_area.tag_config('info', foreground='#9cdcfe')
+        self.output_area.tag_config('success', foreground='#6db783')
+        self.output_area.tag_config('error', foreground='#f48771')
+        self.output_area.tag_config('command', foreground='#00ff88')
+        
+        # Input Area
+        input_frame = tk.Frame(self.root, bg='#1a1e37')
+        input_frame.pack(fill='x', padx=15, pady=(0, 15))
+        
+        prompt = tk.Label(
+            input_frame, text="You:", font=('Menlo', 12, 'bold'),
+            fg='#00ff88', bg='#1a1e37'
+        )
+        prompt.pack(side='left', padx=(0, 10))
+        
+        self.input_field = tk.Entry(
+            input_frame, bg='#2d3547', fg='#ffffff',
+            font=('Menlo', 12), insertbackground='#00d4ff',
+            relief='flat', bd=0
+        )
+        self.input_field.pack(side='left', fill='both', expand=True, ipady=10)
+        self.input_field.bind('<Return>', lambda e: self.process())
+        
+        # Buttons
+        btn_frame = tk.Frame(input_frame, bg='#1a1e37')
+        btn_frame.pack(side='right', padx=(10, 0))
+        
+        send_btn = tk.Button(
+            btn_frame, text="Send", command=self.process,
+            bg='#00d4ff', fg='#0a0e27', font=('Arial', 10, 'bold'),
+            relief='flat', cursor='hand2', padx=20, pady=8
+        )
+        send_btn.pack(side='left', padx=5)
+        
+        clear_btn = tk.Button(
+            btn_frame, text="Clear", command=self.clear_output,
+            bg='#2d3547', fg='#ffffff', font=('Arial', 10, 'bold'),
+            relief='flat', cursor='hand2', padx=20, pady=8
+        )
+        clear_btn.pack(side='left', padx=5)
+        
+        # Welcome
+        self.append_text("⚡ AuraOS Terminal - English to Bash\n", "info")
+        self.append_text("Convert natural language to bash commands\n\n", "info")
+        self.append_text("Examples:\n", "info")
+        self.append_text("  • show me all files\n", "command")
+        self.append_text("  • find python files\n", "command")
+        self.append_text("  • how much disk space\n", "command")
+        self.append_text("  • list large files\n\n", "command")
+        
+        self.input_field.focus()
+        
+    def append_text(self, text, tag='info'):
+        """Append text to output area"""
+        self.output_area.config(state='normal')
+        self.output_area.insert(tk.END, text, tag)
+        self.output_area.see(tk.END)
+        self.output_area.config(state='disabled')
+        self.root.update_idletasks()
+        
+    def clear_output(self):
+        """Clear output area"""
+        self.output_area.config(state='normal')
+        self.output_area.delete(1.0, tk.END)
+        self.output_area.config(state='disabled')
+        
+    def process(self):
+        """Process user input"""
+        if self.is_processing:
+            return
+            
+        text = self.input_field.get().strip()
+        if not text:
+            return
+            
+        self.input_field.delete(0, tk.END)
+        self.append_text(f"\nYou: {text}\n", "command")
+        self.is_processing = True
+        self.status_label.config(text="Converting...", fg='#dcdcaa')
+        
+        threading.Thread(target=self._convert_and_execute, args=(text,), daemon=True).start()
+        
+    def _convert_and_execute(self, text):
+        """Convert English to bash and execute"""
+        try:
+            # Convert to bash
+            prompt = f"""You are a bash command generator. Convert this English request to a SINGLE bash command.
 Request: {text}
 
 Rules:
 - Output ONLY the bash command, nothing else
 - No explanations, no markdown, no code fences
 - If you cannot convert it, reply: CANNOT_CONVERT
-- Make the command safe (use -i flag for destructive operations)
+- Make the command safe
 - Use standard Unix utilities
 
 Command:"""
-        
-        response = requests.post(
-            f"{INFERENCE_URL}/generate",
-            json={"prompt": prompt},
-            timeout=15
-        )
-        
-        if response.status_code == 200:
-            result = response.json()
-            command = result.get("response", "").strip()
-            command = command.split('\n')[0].strip()  # First line only
             
-            if command and "CANNOT_CONVERT" not in command and len(command) < 500:
-                return command
-    except:
-        pass
-    
-    return None
-
-def execute_command(command):
-    """Execute a bash command and return output"""
-    try:
-        result = subprocess.run(
-            command,
-            shell=True,
-            capture_output=True,
-            text=True,
-            timeout=30,
-            cwd=os.path.expanduser("~")
-        )
-        return result.stdout, result.stderr, result.returncode
-    except subprocess.TimeoutExpired:
-        return "", "Command timed out (30s limit)", 1
-    except Exception as e:
-        return "", str(e), 1
-
-def main():
-    """Main CLI loop"""
-    print(colored("\n⚡ AuraOS Terminal - English to Bash", "green"))
-    print(colored("━" * 50, "cyan"))
-    print(colored("Convert English to bash commands", "yellow"))
-    print(colored("Type 'exit', 'quit', or Ctrl+C to quit\n", "yellow"))
-    
-    while True:
-        try:
-            user_input = input(colored("You: ", "blue")).strip()
-        except KeyboardInterrupt:
-            print(colored("\n\nGoodbye!", "cyan"))
-            sys.exit(0)
-        
-        if not user_input:
-            continue
-        
-        # Exit conditions
-        if user_input.lower() in ("exit", "quit"):
-            print(colored("Goodbye!", "cyan"))
-            sys.exit(0)
-        
-        print(colored("\n🤔 Converting to bash...", "yellow"), end=" ", flush=True)
-        
-        # Convert English to bash
-        bash_command = convert_english_to_bash(user_input)
-        
-        if not bash_command:
-            print(colored("✗ Could not convert", "red"))
-            print(colored("  Try being more specific", "yellow"))
-            print()
-            continue
-        
-        print(colored("✓", "green"))
-        print(colored(f"Command: ", "cyan") + colored(f"{bash_command}", "yellow"))
-        print()
-        
-        # Ask for confirmation
-        try:
-            confirm = input(colored("Execute? (y/n): ", "blue")).strip().lower()
-        except KeyboardInterrupt:
-            print(colored("\n\nGoodbye!", "cyan"))
-            sys.exit(0)
-        
-        if confirm not in ("y", "yes"):
-            print(colored("Skipped\n", "yellow"))
-            continue
-        
-        # Execute command
-        print()
-        stdout, stderr, code = execute_command(bash_command)
-        
-        if stdout:
-            print(colored("Output:", "cyan"))
-            print(stdout)
-        
-        if stderr and code != 0:
-            print(colored("Error:", "red"))
-            print(stderr)
-        
-        if code == 0 and not stdout:
-            print(colored("✓ Command executed successfully", "green"))
-        
-        print()
+            self.append_text("🤔 Converting to bash...\n", "info")
+            
+            response = requests.post(
+                f"{INFERENCE_URL}/generate",
+                json={"prompt": prompt},
+                timeout=15
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                command = result.get("response", "").strip()
+                command = command.split('\n')[0].strip()
+                
+                if command and "CANNOT_CONVERT" not in command and len(command) < 500:
+                    self.append_text(f"📝 Command: {command}\n", "command")
+                    
+                    # Execute
+                    self.append_text("\n⚙️ Executing...\n", "info")
+                    result = subprocess.run(
+                        command,
+                        shell=True,
+                        capture_output=True,
+                        text=True,
+                        timeout=30,
+                        cwd=os.path.expanduser("~")
+                    )
+                    
+                    if result.stdout:
+                        self.append_text(f"\n{result.stdout}", "info")
+                    
+                    if result.returncode == 0:
+                        self.append_text("✓ Command executed successfully\n", "success")
+                    else:
+                        if result.stderr:
+                            self.append_text(f"Error: {result.stderr}\n", "error")
+                        self.append_text(f"Exit code: {result.returncode}\n", "error")
+                else:
+                    self.append_text("❌ Could not convert request\n", "error")
+            else:
+                self.append_text(f"❌ Server error: {response.text[:100]}\n", "error")
+                
+        except subprocess.TimeoutExpired:
+            self.append_text("❌ Command timed out\n", "error")
+        except requests.exceptions.ConnectionError:
+            self.append_text("❌ Cannot reach inference server\n", "error")
+            self.append_text(f"  URL: {INFERENCE_URL}\n", "info")
+        except Exception as e:
+            self.append_text(f"❌ Error: {str(e)}\n", "error")
+            
+        self.is_processing = False
+        self.status_label.config(text="Ready", fg='#6db783')
 
 if __name__ == "__main__":
-    main()
+    root = tk.Tk()
+    app = AuraOSTerminal(root)
+    root.mainloop()
