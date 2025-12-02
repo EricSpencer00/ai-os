@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-AuraOS Terminal - English to Bash GUI with Resilient Error Recovery
-Tkinter GUI for converting English to bash commands with intelligent fallbacks
+AuraOS Terminal - English to Bash GUI with TerminalGPT-style Resilience
+Automatic error recovery: if a command fails, AI generates a corrected command
 """
 import tkinter as tk
 from tkinter import scrolledtext
@@ -11,6 +11,7 @@ import sys
 import os
 import requests
 import re
+import json
 
 # Smart URL detection: use host gateway IP when running inside VM
 def get_inference_url():
@@ -21,28 +22,9 @@ def get_inference_url():
 
 INFERENCE_URL = get_inference_url()
 
-# Common error recovery patterns
-ERROR_RECOVERY_PATTERNS = {
-    "not found": {
-        "keywords": ["not found", "command not found", "no such file"],
-        "recovery": "suggest_install"
-    },
-    "permission denied": {
-        "keywords": ["permission denied", "access denied"],
-        "recovery": "suggest_sudo"
-    },
-    "file exists": {
-        "keywords": ["file exists", "already exists", "exists"],
-        "recovery": "suggest_force"
-    },
-    "no such directory": {
-        "keywords": ["no such directory", "cannot access"],
-        "recovery": "suggest_create_dir"
-    }
-}
-
-# Tool availability cache
-TOOL_CACHE = {}
+# Configuration
+AUTO_RETRY_ERRORS = True
+MAX_RETRIES = 3
 
 class AuraOSTerminal:
     def __init__(self, root):
@@ -52,9 +34,9 @@ class AuraOSTerminal:
         self.root.configure(bg='#0a0e27')
         
         self.is_processing = False
-        self.recovery_attempts = 0
-        self.max_recovery_attempts = 3
-        self.original_request = None
+        self.conversation_history = []  # Track conversation for context
+        self.retry_count = 0
+        self.max_retries = MAX_RETRIES
         self.setup_ui()
         
     def setup_ui(self):
@@ -63,7 +45,7 @@ class AuraOSTerminal:
         title_frame.pack(fill='x')
         
         title = tk.Label(
-            title_frame, text="⚡ English to Bash Terminal",
+            title_frame, text="[Terminal] English to Bash - Auto-Recovery",
             font=('Arial', 16, 'bold'), fg='#00ff88', bg='#1a1e37'
         )
         title.pack(side='left', padx=20, pady=15)
@@ -96,6 +78,8 @@ class AuraOSTerminal:
         self.output_area.tag_config('success', foreground='#6db783')
         self.output_area.tag_config('error', foreground='#f48771')
         self.output_area.tag_config('command', foreground='#00ff88')
+        self.output_area.tag_config('ai', foreground='#dcdcaa')
+        self.output_area.tag_config('retry', foreground='#ff7f50')
         
         # Input Area
         input_frame = tk.Frame(self.root, bg='#1a1e37')
@@ -134,13 +118,14 @@ class AuraOSTerminal:
         clear_btn.pack(side='left', padx=5)
         
         # Welcome
-        self.append_text("⚡ AuraOS Terminal - English to Bash\n", "info")
-        self.append_text("Convert natural language to bash commands\n\n", "info")
+        self.append_text("[Terminal] English to Bash - Auto Recovery\n", "info")
+        self.append_text("If a command fails, the AI will automatically try to fix it\n\n", "info")
         self.append_text("Examples:\n", "info")
         self.append_text("  • show me all files\n", "command")
         self.append_text("  • find python files\n", "command")
         self.append_text("  • how much disk space\n", "command")
-        self.append_text("  • list large files\n\n", "command")
+        self.append_text("  • install nodejs\n\n", "command")
+        self.append_text(f"Auto-retry enabled: {MAX_RETRIES} attempts\n", "ai")
         
         self.input_field.focus()
         
@@ -157,6 +142,7 @@ class AuraOSTerminal:
         self.output_area.config(state='normal')
         self.output_area.delete(1.0, tk.END)
         self.output_area.config(state='disabled')
+        self.conversation_history = []
         
     def process(self):
         """Process user input"""
@@ -171,75 +157,249 @@ class AuraOSTerminal:
         self.append_text(f"\nYou: {text}\n", "command")
         self.is_processing = True
         self.status_label.config(text="Converting...", fg='#dcdcaa')
+        self.retry_count = 0
         
         threading.Thread(target=self._convert_and_execute, args=(text,), daemon=True).start()
         
-    def _convert_and_execute(self, text):
-        """Convert English to bash and execute with error recovery"""
-        self.original_request = text
-        self.recovery_attempts = 0
-        self._execute_with_recovery(text)
-            # Convert to bash
-            prompt = f"""You are a bash command generator. Convert this English request to a SINGLE bash command.
-Request: {text}
+    def _build_system_prompt(self):
+        """Build the system prompt for command generation"""
+        return """You are a highly capable shell command generator that converts plain-English requests into fully self-contained, executable shell commands for a Unix-like environment.
 
-Rules:
-- Output ONLY the bash command, nothing else
-- No explanations, no markdown, no code fences
-- If you cannot convert it, reply: CANNOT_CONVERT
-- Make the command safe
-- Use standard Unix utilities
+RULES:
+1. Completeness: Generate complete commands including any prerequisite steps
+   - If a tool is not installed, suggest installation commands first
+   - If a directory doesn't exist, include mkdir commands
+   - Handle dependencies automatically
 
-Command:"""
-            
-            self.append_text("[?] Converting to bash...\n", "info")
+2. Clarity & Safety: Consider edge cases and dependencies
+   - Always think about what might fail
+   - Provide robust commands that handle errors
+   - Use flags for non-interactive execution when needed
+
+3. No Placeholders: All paths and arguments must be explicitly specified
+   - Never use /path/to/folder or <argument>
+   - Use actual, concrete paths
+
+4. Formatting: Output ONLY the bash command(s), nothing else
+   - No explanations, no markdown, no code fences
+   - Multiple commands on separate lines in execution order
+   - If you cannot convert it, reply: CANNOT_CONVERT
+
+5. Error Recovery: Consider what might fail and provide a robust command"""
+
+    def _analyze_command_result(self, command, stdout, stderr, exit_code):
+        """Use AI to analyze if a command succeeded or failed and why"""
+        try:
+            analysis_prompt = f"""Analyze this command execution and determine if it succeeded:
+
+Command: {command}
+Exit Code: {exit_code}
+Stdout: {stdout[:500] if stdout else '(no output)'}
+Stderr: {stderr[:500] if stderr else '(no errors)'}
+
+Respond ONLY with JSON in this exact format:
+{{"success": true/false, "reason": "brief explanation", "issue": "what went wrong (if failed)"}}
+
+Be intelligent - some commands succeed with exit code 0 but fail logically, others have warnings but work."""
             
             response = requests.post(
                 f"{INFERENCE_URL}/generate",
-                json={"prompt": prompt},
+                json={"prompt": analysis_prompt},
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                result_text = response.json().get("response", "").strip()
+                # Extract JSON from response
+                try:
+                    json_start = result_text.find('{')
+                    json_end = result_text.rfind('}') + 1
+                    if json_start >= 0 and json_end > json_start:
+                        analysis = json.loads(result_text[json_start:json_end])
+                        return analysis
+                except:
+                    pass
+            
+            # Fallback: simple exit code check
+            return {
+                "success": exit_code == 0,
+                "reason": "exit code analysis" if exit_code == 0 else "non-zero exit code",
+                "issue": stderr if stderr else ""
+            }
+        except:
+            # Ultimate fallback
+            return {
+                "success": exit_code == 0,
+                "reason": "fallback check",
+                "issue": stderr if stderr else ""
+            }
+
+    def _generate_recovery_command(self, user_request, command_executed, analysis):
+        """Use AI to generate a recovery command based on failure analysis"""
+        try:
+            recovery_prompt = f"""The user requested: {user_request}
+
+The command that failed: {command_executed}
+
+Failure analysis: {analysis.get('issue', 'Unknown error')}
+
+Based on the failure, generate ONE alternative bash command that will:
+1. Work around the reported issue
+2. Accomplish the original user request
+3. Handle common failure modes proactively
+
+Output ONLY the bash command, nothing else."""
+            
+            self.append_text("[*] Analyzing failure and crafting recovery...\n", "info")
+            
+            response = requests.post(
+                f"{INFERENCE_URL}/generate",
+                json={"prompt": self._build_system_prompt() + f"\n\n{recovery_prompt}"},
+                timeout=15
+            )
+            
+            if response.status_code == 200:
+                command = response.json().get("response", "").strip()
+                command = command.split('\n')[0].strip()
+                
+                if command and len(command) < 500:
+                    return command
+            
+            return None
+        except:
+            return None
+
+    def _generate_command(self, user_request, error_analysis=None):
+        """Generate a bash command using AI"""
+        try:
+            # Build the prompt
+            if error_analysis:
+                # Error recovery mode: use AI analysis to craft fix
+                prompt = f"""The previous command failed:
+Issue: {error_analysis.get('issue', 'Unknown')}
+Reason: {error_analysis.get('reason', 'Unknown')}
+
+Original request: {user_request}
+
+Please provide a corrected command that will work around this specific error."""
+            else:
+                prompt = f"""Convert this request to a bash command: {user_request}"""
+            
+            self.append_text("[?] Generating command...\n", "info")
+            
+            response = requests.post(
+                f"{INFERENCE_URL}/generate",
+                json={"prompt": self._build_system_prompt() + f"\n\nRequest: {prompt}"},
                 timeout=15
             )
             
             if response.status_code == 200:
                 result = response.json()
                 command = result.get("response", "").strip()
+                # Get first line (handle multi-line responses)
                 command = command.split('\n')[0].strip()
                 
                 if command and "CANNOT_CONVERT" not in command and len(command) < 500:
-                    self.append_text(f"📝 Command: {command}\n", "command")
-                    
-                    # Execute
-                    self.append_text("\n[Settings] Executing...\n", "info")
-                    result = subprocess.run(
-                        command,
-                        shell=True,
-                        capture_output=True,
-                        text=True,
-                        timeout=30,
-                        cwd=os.path.expanduser("~")
-                    )
-                    
-                    if result.stdout:
-                        self.append_text(f"\n{result.stdout}", "info")
-                    
-                    if result.returncode == 0:
-                        self.append_text("[OK] Command executed successfully\n", "success")
-                    else:
-                        if result.stderr:
-                            self.append_text(f"Error: {result.stderr}\n", "error")
-                        self.append_text(f"Exit code: {result.returncode}\n", "error")
+                    return command
                 else:
-                    self.append_text("[X] Could not convert request\n", "error")
+                    self.append_text("[X] Could not generate valid command\n", "error")
+                    return None
             else:
                 self.append_text(f"[X] Server error: {response.text[:100]}\n", "error")
+                return None
                 
-        except subprocess.TimeoutExpired:
-            self.append_text("[X] Command timed out\n", "error")
+        except requests.exceptions.Timeout:
+            self.append_text("[X] AI request timeout\n", "error")
+            return None
         except requests.exceptions.ConnectionError:
-            self.append_text("[X] Cannot reach inference server\n", "error")
-            self.append_text(f"  URL: {INFERENCE_URL}\n", "info")
+            self.append_text(f"[X] Cannot reach inference server: {INFERENCE_URL}\n", "error")
+            return None
         except Exception as e:
             self.append_text(f"[X] Error: {str(e)}\n", "error")
+            return None
+
+    def _convert_and_execute(self, user_request):
+        """Convert English to bash and execute with AI-driven error recovery"""
+        try:
+            error_analysis = None
+            
+            while self.retry_count < self.max_retries:
+                # Generate command (with AI analysis for recovery attempts)
+                command = self._generate_command(user_request, error_analysis)
+                if not command:
+                    break
+                
+                self.append_text(f"Command: {command}\n", "command")
+                
+                # Execute
+                self.append_text("[*] Executing...\n", "info")
+                result = subprocess.run(
+                    command,
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    cwd=os.path.expanduser("~")
+                )
+                
+                # Display output
+                if result.stdout:
+                    self.append_text(f"\n{result.stdout}", "info")
+                
+                # AI-driven result analysis: ask AI if this really succeeded
+                analysis = self._analyze_command_result(
+                    command, 
+                    result.stdout, 
+                    result.stderr, 
+                    result.returncode
+                )
+                
+                # Check AI's determination of success
+                if analysis.get("success"):
+                    self.append_text(f"[OK] Command succeeded: {analysis.get('reason', 'Success')}\n", "success")
+                    self.status_label.config(text="Ready", fg='#6db783')
+                    self.is_processing = False
+                    return
+                else:
+                    # Command failed - prepare for intelligent recovery
+                    failure_reason = analysis.get("reason", "Unknown error")
+                    failure_issue = analysis.get("issue", result.stderr or "No error details")
+                    
+                    if AUTO_RETRY_ERRORS and self.retry_count < self.max_retries - 1:
+                        self.retry_count += 1
+                        self.append_text(
+                            f"[!] Command failed: {failure_reason}\n",
+                            "error"
+                        )
+                        self.append_text(
+                            f"[*] Crafting recovery ({self.retry_count}/{self.max_retries - 1})...\n",
+                            "retry"
+                        )
+                        
+                        # Prepare analysis for next iteration - AI will use this to craft better command
+                        error_analysis = {
+                            "reason": failure_reason,
+                            "issue": failure_issue[:300],  # Limit size
+                            "output": result.stdout[:200] if result.stdout else ""
+                        }
+                        self.status_label.config(text=f"Recovering... ({self.retry_count})", fg='#ff7f50')
+                        continue
+                    else:
+                        # Max retries exceeded
+                        self.append_text(
+                            f"[X] Failed after {self.max_retries} attempts\n",
+                            "error"
+                        )
+                        self.append_text(
+                            f"[X] Final error: {failure_reason}\n",
+                            "error"
+                        )
+                        break
+                
+        except subprocess.TimeoutExpired:
+            self.append_text("[X] Command timed out after 30 seconds\n", "error")
+        except Exception as e:
+            self.append_text(f"[X] Unexpected error: {str(e)}\n", "error")
             
         self.is_processing = False
         self.status_label.config(text="Ready", fg='#6db783')
