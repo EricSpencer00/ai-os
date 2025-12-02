@@ -61,7 +61,7 @@ class AuraOSLauncher:
         
         # 1. Terminal
         term_btn = tk.Button(
-            btn_frame, text="💻 AI Terminal", command=self.launch_terminal,
+            btn_frame, text="[Terminal] AI Terminal", command=self.launch_terminal,
             bg='#00d4ff', fg='#0a0e27', font=('Arial', 14, 'bold'),
             width=20, pady=10, relief='flat', cursor='hand2'
         )
@@ -69,7 +69,7 @@ class AuraOSLauncher:
         
         # 2. Browser
         browser_btn = tk.Button(
-            btn_frame, text="🌐 AI Browser", command=self.launch_browser,
+            btn_frame, text="[Web] AI Browser", command=self.launch_browser,
             bg='#ff7f50', fg='#ffffff', font=('Arial', 14, 'bold'),
             width=20, pady=10, relief='flat', cursor='hand2'
         )
@@ -77,7 +77,7 @@ class AuraOSLauncher:
         
         # 3. Vision OS (VNC)
         vision_btn = tk.Button(
-            btn_frame, text="👁️ Vision Desktop", command=self.launch_vision_os,
+            btn_frame, text="[Vision] Vision Desktop", command=self.launch_vision_os,
             bg='#00ff88', fg='#0a0e27', font=('Arial', 14, 'bold'),
             width=20, pady=10, relief='flat', cursor='hand2'
         )
@@ -85,7 +85,7 @@ class AuraOSLauncher:
         
         # 4. Settings
         settings_btn = tk.Button(
-            btn_frame, text="⚙️ Settings", command=self.launch_settings,
+            btn_frame, text="[Settings] Settings", command=self.launch_settings,
             bg='#2d3547', fg='#ffffff', font=('Arial', 14, 'bold'),
             width=20, pady=10, relief='flat', cursor='hand2'
         )

@@ -163,7 +163,7 @@ Rules:
 
 Command:"""
             
-            self.append_text("🤔 Converting to bash...\n", "info")
+            self.append_text("[?] Converting to bash...\n", "info")
             
             response = requests.post(
                 f"{INFERENCE_URL}/generate",
@@ -180,7 +180,7 @@ Command:"""
                     self.append_text(f"📝 Command: {command}\n", "command")
                     
                     # Execute
-                    self.append_text("\n⚙️ Executing...\n", "info")
+                    self.append_text("\n[Settings] Executing...\n", "info")
                     result = subprocess.run(
                         command,
                         shell=True,
@@ -194,23 +194,23 @@ Command:"""
                         self.append_text(f"\n{result.stdout}", "info")
                     
                     if result.returncode == 0:
-                        self.append_text("✓ Command executed successfully\n", "success")
+                        self.append_text("[OK] Command executed successfully\n", "success")
                     else:
                         if result.stderr:
                             self.append_text(f"Error: {result.stderr}\n", "error")
                         self.append_text(f"Exit code: {result.returncode}\n", "error")
                 else:
-                    self.append_text("❌ Could not convert request\n", "error")
+                    self.append_text("[X] Could not convert request\n", "error")
             else:
-                self.append_text(f"❌ Server error: {response.text[:100]}\n", "error")
+                self.append_text(f"[X] Server error: {response.text[:100]}\n", "error")
                 
         except subprocess.TimeoutExpired:
-            self.append_text("❌ Command timed out\n", "error")
+            self.append_text("[X] Command timed out\n", "error")
         except requests.exceptions.ConnectionError:
-            self.append_text("❌ Cannot reach inference server\n", "error")
+            self.append_text("[X] Cannot reach inference server\n", "error")
             self.append_text(f"  URL: {INFERENCE_URL}\n", "info")
         except Exception as e:
-            self.append_text(f"❌ Error: {str(e)}\n", "error")
+            self.append_text(f"[X] Error: {str(e)}\n", "error")
             
         self.is_processing = False
         self.status_label.config(text="Ready", fg='#6db783')
