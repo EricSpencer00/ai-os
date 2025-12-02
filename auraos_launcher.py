@@ -134,9 +134,20 @@ class AuraOSLauncher:
                         start_new_session=True
                     )
                 else:
-                    # Fallback: try Firefox directly
-                    if shutil.which("firefox"):
-                        subprocess.Popen(["firefox"], start_new_session=True)
+                    # Fallback: try Firefox directly with proper env
+                    firefox_path = shutil.which("firefox")
+                    if firefox_path:
+                        env = os.environ.copy()
+                        env["DISPLAY"] = env.get("DISPLAY", ":99")
+                        env["XDG_RUNTIME_DIR"] = env.get("XDG_RUNTIME_DIR", "/run/user/1000")
+                        env["HOME"] = env.get("HOME", os.path.expanduser("~"))
+                        subprocess.Popen(
+                            [firefox_path],
+                            env=env,
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            start_new_session=True
+                        )
                     else:
                         raise FileNotFoundError("No browser application found")
                 self.status_label.config(text="System Ready", fg='#6db783')
@@ -162,17 +173,22 @@ class AuraOSLauncher:
                     self.status_label.config(text="System Ready", fg='#6db783')
                 else:
                     # Fallback: open VNC in browser
-                    import webbrowser as wb
                     vnc_url = "http://localhost:6080/vnc.html"
-                    if shutil.which("firefox"):
+                    firefox_path = shutil.which("firefox")
+                    if firefox_path:
+                        env = os.environ.copy()
+                        env["DISPLAY"] = env.get("DISPLAY", ":99")
+                        env["XDG_RUNTIME_DIR"] = env.get("XDG_RUNTIME_DIR", "/run/user/1000")
+                        env["HOME"] = env.get("HOME", os.path.expanduser("~"))
                         subprocess.Popen(
-                            ["firefox", vnc_url],
+                            [firefox_path, vnc_url],
                             stdout=subprocess.DEVNULL,
                             stderr=subprocess.DEVNULL,
+                            env=env,
                             start_new_session=True
                         )
                     else:
-                        wb.open(vnc_url)
+                        webbrowser.open(vnc_url)
                     self.status_label.config(text="System Ready", fg='#6db783')
             except Exception as e:
                 self.status_label.config(text=f"Error: {str(e)[:30]}", fg='#ff0000')

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-AuraOS Terminal - English to Bash GUI
-Tkinter GUI for converting English to bash commands
+AuraOS Terminal - English to Bash GUI with Resilient Error Recovery
+Tkinter GUI for converting English to bash commands with intelligent fallbacks
 """
 import tkinter as tk
 from tkinter import scrolledtext
@@ -10,6 +10,7 @@ import threading
 import sys
 import os
 import requests
+import re
 
 # Smart URL detection: use host gateway IP when running inside VM
 def get_inference_url():
@@ -19,6 +20,29 @@ def get_inference_url():
     return "http://localhost:8081"
 
 INFERENCE_URL = get_inference_url()
+
+# Common error recovery patterns
+ERROR_RECOVERY_PATTERNS = {
+    "not found": {
+        "keywords": ["not found", "command not found", "no such file"],
+        "recovery": "suggest_install"
+    },
+    "permission denied": {
+        "keywords": ["permission denied", "access denied"],
+        "recovery": "suggest_sudo"
+    },
+    "file exists": {
+        "keywords": ["file exists", "already exists", "exists"],
+        "recovery": "suggest_force"
+    },
+    "no such directory": {
+        "keywords": ["no such directory", "cannot access"],
+        "recovery": "suggest_create_dir"
+    }
+}
+
+# Tool availability cache
+TOOL_CACHE = {}
 
 class AuraOSTerminal:
     def __init__(self, root):
