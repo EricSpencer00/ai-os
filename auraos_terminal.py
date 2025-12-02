@@ -52,6 +52,9 @@ class AuraOSTerminal:
         self.root.configure(bg='#0a0e27')
         
         self.is_processing = False
+        self.recovery_attempts = 0
+        self.max_recovery_attempts = 3
+        self.original_request = None
         self.setup_ui()
         
     def setup_ui(self):
@@ -172,8 +175,10 @@ class AuraOSTerminal:
         threading.Thread(target=self._convert_and_execute, args=(text,), daemon=True).start()
         
     def _convert_and_execute(self, text):
-        """Convert English to bash and execute"""
-        try:
+        """Convert English to bash and execute with error recovery"""
+        self.original_request = text
+        self.recovery_attempts = 0
+        self._execute_with_recovery(text)
             # Convert to bash
             prompt = f"""You are a bash command generator. Convert this English request to a SINGLE bash command.
 Request: {text}
