@@ -16,6 +16,8 @@ import json
 import time
 import io
 import re
+import logging
+from pathlib import Path
 
 # Optional imports
 try:
@@ -29,6 +31,19 @@ try:
     HAS_PIL = True
 except ImportError:
     HAS_PIL = False
+
+# Setup logging
+LOG_DIR = Path.home() / ".auraos" / "logs"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(LOG_DIR / "vision.log"),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 def get_inference_url():
     """Get the correct inference server URL based on environment."""
@@ -48,11 +63,15 @@ class AuraOSVision:
         
         self.is_processing = False
         self.screenshot_data = None
+        self.screenshot_size = None
         self.automation_running = False
+        self.last_action_type = None  # Track action type for adaptive cooldown
         
         # Set DISPLAY for VM
         if "DISPLAY" not in os.environ:
             os.environ["DISPLAY"] = ":99"
+        
+        logger.info("AuraOS Vision initialized - Inference URL: %s", INFERENCE_URL)
         
         self.setup_ui()
         
@@ -213,14 +232,19 @@ class AuraOSVision:
         """Take screenshot in background"""
         try:
             screenshot = ImageGrab.grab()
+            self.screenshot_size = screenshot.size
             img_byte_arr = io.BytesIO()
             screenshot.save(img_byte_arr, format='PNG')
             img_byte_arr.seek(0)
             self.screenshot_data = base64.b64encode(img_byte_arr.getvalue()).decode()
             
-            self.append_text(f"[OK] Captured {screenshot.size[0]}x{screenshot.size[1]}\n", "success")
+            msg = f"[OK] Captured {screenshot.size[0]}x{screenshot.size[1]}"
+            self.append_text(f"{msg}\n", "success")
+            logger.info(msg)
         except Exception as e:
-            self.append_text(f"[Error] {e}\n", "error")
+            err_msg = f"[Error] Screenshot: {e}"
+            self.append_text(f"{err_msg}\n", "error")
+            logger.error(err_msg)
             
         self.is_processing = False
         self.status_label.config(text="Ready", fg='#6db783')
@@ -251,6 +275,7 @@ class AuraOSVision:
         """Analyze screenshot with AI"""
         try:
             self.append_text("[*] Sending to AI...\n", "info")
+            logger.debug("Starting analysis request to %s", INFERENCE_URL)
             
             # Vision endpoint is /ask on the unified inference server
             response = requests.post(
@@ -267,13 +292,24 @@ class AuraOSVision:
                 result = response.json()
                 analysis = result.get("response", "").strip()
                 self.append_text(f"\n[AI] {analysis}\n\n", "ai")
+                logger.info("Analysis completed successfully")
             else:
-                self.append_text(f"[Error] Server: {response.status_code}\n", "error")
+                err_msg = f"[Error] Server: {response.status_code}"
+                self.append_text(f"{err_msg}\n", "error")
+                logger.error(err_msg)
                 
-        except requests.exceptions.ConnectionError:
-            self.append_text(f"[Error] Cannot reach {INFERENCE_URL}\n", "error")
+        except requests.exceptions.ConnectionError as e:
+            err_msg = f"[Error] Cannot reach {INFERENCE_URL}: {e}"
+            self.append_text(f"{err_msg}\n", "error")
+            logger.error(err_msg)
+        except requests.exceptions.Timeout:
+            err_msg = "[Error] Analysis timeout (60s)"
+            self.append_text(f"{err_msg}\n", "error")
+            logger.error(err_msg)
         except Exception as e:
-            self.append_text(f"[Error] {str(e)}\n", "error")
+            err_msg = f"[Error] Analysis failed: {str(e)}"
+            self.append_text(f"{err_msg}\n", "error")
+            logger.exception("Analysis exception")
             
         self.is_processing = False
         self.status_label.config(text="Ready", fg='#6db783')
@@ -295,83 +331,146 @@ class AuraOSVision:
         threading.Thread(target=self._automation_loop, args=(task,), daemon=True).start()
     
     def _automation_loop(self, task):
-        """Automation loop"""
+        """Automation loop with resilience features"""
         step = 0
         max_steps = 15
+        consecutive_errors = 0
+        max_consecutive_errors = 3
+        
+        logger.info("Starting automation loop for task: %s", task)
         
         while self.automation_running and step < max_steps:
             step += 1
-            self.append_text(f"\n[Step {step}]\n", "action")
+            self.append_text(f"\n[Step {step}/{max_steps}]\n", "action")
             
             try:
                 # Capture screen
-                if HAS_PIL:
-                    screenshot = ImageGrab.grab()
-                    buffer = io.BytesIO()
-                    screenshot.save(buffer, format='PNG')
-                    img_data = base64.b64encode(buffer.getvalue()).decode()
-                else:
+                if not HAS_PIL:
                     self.append_text("[Error] PIL required\n", "error")
+                    logger.error("PIL not available")
                     break
                 
+                screenshot = ImageGrab.grab()
+                self.screenshot_size = screenshot.size
+                buffer = io.BytesIO()
+                screenshot.save(buffer, format='PNG')
+                img_data = base64.b64encode(buffer.getvalue()).decode()
+                logger.debug("Screenshot captured: %dx%d", screenshot.size[0], screenshot.size[1])
+                
                 # Ask AI what to do
-                payload = {
-                    "model": "llava:13b",
-                    "prompt": f'''Task: "{task}"
+                prompt = f'''Task: "{task}"
 Look at this screen and determine ONE action to take.
 Reply ONLY with JSON like:
 {{"action":"click","x":500,"y":300,"why":"clicking button"}}
 {{"action":"type","text":"hello","why":"typing text"}}
 {{"action":"done","why":"task complete"}}
-{{"action":"wait","why":"loading"}}''',
-                    "images": [img_data],
-                    "stream": False
-                }
+{{"action":"wait","why":"loading"}}
+'''
                 
-                # Use the vision /ask endpoint which accepts images and a query
-                response = requests.post(f"{INFERENCE_URL}/ask", json={
-                    "query": payload.get("prompt"),
-                    "images": payload.get("images", []),
-                    "parse_json": False
-                }, timeout=60)
+                response = requests.post(
+                    f"{INFERENCE_URL}/ask",
+                    json={
+                        "query": prompt,
+                        "images": [img_data],
+                        "parse_json": False
+                    },
+                    timeout=60
+                )
                 
-                if response.status_code == 200:
-                    ai_text = response.json().get('response', '{}')
+                if response.status_code != 200:
+                    err_msg = f"[Error] Server returned {response.status_code}"
+                    self.append_text(f"{err_msg}\n", "error")
+                    logger.error(err_msg)
+                    consecutive_errors += 1
+                    time.sleep(3)
+                    continue
+                
+                ai_text = response.json().get('response', '{}')
+                logger.debug("AI response: %s", ai_text[:100])
+                
+                # Parse JSON from response with fallback
+                action_data = {"action": "wait"}
+                try:
+                    json_match = re.search(r'\{[^}]+\}', ai_text)
+                    if json_match:
+                        action_data = json.loads(json_match.group())
+                    else:
+                        logger.warning("No JSON found in response: %s", ai_text[:50])
+                except json.JSONDecodeError as e:
+                    logger.warning("JSON parse failed: %s", e)
+                    action_data = {"action": "wait", "why": "parse error"}
+                
+                action = action_data.get('action', 'wait')
+                why = action_data.get('why', '')
+                
+                self.append_text(f"[AI] {why}\n", "ai")
+                logger.info("Action determined: %s - %s", action, why)
+                
+                consecutive_errors = 0  # Reset error counter on success
+                
+                if action == 'done':
+                    self.append_text("[Auto] Task Complete!\n", "success")
+                    logger.info("Automation completed successfully at step %d", step)
+                    break
                     
-                    # Parse JSON from response
-                    try:
-                        json_match = re.search(r'\{[^}]+\}', ai_text)
-                        action_data = json.loads(json_match.group()) if json_match else {"action": "wait"}
-                    except:
-                        action_data = {"action": "wait", "why": "parse error"}
-                    
-                    action = action_data.get('action', 'wait')
-                    why = action_data.get('why', '')
-                    
-                    self.append_text(f"[AI] {why}\n", "ai")
-                    
-                    if action == 'done':
-                        self.append_text("[Auto] Complete!\n", "success")
-                        break
-                    elif action == 'click':
-                        x, y = action_data.get('x', 0), action_data.get('y', 0)
+                elif action == 'click':
+                    x, y = action_data.get('x', 0), action_data.get('y', 0)
+                    if self._validate_coordinates(x, y):
                         self.append_text(f"[Click] ({x},{y})\n", "action")
                         self._do_click(x, y)
-                    elif action == 'type':
-                        text = action_data.get('text', '')
-                        self.append_text(f"[Type] {text[:20]}...\n", "action")
-                        self._do_type(text)
+                        self.last_action_type = 'click'
+                    else:
+                        self.append_text(f"[Skip] Click out of bounds: ({x},{y})\n", "error")
+                        logger.warning("Click coordinates invalid: (%d, %d)", x, y)
+                        
+                elif action == 'type':
+                    text = action_data.get('text', '')
+                    self.append_text(f"[Type] {text[:20]}...\n", "action")
+                    self._do_type(text)
+                    self.last_action_type = 'type'
                     
-                    time.sleep(2)
-                else:
-                    self.append_text(f"[Error] {response.status_code}\n", "error")
-                    time.sleep(3)
-                    
-            except Exception as e:
-                self.append_text(f"[Error] {str(e)[:40]}\n", "error")
+                else:  # wait or unknown
+                    self.append_text(f"[Wait] Pausing...\n", "info")
+                    self.last_action_type = 'wait'
+                
+                # Adaptive cooldown
+                cooldown = self._get_adaptive_cooldown(action)
+                time.sleep(cooldown)
+                
+            except requests.exceptions.Timeout:
+                err_msg = "[Error] AI request timeout (60s)"
+                self.append_text(f"{err_msg}\n", "error")
+                logger.error(err_msg)
+                consecutive_errors += 1
                 time.sleep(3)
+                
+            except requests.exceptions.ConnectionError as e:
+                err_msg = f"[Error] Cannot reach inference server: {e}"
+                self.append_text(f"{err_msg}\n", "error")
+                logger.error(err_msg)
+                consecutive_errors += 1
+                time.sleep(3)
+                
+            except Exception as e:
+                err_msg = f"[Error] {str(e)[:50]}"
+                self.append_text(f"{err_msg}\n", "error")
+                logger.exception("Automation loop exception")
+                consecutive_errors += 1
+                time.sleep(2)
+            
+            # Exit if too many consecutive errors
+            if consecutive_errors >= max_consecutive_errors:
+                self.append_text(f"[Error] Too many errors ({consecutive_errors}) - stopping\n", "error")
+                logger.error("Stopping automation due to %d consecutive errors", consecutive_errors)
+                break
+        
+        # Final status
+        if step >= max_steps and self.automation_running:
+            self.append_text(f"[Auto] Reached max steps ({max_steps})\n", "action")
+            logger.info("Automation stopped: max steps reached")
         
         self.automation_running = False
+        logger.info("Automation loop completed at step %d", step)
         self.root.after(0, self._reset_auto_ui)
     
     def stop_automation(self):
@@ -385,25 +484,66 @@ Reply ONLY with JSON like:
         self.stop_auto_btn.config(state='disabled')
         self.auto_status.config(text="Automation: Idle", fg='#888888')
     
+    def _validate_coordinates(self, x, y):
+        """Validate click coordinates are within screen bounds"""
+        if not self.screenshot_size:
+            logger.warning("No screenshot size - cannot validate coordinates")
+            return False
+        
+        width, height = self.screenshot_size
+        if x < 0 or x > width or y < 0 or y > height:
+            logger.warning("Coordinates out of bounds: (%d,%d) vs screen %dx%d", x, y, width, height)
+            return False
+        
+        return True
+    
+    def _get_adaptive_cooldown(self, action_type):
+        """Adaptive cooldown based on action type"""
+        cooldowns = {
+            'click': 1.5,     # Clicks are quick
+            'type': 2.5,      # Typing needs time to register
+            'wait': 1.0,      # Waiting is fastest
+            'default': 2.0
+        }
+        return cooldowns.get(action_type, cooldowns['default'])
+    
     def _do_click(self, x, y):
-        """Execute click"""
+        """Execute click with error handling"""
         try:
             subprocess.run(
                 ['xdotool', 'mousemove', str(x), str(y), 'click', '1'],
-                check=True, env={**os.environ, 'DISPLAY': ':99'}
+                check=True, env={**os.environ, 'DISPLAY': ':99'},
+                timeout=5,
+                capture_output=True
             )
+            logger.debug("Click executed at (%d, %d)", x, y)
+        except subprocess.TimeoutExpired:
+            err_msg = "[Error] Click timeout"
+            self.append_text(f"{err_msg}\n", "error")
+            logger.error(err_msg)
         except Exception as e:
-            self.append_text(f"[Error] Click: {e}\n", "error")
+            err_msg = f"[Error] Click failed: {e}"
+            self.append_text(f"{err_msg}\n", "error")
+            logger.error(err_msg)
     
     def _do_type(self, text):
-        """Execute typing"""
+        """Execute typing with error handling"""
         try:
             subprocess.run(
                 ['xdotool', 'type', '--clearmodifiers', text],
-                check=True, env={**os.environ, 'DISPLAY': ':99'}
+                check=True, env={**os.environ, 'DISPLAY': ':99'},
+                timeout=10,
+                capture_output=True
             )
+            logger.debug("Typed %d characters", len(text))
+        except subprocess.TimeoutExpired:
+            err_msg = "[Error] Type timeout"
+            self.append_text(f"{err_msg}\n", "error")
+            logger.error(err_msg)
         except Exception as e:
-            self.append_text(f"[Error] Type: {e}\n", "error")
+            err_msg = f"[Error] Type failed: {e}"
+            self.append_text(f"{err_msg}\n", "error")
+            logger.error(err_msg)
 
 if __name__ == "__main__":
     root = tk.Tk()
