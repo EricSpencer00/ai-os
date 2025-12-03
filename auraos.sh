@@ -128,6 +128,20 @@ cmd_restart() {
     cmd_status
 }
 
+cmd_ui() {
+    # Launch AuraOS UI (onboarding + launcher + window manager)
+    echo -e "${GREEN}Launching AuraOS UI...${NC}"
+    
+    # First ensure window manager is running
+    multipass exec auraos-multipass -- bash -c 'export DISPLAY=:99 HOME=/home/auraos USER=auraos && setsid xfwm4 </dev/null >/dev/null 2>&1 &' 2>/dev/null
+    sleep 1
+    
+    # Then launch onboarding (which transitions to launcher)
+    multipass exec auraos-multipass -- sudo -u auraos bash -c 'export DISPLAY=:99 && nohup python3 /opt/auraos/bin/auraos_onboarding.py --force >/dev/null 2>&1 &' 2>/dev/null
+    
+    echo -e "${GREEN}✓ AuraOS UI launched - view at http://localhost:6080/vnc.html${NC}"
+}
+
 cmd_health() {
     # Temporarily disable exit on error for health checks
     set +e
@@ -625,38 +639,44 @@ SERVICE_EOF
 
     # Step 8: Ensure GUI agent is present and started (best-effort)
     echo ""
-    echo -e "${YELLOW}[8/8]${NC} Ensuring auraos-gui-agent is present and running..."
-    # If local gui_agent.py exists, transfer it; also try to install minimal deps and start service
+    echo -e "${YELLOW}[8/9]${NC} Ensuring auraos-gui-agent is present and running..."
+
     if multipass exec "$VM_NAME" -- sudo test -f /home/${AURAOS_USER}/gui_agent.py 2>/dev/null; then
         echo -e "${GREEN}→ GUI agent file already present in VM${NC}"
-        multipass exec "$VM_NAME" -- sudo pip3 install --upgrade flask pyautogui pillow requests numpy >/dev/null 2>&1 || true
-        multipass exec "$VM_NAME" -- sudo systemctl daemon-reload || true
-        multipass exec "$VM_NAME" -- sudo systemctl enable --now auraos-gui-agent.service || true
     else
         if [ -f "$SCRIPT_DIR/gui_agent.py" ]; then
             echo -e "${YELLOW}→ Uploading local gui_agent.py to VM...${NC}"
-            # Use /tmp as transfer target and then move with sudo
-            multipass transfer "$SCRIPT_DIR/gui_agent.py" "$VM_NAME:/tmp/gui_agent.py" 2>/dev/null || true
+            multipass transfer "$SCRIPT_DIR/gui_agent.py" "$VM_NAME:/tmp/gui_agent.py" || true
             multipass exec "$VM_NAME" -- sudo mv /tmp/gui_agent.py /home/${AURAOS_USER}/gui_agent.py || true
             multipass exec "$VM_NAME" -- sudo chown ${AURAOS_USER}:${AURAOS_USER} /home/${AURAOS_USER}/gui_agent.py || true
             multipass exec "$VM_NAME" -- sudo chmod +x /home/${AURAOS_USER}/gui_agent.py || true
-            multipass exec "$VM_NAME" -- sudo pip3 install --upgrade flask pyautogui pillow requests numpy >/dev/null 2>&1 || true
-            multipass exec "$VM_NAME" -- sudo systemctl daemon-reload || true
-            multipass exec "$VM_NAME" -- sudo systemctl enable --now auraos-gui-agent.service || true
         else
             echo -e "${YELLOW}⚠ No local gui_agent.py found; unable to install GUI agent${NC}"
         fi
     fi
 
-    # Report agent status
+    # Install deps safely (non-blocking)
+    multipass exec "$VM_NAME" -- sudo env PIP_NO_INPUT=1 timeout 120s pip3 install --upgrade flask pyautogui pillow requests numpy || true
+
+    # Reload + start service safely
+    multipass exec "$VM_NAME" -- timeout 15s sudo systemctl daemon-reload || true
+    multipass exec "$VM_NAME" -- sudo systemctl enable auraos-gui-agent.service || true
+    multipass exec "$VM_NAME" -- sudo systemctl start auraos-gui-agent.service || true
+
+    # Status check
     if multipass exec "$VM_NAME" -- sudo systemctl is-active --quiet auraos-gui-agent.service; then
         echo -e "${GREEN}✓ GUI Agent running${NC}"
     else
         echo -e "${RED}✗ GUI Agent not running after restart; review logs with: ./auraos.sh logs${NC}"
     fi
 
-    # Also run the agent installer/ensure logic for consistent behavior
-    cmd_agent_ensure >/dev/null 2>&1 || true
+    # Skip full agent_ensure and just launch UI directly
+    # cmd_agent_ensure can be run separately if needed
+    
+    # Step 9: Launch the AuraOS UI (with window manager and onboarding)
+    echo ""
+    echo -e "${YELLOW}[9/9]${NC} Launching AuraOS UI..."
+    cmd_ui
 }
 
 cmd_agent_ensure() {
