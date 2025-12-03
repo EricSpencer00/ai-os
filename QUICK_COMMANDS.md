@@ -56,15 +56,20 @@ actions = planner.plan('click desktop', 'Ubuntu desktop with taskbar')
 print(f'Planned {len(actions)} actions')
 "
 
-# Test WebSocket agent
-python3 -c "
+# Test WebSocket agent (quick)
+python3 - <<'PY'
 from auraos_daemon.core.ws_agent import WebSocketAgent
 agent = WebSocketAgent()
-if agent.connect():
-    print('Connected to WebSocket agent')
+print('connect()', agent.connect())
+try:
+  if getattr(agent, 'is_connected', lambda: True)():
     agent.click(100, 100)
+finally:
+  try:
     agent.disconnect()
-"
+  except Exception:
+    pass
+PY
 ```
 
 ### VM Health & Recovery

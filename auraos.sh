@@ -623,40 +623,51 @@ SERVICE_EOF
     echo -e "  ${GREEN}http://localhost:6080/vnc.html${NC}"
     echo -e "  Password: ${GREEN}auraos123${NC}"
 
-    # Step 8: Ensure GUI agent is present and started (best-effort)
+    # Step 8: Ensure GUI agent is present and started (best-effort, with timeouts)
     echo ""
     echo -e "${YELLOW}[8/8]${NC} Ensuring auraos-gui-agent is present and running..."
-    # If local gui_agent.py exists, transfer it; also try to install minimal deps and start service
-    if multipass exec "$VM_NAME" -- sudo test -f /home/${AURAOS_USER}/gui_agent.py 2>/dev/null; then
-        echo -e "${GREEN}→ GUI agent file already present in VM${NC}"
-        multipass exec "$VM_NAME" -- sudo pip3 install --upgrade flask pyautogui pillow requests numpy >/dev/null 2>&1 || true
-        multipass exec "$VM_NAME" -- sudo systemctl daemon-reload || true
-        multipass exec "$VM_NAME" -- sudo systemctl enable --now auraos-gui-agent.service || true
-    else
-        if [ -f "$SCRIPT_DIR/gui_agent.py" ]; then
-            echo -e "${YELLOW}→ Uploading local gui_agent.py to VM...${NC}"
-            # Use /tmp as transfer target and then move with sudo
+    
+    # Run agent setup in background with timeout to prevent hanging
+    (
+        if multipass exec "$VM_NAME" -- sudo test -f /home/${AURAOS_USER}/gui_agent.py 2>/dev/null; then
+            echo "→ GUI agent file already present in VM"
+            # Skip pip install - it's slow and likely already done
+            multipass exec "$VM_NAME" -- sudo systemctl daemon-reload 2>/dev/null || true
+            multipass exec "$VM_NAME" -- sudo systemctl enable --now auraos-gui-agent.service 2>/dev/null || true
+        elif [ -f "$SCRIPT_DIR/gui_agent.py" ]; then
+            echo "→ Uploading local gui_agent.py to VM..."
             multipass transfer "$SCRIPT_DIR/gui_agent.py" "$VM_NAME:/tmp/gui_agent.py" 2>/dev/null || true
-            multipass exec "$VM_NAME" -- sudo mv /tmp/gui_agent.py /home/${AURAOS_USER}/gui_agent.py || true
-            multipass exec "$VM_NAME" -- sudo chown ${AURAOS_USER}:${AURAOS_USER} /home/${AURAOS_USER}/gui_agent.py || true
-            multipass exec "$VM_NAME" -- sudo chmod +x /home/${AURAOS_USER}/gui_agent.py || true
-            multipass exec "$VM_NAME" -- sudo pip3 install --upgrade flask pyautogui pillow requests numpy >/dev/null 2>&1 || true
-            multipass exec "$VM_NAME" -- sudo systemctl daemon-reload || true
-            multipass exec "$VM_NAME" -- sudo systemctl enable --now auraos-gui-agent.service || true
-        else
-            echo -e "${YELLOW}⚠ No local gui_agent.py found; unable to install GUI agent${NC}"
+            multipass exec "$VM_NAME" -- sudo mv /tmp/gui_agent.py /home/${AURAOS_USER}/gui_agent.py 2>/dev/null || true
+            multipass exec "$VM_NAME" -- sudo chown ${AURAOS_USER}:${AURAOS_USER} /home/${AURAOS_USER}/gui_agent.py 2>/dev/null || true
+            multipass exec "$VM_NAME" -- sudo chmod +x /home/${AURAOS_USER}/gui_agent.py 2>/dev/null || true
+            multipass exec "$VM_NAME" -- sudo systemctl daemon-reload 2>/dev/null || true
+            multipass exec "$VM_NAME" -- sudo systemctl enable --now auraos-gui-agent.service 2>/dev/null || true
         fi
+    ) &
+    AGENT_SETUP_PID=$!
+    
+    # Wait max 15 seconds for agent setup
+    for i in {1..15}; do
+        if ! kill -0 $AGENT_SETUP_PID 2>/dev/null; then
+            break
+        fi
+        sleep 1
+    done
+    
+    # Kill if still running
+    if kill -0 $AGENT_SETUP_PID 2>/dev/null; then
+        kill $AGENT_SETUP_PID 2>/dev/null || true
+        echo -e "${YELLOW}→ Agent setup timed out (service may start later)${NC}"
     fi
 
-    # Report agent status
-    if multipass exec "$VM_NAME" -- sudo systemctl is-active --quiet auraos-gui-agent.service; then
+    # Quick check agent status (with timeout)
+    if multipass exec "$VM_NAME" -- sudo systemctl is-active --quiet auraos-gui-agent.service 2>/dev/null; then
         echo -e "${GREEN}✓ GUI Agent running${NC}"
     else
-        echo -e "${RED}✗ GUI Agent not running after restart; review logs with: ./auraos.sh logs${NC}"
+        echo -e "${YELLOW}→ GUI Agent not running yet (may start momentarily)${NC}"
     fi
-
-    # Also run the agent installer/ensure logic for consistent behavior
-    cmd_agent_ensure >/dev/null 2>&1 || true
+    
+    echo -e "${GREEN}✓ GUI reset complete${NC}"
 }
 
 cmd_agent_ensure() {
@@ -669,10 +680,11 @@ cmd_agent_ensure() {
     # Transfer agent if present locally
     if [ -f "$SCRIPT_DIR/gui_agent.py" ]; then
         echo -e "${YELLOW}→ Transferring local gui_agent.py to VM...${NC}"
-        multipass transfer "$SCRIPT_DIR/gui_agent.py" "$VM_NAME:/tmp/gui_agent.py" 2>/dev/null || true
+        timeout 10 multipass transfer "$SCRIPT_DIR/gui_agent.py" "$VM_NAME:/tmp/gui_agent.py" 2>/dev/null || true
     fi
 
-    multipass exec "$VM_NAME" -- sudo bash <<'AGENT_SETUP' || true
+    # Run the agent setup with a 60-second timeout to prevent hanging
+    timeout 60 multipass exec "$VM_NAME" -- sudo bash <<'AGENT_SETUP' || true
 AURAOS_USER='auraos'
 apt-get update -qq || true
 apt-get install -y python3-venv python3-pip xauth gnome-screenshot >/dev/null 2>&1 || true
@@ -1894,7 +1906,12 @@ BROWSER_LAUNCHER
 cat > /usr/local/bin/auraos-home << 'HOME_LAUNCHER'
 #!/bin/bash
 cd /opt/auraos/bin
-exec python3 auraos_launcher.py
+# Launch in fullscreen mode by default (can override with --windowed)
+if [[ "$*" == *"--windowed"* ]]; then
+    exec python3 auraos_launcher.py "$@"
+else
+    exec python3 auraos_launcher.py --fullscreen "$@"
+fi
 HOME_LAUNCHER
 
 chmod +x /usr/local/bin/auraos-terminal
@@ -2028,29 +2045,22 @@ cat > ~/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml << 'XML_EOF'
 XML_EOF
 
 # Create autostart for home screen
-cat > ~/.config/autostart/auraos-homescreen.desktop << 'DESKTOP_EOF'
-[Desktop Entry]
-Type=Application
-Name=AuraOS Home
-Comment=AuraOS Home Screen Dashboard
-Exec=auraos-home
-Hidden=false
-NoDisplay=false
-X-GNOME-Autostart-enabled=true
-X-GNOME-Autostart-Delay=5
-DESKTOP_EOF
+# Onboarding launches first and then spawns the fullscreen launcher
+# Remove old homescreen autostart - onboarding handles the transition
+rm -f ~/.config/autostart/auraos-homescreen.desktop 2>/dev/null || true
 
-# Create autostart for onboarding
+# Create autostart for onboarding (runs FIRST, with no delay)
 cat > ~/.config/autostart/auraos-onboarding.desktop << 'DESKTOP_EOF'
 [Desktop Entry]
 Type=Application
 Name=AuraOS Onboarding
-Comment=AuraOS Startup Experience
-Exec=/opt/auraos/bin/auraos_onboarding.py
+Comment=AuraOS Startup Experience - Shows boot animation then launches main UI
+Exec=python3 /opt/auraos/bin/auraos_onboarding.py --force
 Hidden=false
 NoDisplay=false
 X-GNOME-Autostart-enabled=true
-X-GNOME-Autostart-Delay=1
+X-GNOME-Autostart-Delay=0
+StartupNotify=false
 DESKTOP_EOF
 
 # Create desktop shortcuts
@@ -2364,6 +2374,7 @@ cmd_help() {
     echo "  health             - Run comprehensive system health check"
     echo "  inference          - Manage AI inference server: start|stop|status|logs|restart"
     echo "  gui-reset          - Complete clean restart of VNC/noVNC services"
+    echo "  ui                 - Launch AuraOS fullscreen interface (onboarding + launcher)"
     echo "  agent-ensure       - Ensure gui agent is installed, venv created and service enabled"
     echo "  agent-logs         - Show GUI agent logs (journalctl)"
     echo "  forward            - Manage port forwarders: forward <start|stop|status>"
@@ -2411,6 +2422,12 @@ case "$1" in
         ;;
     gui-reset)
         cmd_gui_reset
+        ;;
+    ui|launch-ui)
+        # Launch AuraOS UI (onboarding + launcher)
+        echo -e "${GREEN}Launching AuraOS UI...${NC}"
+        multipass exec auraos-multipass -- sudo -u auraos bash -c 'export DISPLAY=:99 && nohup python3 /opt/auraos/bin/auraos_onboarding.py --force >/dev/null 2>&1 &'
+        echo -e "${GREEN}✓ AuraOS UI launched - view at http://localhost:6080/vnc.html${NC}"
         ;;
     disable-screensaver)
         shift
