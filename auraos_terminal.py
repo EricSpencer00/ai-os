@@ -171,77 +171,54 @@ class AuraOSTerminal:
         threading.Thread(target=self._convert_and_execute, args=(text,), daemon=True).start()
         
     def _build_system_prompt(self):
-        """Build the system prompt for command generation"""
-        return """You are a highly capable shell command generator that converts plain-English requests into fully self-contained, executable shell commands for a Unix-like environment.
+        """Build the system prompt for command generation (from TerminalGPT)"""
+        return """You are a highly capable shell command generator that converts plain-English requests into fully self-contained, executable shell commands for a Unix-like environment. You must produce all necessary commands so that the user never needs to perform any manual steps.
 
-RULES:
-1. Completeness: Generate complete commands including any prerequisite steps
-   - If a tool is not installed, suggest installation commands first
-   - If a directory doesn't exist, include mkdir commands
-   - Handle dependencies automatically
+Completeness: Generate complete commands that include any prerequisite steps (e.g., if a referenced folder does not exist, include a command such as `mkdir -p` to create it).
 
-2. Clarity & Safety: Consider edge cases and dependencies
-   - Always think about what might fail
-   - Provide robust commands that handle errors
-   - Use flags for non-interactive execution when needed
+Clarity & Safety: If the request is ambiguous, incomplete, or potentially dangerous (e.g., commands that could result in data loss or system instability), ask for clarification before proceeding.
 
-3. No Placeholders: All paths and arguments must be explicitly specified
-   - Never use /path/to/folder or <argument>
-   - Use actual, concrete paths
+No Placeholders: Do not use placeholders like `/path/to/folder` or `<argument>`. All paths and arguments must be explicitly specified.
 
-4. Formatting: Output ONLY the bash command(s), nothing else
-   - No explanations, no markdown, no code fences
-   - Multiple commands on separate lines in execution order
-   - If you cannot convert it, reply: CANNOT_CONVERT
+Formatting: Output only the final command(s) without any extra commentary, markdown formatting, code fences, or additional text.
 
-5. Error Recovery: Consider what might fail and provide a robust command"""
+Multiple Commands: If more than one command is required, list each command on a separate line in the correct execution order.
+
+Edge Cases: Always consider dependencies, file/directory existence, and command safety (e.g., using flags for non-interactive execution if needed). Your response should consist solely of the final command(s) ready for execution."""
+
+    def _validate_command(self, command):
+        """Validate command for dangerous patterns"""
+        dangerous_patterns = [
+            'rm -rf /',  # Recursive delete root
+            ':(){:|:&};:',  # Bash fork bomb
+            'mkfs',  # Format filesystem
+            'dd if=/dev/zero',  # Destructive writes
+        ]
+        
+        cmd_lower = command.lower()
+        for pattern in dangerous_patterns:
+            if pattern.lower() in cmd_lower:
+                return False, f"Potentially dangerous pattern detected: {pattern}"
+        
+        return True, ""
 
     def _analyze_command_result(self, command, stdout, stderr, exit_code):
-        """Use AI to analyze if a command succeeded or failed and why"""
-        try:
-            analysis_prompt = f"""Analyze this command execution and determine if it succeeded:
-
-Command: {command}
-Exit Code: {exit_code}
-Stdout: {stdout[:500] if stdout else '(no output)'}
-Stderr: {stderr[:500] if stderr else '(no errors)'}
-
-Respond ONLY with JSON in this exact format:
-{{"success": true/false, "reason": "brief explanation", "issue": "what went wrong (if failed)"}}
-
-Be intelligent - some commands succeed with exit code 0 but fail logically, others have warnings but work."""
-            
-            response = requests.post(
-                f"{INFERENCE_URL}/generate",
-                json={"prompt": analysis_prompt},
-                timeout=10
-            )
-            
-            if response.status_code == 200:
-                result_text = response.json().get("response", "").strip()
-                # Extract JSON from response
-                try:
-                    json_start = result_text.find('{')
-                    json_end = result_text.rfind('}') + 1
-                    if json_start >= 0 and json_end > json_start:
-                        analysis = json.loads(result_text[json_start:json_end])
-                        return analysis
-                except:
-                    pass
-            
-            # Fallback: simple exit code check
-            return {
-                "success": exit_code == 0,
-                "reason": "exit code analysis" if exit_code == 0 else "non-zero exit code",
-                "issue": stderr if stderr else ""
-            }
-        except:
-            # Ultimate fallback
-            return {
-                "success": exit_code == 0,
-                "reason": "fallback check",
-                "issue": stderr if stderr else ""
-            }
+        """Analyze if a command succeeded or failed"""
+        # Simple heuristic: exit code 0 almost always means success
+        # Only use AI for ambiguous cases (exit code != 0 but might have partial success)
+        if exit_code == 0:
+            return {"success": True, "reason": "exit code 0", "issue": ""}
+        
+        # For non-zero exit codes with no stderr, still consider it might be partial success
+        if exit_code != 0 and not stderr and stdout:
+            return {"success": True, "reason": "exit code non-zero but has output", "issue": ""}
+        
+        # Actual failure
+        return {
+            "success": False,
+            "reason": f"exit code {exit_code}",
+            "issue": stderr[:200] if stderr else "No error output"
+        }
 
     def _generate_recovery_command(self, user_request, command_executed, analysis):
         """Use AI to generate a recovery command based on failure analysis"""
@@ -308,7 +285,13 @@ Please provide a corrected command that will work around this specific error."""
                 # Get first line (handle multi-line responses)
                 command = command.split('\n')[0].strip()
                 
-                if command and "CANNOT_CONVERT" not in command and len(command) < 500:
+                if command and "CANNOT_CONVERT" not in command and len(command) < 2000:
+                    # Validate command safety
+                    is_safe, reason = self._validate_command(command)
+                    if not is_safe:
+                        self.append_text(f"[!] Safety check failed: {reason}\n", "error")
+                        return None
+                    
                     return command
                 else:
                     self.append_text("[X] Could not generate valid command\n", "error")
@@ -340,22 +323,29 @@ Please provide a corrected command that will work around this specific error."""
                 
                 self.append_text(f"Command: {command}\n", "command")
                 
-                # Execute
+                # Execute (safely, with proper timeout and working directory)
                 self.append_text("[*] Executing...\n", "info")
-                result = subprocess.run(
-                    command,
-                    shell=True,
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                    cwd=os.path.expanduser("~")
-                )
+                try:
+                    result = subprocess.run(
+                        command,
+                        shell=True,
+                        capture_output=True,
+                        text=True,
+                        timeout=30,
+                        cwd=os.path.expanduser("~")
+                    )
+                except subprocess.TimeoutExpired:
+                    self.append_text("[X] Command timed out after 30 seconds\n", "error")
+                    break
+                except Exception as e:
+                    self.append_text(f"[X] Execution error: {str(e)}\n", "error")
+                    break
                 
                 # Display output
                 if result.stdout:
-                    self.append_text(f"\n{result.stdout}", "info")
+                    self.append_text(f"{result.stdout}\n", "info")
                 
-                # AI-driven result analysis: ask AI if this really succeeded
+                # Result analysis: simple heuristic, not expensive AI call
                 analysis = self._analyze_command_result(
                     command, 
                     result.stdout, 
@@ -363,9 +353,9 @@ Please provide a corrected command that will work around this specific error."""
                     result.returncode
                 )
                 
-                # Check AI's determination of success
+                # Check if command succeeded
                 if analysis.get("success"):
-                    self.append_text(f"[OK] Command succeeded: {analysis.get('reason', 'Success')}\n", "success")
+                    self.append_text(f"[OK] Command succeeded\n", "success")
                     self.status_label.config(text="Ready", fg='#6db783')
                     self.is_processing = False
                     return
@@ -381,17 +371,17 @@ Please provide a corrected command that will work around this specific error."""
                             "error"
                         )
                         self.append_text(
-                            f"[*] Crafting recovery ({self.retry_count}/{self.max_retries - 1})...\n",
+                            f"[*] Attempt {self.retry_count + 1}/{self.max_retries}...\n",
                             "retry"
                         )
                         
-                        # Prepare analysis for next iteration - AI will use this to craft better command
+                        # Prepare analysis for next iteration
                         error_analysis = {
                             "reason": failure_reason,
-                            "issue": failure_issue[:300],  # Limit size
-                            "output": result.stdout[:200] if result.stdout else ""
+                            "issue": failure_issue[:200],
+                            "output": result.stdout[:100] if result.stdout else ""
                         }
-                        self.status_label.config(text=f"Recovering... ({self.retry_count})", fg='#ff7f50')
+                        self.status_label.config(text=f"Retrying... ({self.retry_count}/{self.max_retries})", fg='#ff7f50')
                         continue
                     else:
                         # Max retries exceeded
@@ -399,14 +389,10 @@ Please provide a corrected command that will work around this specific error."""
                             f"[X] Failed after {self.max_retries} attempts\n",
                             "error"
                         )
-                        self.append_text(
-                            f"[X] Final error: {failure_reason}\n",
-                            "error"
-                        )
+                        if failure_issue:
+                            self.append_text(f"Error: {failure_issue}\n", "error")
                         break
                 
-        except subprocess.TimeoutExpired:
-            self.append_text("[X] Command timed out after 30 seconds\n", "error")
         except Exception as e:
             self.append_text(f"[X] Unexpected error: {str(e)}\n", "error")
             
