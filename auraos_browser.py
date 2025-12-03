@@ -35,8 +35,12 @@ class AuraOSBrowser:
     def __init__(self, root):
         self.root = root
         self.root.title("AuraOS Browser")
-        self.root.geometry("1400x900")
+        self.root.geometry("1100x800")
         self.root.configure(bg='#0a0e27')
+        
+        # Enable proper window manager integration for resize/drag
+        self.root.resizable(True, True)
+        self.root.minsize(800, 500)
         
         # State
         self.search_history = []

@@ -42,6 +42,10 @@ class AuraOSLauncher:
         if "DISPLAY" not in os.environ:
             os.environ["DISPLAY"] = ":99"
         
+        # Enable proper window manager integration for resize/drag
+        self.root.resizable(True, True)
+        self.root.minsize(600, 400)
+        
         if fullscreen:
             # Fullscreen mode - completely overlay XFCE
             self.root.attributes('-fullscreen', True)
@@ -50,7 +54,9 @@ class AuraOSLauncher:
             self.root.bind('<Escape>', self.toggle_fullscreen)
             self.root.bind('<F11>', self.toggle_fullscreen)
         else:
-            self.root.geometry("800x600")
+            self.root.geometry("900x700")
+            # Normal window - allow window manager decorations
+            self.root.attributes('-topmost', False)
         
         # Handle window close - minimize instead of close in fullscreen
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -267,11 +273,16 @@ class AuraOSLauncher:
         
         def _launch():
             try:
-                # Try thunar first (XFCE file manager)
+                # Open the correct home directory for the auraos user
+                home_dir = os.path.expanduser("~")
+                
+                # Try thunar first (XFCE file manager) with correct path
                 if shutil.which("thunar"):
-                    subprocess.Popen(['thunar'], start_new_session=True)
+                    subprocess.Popen(['thunar', home_dir], start_new_session=True)
                 elif shutil.which("nautilus"):
-                    subprocess.Popen(['nautilus'], start_new_session=True)
+                    subprocess.Popen(['nautilus', home_dir], start_new_session=True)
+                elif shutil.which("pcmanfm"):
+                    subprocess.Popen(['pcmanfm', home_dir], start_new_session=True)
                 else:
                     raise FileNotFoundError("No file manager found")
                 self.status_label.config(text="System Ready", fg='#6db783')

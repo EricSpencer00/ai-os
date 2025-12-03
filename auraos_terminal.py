@@ -33,6 +33,10 @@ class AuraOSTerminal:
         self.root.geometry("900x700")
         self.root.configure(bg='#0a0e27')
         
+        # Enable proper window manager integration for resize/drag
+        self.root.resizable(True, True)
+        self.root.minsize(600, 400)
+        
         self.is_processing = False
         self.conversation_history = []  # Track conversation for context
         self.retry_count = 0
