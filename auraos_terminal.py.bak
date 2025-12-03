@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-AuraOS Terminal - HARDENED VERSION
-English to Bash with defensive extraction, binary fallbacks, injection detection, and safe execution
+AuraOS Terminal - English to Bash GUI with TerminalGPT-style Resilience
+Persistent PTY shell with true terminal context and self-healing retry logic
 """
 import tkinter as tk
 from tkinter import scrolledtext
@@ -17,7 +17,6 @@ import select
 import time
 import signal
 import fcntl
-import random
 
 # Smart URL detection: use host gateway IP when running inside VM
 def get_inference_url():
@@ -167,7 +166,7 @@ class AuraOSTerminal:
         clear_btn.pack(side='left', padx=5)
         
         # Welcome
-        self.append_text("[Terminal] English to Bash - Auto Recovery (Hardened)\n", "info")
+        self.append_text("[Terminal] English to Bash - Auto Recovery\n", "info")
         self.append_text("If a command fails, the AI will automatically try to fix it\n\n", "info")
         self.append_text("Examples:\n", "info")
         self.append_text("  • show me all files\n", "command")
@@ -211,158 +210,39 @@ class AuraOSTerminal:
         threading.Thread(target=self._convert_and_execute, args=(text,), daemon=True).start()
         
     def _build_system_prompt(self):
-        """Build the system prompt for command generation (strict output format)"""
+        """Build the system prompt for command generation (from TerminalGPT, with strict output format)"""
         return """You are a highly capable shell command generator that converts plain-English requests into fully self-contained, executable shell commands for a Unix-like environment. You must produce all necessary commands so that the user never needs to perform any manual steps.
 
 CRITICAL: Your response must contain ONLY the bash command(s). No explanations, no preamble, no descriptions.
 
 Core Requirements:
-1. Completeness: Generate complete commands that include any prerequisite steps.
+1. Completeness: Generate complete commands that include any prerequisite steps (e.g., if a referenced folder does not exist, include a command such as `mkdir -p` to create it).
+
 2. Always consider dependencies, file/directory existence, and command safety.
-3. No Placeholders: All paths and arguments must be explicitly specified.
-4. Multiple Commands: If more than one command is required, list each command on a separate line.
-5. Edge Cases: Use flags for non-interactive execution if needed.
+
+3. No Placeholders: Do not use placeholders like `/path/to/folder` or `<argument>`. All paths and arguments must be explicitly specified.
+
+4. Multiple Commands: If more than one command is required, list each command on a separate line in the correct execution order.
+
+5. Edge Cases: Use flags for non-interactive execution if needed. Your response should consist solely of the final command(s) ready for execution.
 
 OUTPUT FORMAT (CRITICAL):
 - Start directly with the command
 - No introductory text whatsoever
 - No markdown, code fences, or formatting
+- Chain any commands separated by newlines
 - If unsafe or cannot convert: output only "CANNOT_CONVERT"
 
+EXAMPLE CORRECT OUTPUT:
+mkdir -p /home/user/project
+cd /home/user/project
+git clone https://github.com/EricSpencer00/ai-os.git
+
+EXAMPLE WRONG OUTPUT (DO NOT DO THIS):
+"Here is the command to clone the repository:
+git clone https://github.com/username/repo.git"
+
 REMEMBER: Output ONLY the command(s). Nothing else."""
-
-    def _extract_command_from_response(self, response_text):
-        """Extract command from AI response. Aggressively defensive against markup and injection."""
-        original_text = response_text
-        
-        # Strip code fences with optional language markers: ```bash, ``` bash, ``` etc.
-        response_text = re.sub(r"```\s*(?:[a-zA-Z0-9_+-]*)", "", response_text)
-        
-        # Remove inline backticks: `cmd` -> cmd
-        response_text = re.sub(r"`([^`]*)`", r"\1", response_text)
-        
-        # Strip any remaining backticks
-        response_text = response_text.replace('`', '')
-        
-        lines = response_text.strip().split('\n')
-        
-        command_lines = []
-        
-        # Aggressive preamble/description patterns to skip
-        desc_patterns = [
-            'here is', 'this command', 'to accomplish', 'to convert',
-            'example:', 'output:', 'note:', 'first,', 'then,', 'finally,',
-            'the command', 'you can', 'alternatively', 'use:', 'try:',
-            'run:', 'execute:', 'the bash', 'a command', 'to check',
-            'result:', 'note that', 'if you', 'you need to', 'make sure',
-            'first run', 'then', 'after that', 'next', 'to do this',
-            'option:', 'you should', 'remember to', 'important:', 'step'
-        ]
-        
-        for line in lines:
-            line = line.strip()
-            
-            # Skip empty or comment lines
-            if not line or line.startswith('#'):
-                continue
-            
-            line_lower = line.lower()
-            
-            # Skip language marker lines (bash, python, etc)
-            if line_lower in ('bash', 'sh', 'shell', 'zsh', 'ksh', 'python', 'ruby', 'javascript', 'node'):
-                continue
-            
-            # Skip obvious preamble patterns
-            if any(line_lower.startswith(p) or line_lower.endswith(p) for p in desc_patterns):
-                continue
-            
-            # Skip lines that end with colon and don't contain command-like chars
-            if line.endswith(':') and not any(c in line for c in ['/', '-', '$', '~', '|', '&', ';']):
-                continue
-            
-            # Handle "Command: ..." or "To fix: ..." patterns
-            if re.match(r'^(command:|to fix:)', line_lower):
-                parts = line.split(':', 1)[1].strip()
-                if parts:
-                    command_lines.append(parts)
-                continue
-            
-            # This line looks like a real command
-            if line:
-                command_lines.append(line)
-        
-        result = '\n'.join(command_lines) if command_lines else ""
-        
-        # Debug log if extraction was non-trivial
-        if len(original_text) > 50 or '`' in original_text or '```' in original_text:
-            import sys
-            print(f"[DEBUG] Extraction: {repr(original_text[:100])} -> {repr(result[:100])}", file=sys.stderr)
-        
-        return result
-
-    def _validate_command_safe(self, command):
-        """Validate command: detect injection patterns, resolve binaries with fallbacks."""
-        if not command or not command.strip():
-            return False, "Empty command", ""
-        
-        # Check for injection patterns
-        injection_patterns = [r"\$\(", r"\$\{", r"`;.*`"]
-        for pattern in injection_patterns:
-            if re.search(pattern, command):
-                return False, f"Injection pattern: {pattern}", ""
-        
-        lines = command.strip().split('\n')
-        corrected_lines = []
-        
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-            
-            tokens = line.split(None, 1)
-            if not tokens:
-                continue
-            
-            binary = tokens[0]
-            args = tokens[1] if len(tokens) > 1 else ""
-            
-            # Resolve binary with fallbacks (python->python3, pip->pip3, etc)
-            resolved = self._resolve_binary(binary)
-            if not resolved:
-                return False, f"Command not found: {binary}", ""
-            
-            corrected_lines.append(f"{resolved} {args}".strip())
-        
-        if not corrected_lines:
-            return False, "No valid commands", ""
-        
-        return True, "", '\n'.join(corrected_lines)
-    
-    def _resolve_binary(self, binary):
-        """Resolve binary path; try common fallbacks (python->python3, pip->pip3, etc)."""
-        fallbacks = {
-            'python': ['python3', 'python'],
-            'pip': ['pip3', 'pip'],
-            'node': ['nodejs', 'node']
-        }
-        candidates = [binary] + fallbacks.get(binary, [])
-        
-        for candidate in candidates:
-            try:
-                result = subprocess.run(
-                    f"command -v {candidate}",
-                    shell=True,
-                    capture_output=True,
-                    timeout=2,
-                    text=True
-                )
-                if result.returncode == 0:
-                    # Return the resolved path (last token from command -v output)
-                    return result.stdout.strip().split()[-1]
-            except:
-                pass
-        
-        return None
 
     def _validate_command(self, command):
         """Validate command for dangerous patterns"""
@@ -382,22 +262,116 @@ REMEMBER: Output ONLY the command(s). Nothing else."""
 
     def _analyze_command_result(self, command, stdout, stderr, exit_code, cwd=""):
         """Analyze if a command succeeded or failed"""
+        # Simple heuristic: exit code 0 almost always means success
+        # Only use AI for ambiguous cases (exit code != 0 but might have partial success)
         if exit_code == 0:
             return {"success": True, "reason": "exit code 0", "issue": ""}
         
+        # For non-zero exit codes with no stderr, still consider it might be partial success
         if exit_code != 0 and not stderr and stdout:
             return {"success": True, "reason": "exit code non-zero but has output", "issue": ""}
         
+        # Actual failure
         return {
             "success": False,
             "reason": f"exit code {exit_code}",
             "issue": stderr[:200] if stderr else "No error output"
         }
 
+    def _generate_recovery_command(self, user_request, command_executed, analysis):
+        """Use AI to generate a recovery command based on failure analysis"""
+        try:
+            recovery_prompt = f"""The user requested: {user_request}
+
+The command that failed: {command_executed}
+
+Failure analysis: {analysis.get('issue', 'Unknown error')}
+
+Based on the failure, generate ONE alternative bash command that will:
+1. Work around the reported issue
+2. Accomplish the original user request
+3. Handle common failure modes proactively
+
+Output ONLY the bash command, nothing else."""
+            
+            self.append_text("[*] Analyzing failure and crafting recovery...\n", "info")
+            
+            response = requests.post(
+                f"{INFERENCE_URL}/generate",
+                json={"prompt": self._build_system_prompt() + f"\n\n{recovery_prompt}"},
+                timeout=15
+            )
+            
+            if response.status_code == 200:
+                command = response.json().get("response", "").strip()
+                command = command.split('\n')[0].strip()
+                
+                if command and len(command) < 500:
+                    return command
+            
+            return None
+        except:
+            return None
+
+    def _extract_command_from_response(self, response_text):
+        """Extract the actual command from potentially verbose AI response"""
+        # First, strip all code-fence markers (with optional language identifier and spaces)
+        # This handles ```bash, ``` bash, ```sh, ``` etc.
+        response_text = re.sub(r"```\s*(?:[a-zA-Z0-9_+-]*)", "", response_text)
+        
+        # Remove inline backticks
+        response_text = re.sub(r"`([^`]*)`", r"\1", response_text)
+
+        lines = response_text.strip().split('\n')
+
+        # Filter out empty lines, comments and formatting language markers
+        command_lines = []
+        desc_patterns = [
+            'here is', 'this command', 'to accomplish', 'to convert',
+            'example:', 'output:', 'note:', 'first,', 'then,', 'finally,',
+            'the command', 'you can', 'alternatively', 'use:', 'try:',
+            'run:', 'execute:', 'the bash', 'a command', 'to check'
+        ]
+
+        for line in lines:
+            line = line.strip()
+
+            # Skip empty or comment lines
+            if not line or line.startswith('#'):
+                continue
+
+            line_lower = line.lower()
+
+            # Skip lines that are just a language marker (e.g., 'bash', 'shell')
+            if line_lower in ('bash', 'sh', 'shell'):
+                continue
+
+            # Skip obvious description patterns
+            if any(line_lower.startswith(p) or line_lower.endswith(p) for p in desc_patterns):
+                continue
+
+            # Handle lines that prefix the command (e.g., "Command: ...")
+            if re.match(r'^(command:|to fix:)', line_lower):
+                parts = line.split(':', 1)[1].strip()
+                if parts:
+                    command_lines.append(parts)
+                continue
+
+            # Looks like a real command line — append it
+            if line:
+                command_lines.append(line)
+
+        # Return joined command lines if any
+        if command_lines:
+            return '\n'.join(command_lines)
+        return ""
+
     def _generate_command(self, user_request, error_analysis=None):
         """Generate a bash command using AI, with context for recovery"""
         try:
+            # Build the prompt - include context from error_analysis including cwd
             if error_analysis:
+                # Error recovery mode: use AI analysis to craft fix with full context
                 cwd_context = f"Current directory: {error_analysis.get('cwd', '~')}\n" if error_analysis.get('cwd') else ""
                 prompt = f"""Fix this command that failed:
 Original request: {user_request}
@@ -424,7 +398,7 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
                 command = self._extract_command_from_response(response_text)
                 
                 if command and "CANNOT_CONVERT" not in command and len(command) < 2000:
-                    # Validate command safety (dangerous patterns)
+                    # Validate command safety
                     is_safe, reason = self._validate_command(command)
                     if not is_safe:
                         self.append_text(f"[!] Safety check failed: {reason}\n", "error")
@@ -453,51 +427,28 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
 
     def _run_in_shell(self, command, timeout=30):
         """
-        Execute command in persistent PTY shell and capture output safely.
-        Validates command, resolves binaries with fallbacks, escapes safely.
+        Execute command in persistent PTY shell and capture output.
+        This maintains shell state (cwd, env, created files) across calls.
         """
         if not self.shell_fd:
             return 1, "", "Shell not initialized", ""
         
         try:
-            # Pre-exec validation: detect injections and resolve binaries
-            is_valid, err, corrected = self._validate_command_safe(command)
-            if not is_valid:
-                return 1, "", err, ""
-            
-            if corrected:
-                command = corrected
-            
             # Get current working directory before executing
             pwd_cmd = "pwd\n"
             os.write(self.shell_fd, pwd_cmd.encode())
             time.sleep(0.1)
             cwd = self._read_shell_output(timeout=2).strip().split('\n')[-1]
             
-            # Use unique markers to avoid collision (PID + random UUID)
-            marker_uuid = f"{os.getpid()}_{random.randint(100000, 999999)}"
-            marker_start = f"__CMD_START_{marker_uuid}__"
-            marker_end = f"__CMD_END_{marker_uuid}__"
-            
-            # Build safe command using printf (avoids echo interpretation)
-            # Capture exit code safely in a variable
-            full_command = (
-                f"printf '%s\\n' '{marker_start}'\n"
-                f"{command}\n"
-                f"__e__=$?\n"
-                f"printf '__STATUS__%s__/STATUS__\\n' \"$__e__\"\n"
-                f"printf '%s\\n' '{marker_end}'\n"
-            )
-            
-            # Debug logging
-            import sys
-            print(f"[DEBUG] Executing: {repr(command[:80])}", file=sys.stderr)
+            # Write command with status markers for clean output capture
+            marker_start = f"__START_{int(time.time() * 1000)}__"
+            marker_end = f"__END_{int(time.time() * 1000)}__"
+            full_command = f"echo '{marker_start}'\n{command}\necho '__STATUS__'$?'__/STATUS__'\necho '{marker_end}'\n"
             
             os.write(self.shell_fd, full_command.encode())
             
             # Capture output with timeout
             output = self._read_shell_output(timeout=timeout)
-            print(f"[DEBUG] Output: {repr(output[:150])}", file=sys.stderr)
             
             # Parse output between markers
             if marker_start in output and marker_end in output:
@@ -514,12 +465,10 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
                 
                 return exit_code, result_output, "", cwd
             else:
-                print(f"[DEBUG] Markers not found in output", file=sys.stderr)
+                # Fallback if markers not found
                 return 0, output, "", cwd
                 
         except Exception as e:
-            import traceback
-            print(f"[DEBUG] Exception: {e}\n{traceback.format_exc()}", file=sys.stderr)
             return 1, "", str(e), ""
     
     def _read_shell_output(self, timeout=5):
@@ -542,6 +491,7 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
                 except (OSError, IOError):
                     break
             else:
+                # Small delay to avoid busy-waiting
                 time.sleep(0.05)
         
         return output
@@ -552,16 +502,17 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
             error_analysis = None
             
             while self.retry_count < self.max_retries:
-                # Generate command
+                # Generate command (with AI analysis for recovery attempts)
                 command = self._generate_command(user_request, error_analysis)
                 if not command:
                     break
                 
                 self.append_text(f"Command: {command}\n", "command")
                 
-                # Execute
+                # Execute (safely, with proper timeout and working directory)
                 self.append_text("[*] Executing...\n", "info")
                 try:
+                    # Use persistent PTY shell instead of subprocess
                     exit_code, stdout, stderr, cwd = self._run_in_shell(command, timeout=30)
                 except Exception as e:
                     self.append_text(f"[X] Execution error: {str(e)}\n", "error")
@@ -571,7 +522,7 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
                 if stdout:
                     self.append_text(f"{stdout}\n", "info")
                 
-                # Result analysis
+                # Result analysis: simple heuristic, not expensive AI call
                 analysis = self._analyze_command_result(
                     command, 
                     stdout, 
@@ -587,7 +538,7 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
                     self.is_processing = False
                     return
                 else:
-                    # Command failed - prepare for recovery
+                    # Command failed - prepare for intelligent recovery
                     failure_reason = analysis.get("reason", "Unknown error")
                     failure_issue = analysis.get("issue", stderr or "No error details")
                     
@@ -602,7 +553,7 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
                             "retry"
                         )
                         
-                        # Prepare analysis for next iteration
+                        # Prepare analysis for next iteration (include cwd context)
                         error_analysis = {
                             "reason": failure_reason,
                             "issue": failure_issue[:200],

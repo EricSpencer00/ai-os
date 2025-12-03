@@ -128,6 +128,20 @@ cmd_restart() {
     cmd_status
 }
 
+cmd_ui() {
+    # Launch AuraOS UI (onboarding + launcher + window manager)
+    echo -e "${GREEN}Launching AuraOS UI...${NC}"
+    
+    # First ensure window manager is running
+    multipass exec auraos-multipass -- bash -c 'export DISPLAY=:99 HOME=/home/auraos USER=auraos && setsid xfwm4 </dev/null >/dev/null 2>&1 &' 2>/dev/null
+    sleep 1
+    
+    # Then launch onboarding (which transitions to launcher)
+    multipass exec auraos-multipass -- sudo -u auraos bash -c 'export DISPLAY=:99 && nohup python3 /opt/auraos/bin/auraos_onboarding.py --force >/dev/null 2>&1 &' 2>/dev/null
+    
+    echo -e "${GREEN}✓ AuraOS UI launched - view at http://localhost:6080/vnc.html${NC}"
+}
+
 cmd_health() {
     # Temporarily disable exit on error for health checks
     set +e
@@ -343,7 +357,7 @@ PY
     echo ""
     
     # Check 7: Web Server (with automated recovery)
-    echo -e "${YELLOW}[7/10]${NC} Web Server"
+    echo -e "${YELLOW}[7/11]${NC} Web Server"
     # Use a short timeout so check is responsive
     HTTP_CODE=$(curl -s -m 10 -o /dev/null -w "%{http_code}" http://localhost:6080/vnc.html 2>&1 || echo "000")
 
@@ -448,8 +462,8 @@ PY
     fi
     echo ""
 
-    # Check 10: Inference Server
-    echo -e "${YELLOW}[10/10]${NC} Inference Server (localhost:8081)"
+    # Check 11: Inference Server
+    echo -e "${YELLOW}[11/11]${NC} Inference Server (localhost:8081)"
     INFERENCE_UP=0
     if curl -s -m 3 http://localhost:8081/health >/dev/null 2>&1; then
         INFERENCE_UP=1
@@ -496,13 +510,13 @@ cmd_gui_reset() {
     
     VM_NAME="auraos-multipass"
     
-    # Step 1: Stop services
-    echo -e "${YELLOW}[1/7]${NC} Stopping VNC services..."
+    # Step 1: Stop services (keep desktop service for now)
+    echo -e "${YELLOW}[1/9]${NC} Stopping VNC services..."
     multipass exec "$VM_NAME" -- sudo systemctl stop auraos-x11vnc.service auraos-novnc.service 2>/dev/null || true
     sleep 2
     
-    # Step 2: Kill orphaned processes
-    echo -e "${YELLOW}[2/7]${NC} Cleaning up orphaned processes..."
+    # Step 2: Kill orphaned processes (but not xfwm4 - that needs X11)
+    echo -e "${YELLOW}[2/9]${NC} Cleaning up orphaned processes..."
         multipass exec "$VM_NAME" -- bash -c '
             sudo pkill -9 x11vnc 2>/dev/null || true
             sudo pkill -9 Xvfb 2>/dev/null || true
@@ -512,7 +526,7 @@ cmd_gui_reset() {
     sleep 2
     
     # Step 3: Setup VNC password
-    echo -e "${YELLOW}[3/7]${NC} Setting up VNC authentication..."
+    echo -e "${YELLOW}[3/9]${NC} Setting up VNC authentication..."
     multipass exec "$VM_NAME" -- sudo bash <<VNC_PASSWORD_EOF 2>/dev/null
         mkdir -p /home/${AURAOS_USER}/.vnc
         rm -f /home/${AURAOS_USER}/.vnc/passwd
@@ -527,7 +541,7 @@ VNC_PASSWORD_EOF
     fi
     
     # Step 4: Fix noVNC service configuration
-    echo -e "${YELLOW}[4/7]${NC} Configuring noVNC service..."
+    echo -e "${YELLOW}[4/9]${NC} Configuring noVNC service..."
     multipass exec "$VM_NAME" -- sudo bash <<SERVICE_EOF 2>/dev/null
 cat > /etc/systemd/system/auraos-novnc.service << 'CONFIG_EOF'
 [Unit]
@@ -555,7 +569,7 @@ SERVICE_EOF
     fi
     
     # Step 5: Start x11vnc
-    echo -e "${YELLOW}[5/7]${NC} Starting x11vnc and Xvfb..."
+    echo -e "${YELLOW}[5/9]${NC} Starting x11vnc and Xvfb..."
     if ! multipass exec "$VM_NAME" -- sudo systemctl start auraos-x11vnc.service; then
         echo -e "${RED}✗ Failed to start x11vnc service${NC}"
         return 1
@@ -563,7 +577,7 @@ SERVICE_EOF
     sleep 5
     
     # Step 6: Verify x11vnc is listening (robust host-driven check)
-    echo -e "${YELLOW}[6/7]${NC} Verifying x11vnc is listening..."
+    echo -e "${YELLOW}[6/9]${NC} Verifying x11vnc is listening..."
 
     found_x11vnc=false
     for i in {1..10}; do
@@ -587,7 +601,7 @@ SERVICE_EOF
     fi
     
     # Step 7: Start noVNC
-    echo -e "${YELLOW}[7/7]${NC} Starting noVNC web server..."
+    echo -e "${YELLOW}[7/9]${NC} Starting noVNC web server..."
     if ! multipass exec "$VM_NAME" -- sudo systemctl start auraos-novnc.service; then
         echo -e "${RED}✗ Failed to start noVNC service${NC}"
         return 1
@@ -625,38 +639,44 @@ SERVICE_EOF
 
     # Step 8: Ensure GUI agent is present and started (best-effort)
     echo ""
-    echo -e "${YELLOW}[8/8]${NC} Ensuring auraos-gui-agent is present and running..."
-    # If local gui_agent.py exists, transfer it; also try to install minimal deps and start service
+    echo -e "${YELLOW}[8/9]${NC} Ensuring auraos-gui-agent is present and running..."
+
     if multipass exec "$VM_NAME" -- sudo test -f /home/${AURAOS_USER}/gui_agent.py 2>/dev/null; then
         echo -e "${GREEN}→ GUI agent file already present in VM${NC}"
-        multipass exec "$VM_NAME" -- sudo pip3 install --upgrade flask pyautogui pillow requests numpy >/dev/null 2>&1 || true
-        multipass exec "$VM_NAME" -- sudo systemctl daemon-reload || true
-        multipass exec "$VM_NAME" -- sudo systemctl enable --now auraos-gui-agent.service || true
     else
         if [ -f "$SCRIPT_DIR/gui_agent.py" ]; then
             echo -e "${YELLOW}→ Uploading local gui_agent.py to VM...${NC}"
-            # Use /tmp as transfer target and then move with sudo
-            multipass transfer "$SCRIPT_DIR/gui_agent.py" "$VM_NAME:/tmp/gui_agent.py" 2>/dev/null || true
+            multipass transfer "$SCRIPT_DIR/gui_agent.py" "$VM_NAME:/tmp/gui_agent.py" || true
             multipass exec "$VM_NAME" -- sudo mv /tmp/gui_agent.py /home/${AURAOS_USER}/gui_agent.py || true
             multipass exec "$VM_NAME" -- sudo chown ${AURAOS_USER}:${AURAOS_USER} /home/${AURAOS_USER}/gui_agent.py || true
             multipass exec "$VM_NAME" -- sudo chmod +x /home/${AURAOS_USER}/gui_agent.py || true
-            multipass exec "$VM_NAME" -- sudo pip3 install --upgrade flask pyautogui pillow requests numpy >/dev/null 2>&1 || true
-            multipass exec "$VM_NAME" -- sudo systemctl daemon-reload || true
-            multipass exec "$VM_NAME" -- sudo systemctl enable --now auraos-gui-agent.service || true
         else
             echo -e "${YELLOW}⚠ No local gui_agent.py found; unable to install GUI agent${NC}"
         fi
     fi
 
-    # Report agent status
+    # Install deps safely (non-blocking)
+    multipass exec "$VM_NAME" -- sudo env PIP_NO_INPUT=1 timeout 120s pip3 install --upgrade flask pyautogui pillow requests numpy || true
+
+    # Reload + start service safely
+    multipass exec "$VM_NAME" -- timeout 15s sudo systemctl daemon-reload || true
+    multipass exec "$VM_NAME" -- sudo systemctl enable auraos-gui-agent.service || true
+    multipass exec "$VM_NAME" -- sudo systemctl start auraos-gui-agent.service || true
+
+    # Status check
     if multipass exec "$VM_NAME" -- sudo systemctl is-active --quiet auraos-gui-agent.service; then
         echo -e "${GREEN}✓ GUI Agent running${NC}"
     else
         echo -e "${RED}✗ GUI Agent not running after restart; review logs with: ./auraos.sh logs${NC}"
     fi
 
-    # Also run the agent installer/ensure logic for consistent behavior
-    cmd_agent_ensure >/dev/null 2>&1 || true
+    # Skip full agent_ensure and just launch UI directly
+    # cmd_agent_ensure can be run separately if needed
+    
+    # Step 9: Launch the AuraOS UI (with window manager and onboarding)
+    echo ""
+    echo -e "${YELLOW}[9/9]${NC} Launching AuraOS UI..."
+    cmd_ui
 }
 
 cmd_agent_ensure() {
@@ -669,10 +689,11 @@ cmd_agent_ensure() {
     # Transfer agent if present locally
     if [ -f "$SCRIPT_DIR/gui_agent.py" ]; then
         echo -e "${YELLOW}→ Transferring local gui_agent.py to VM...${NC}"
-        multipass transfer "$SCRIPT_DIR/gui_agent.py" "$VM_NAME:/tmp/gui_agent.py" 2>/dev/null || true
+        timeout 10 multipass transfer "$SCRIPT_DIR/gui_agent.py" "$VM_NAME:/tmp/gui_agent.py" 2>/dev/null || true
     fi
 
-    multipass exec "$VM_NAME" -- sudo bash <<'AGENT_SETUP' || true
+    # Run the agent setup with a 60-second timeout to prevent hanging
+    timeout 60 multipass exec "$VM_NAME" -- sudo bash <<'AGENT_SETUP' || true
 AURAOS_USER='auraos'
 apt-get update -qq || true
 apt-get install -y python3-venv python3-pip xauth gnome-screenshot >/dev/null 2>&1 || true
@@ -1894,7 +1915,12 @@ BROWSER_LAUNCHER
 cat > /usr/local/bin/auraos-home << 'HOME_LAUNCHER'
 #!/bin/bash
 cd /opt/auraos/bin
-exec python3 auraos_launcher.py
+# Launch in fullscreen mode by default (can override with --windowed)
+if [[ "$*" == *"--windowed"* ]]; then
+    exec python3 auraos_launcher.py "$@"
+else
+    exec python3 auraos_launcher.py --fullscreen "$@"
+fi
 HOME_LAUNCHER
 
 chmod +x /usr/local/bin/auraos-terminal
@@ -2028,29 +2054,22 @@ cat > ~/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml << 'XML_EOF'
 XML_EOF
 
 # Create autostart for home screen
-cat > ~/.config/autostart/auraos-homescreen.desktop << 'DESKTOP_EOF'
-[Desktop Entry]
-Type=Application
-Name=AuraOS Home
-Comment=AuraOS Home Screen Dashboard
-Exec=auraos-home
-Hidden=false
-NoDisplay=false
-X-GNOME-Autostart-enabled=true
-X-GNOME-Autostart-Delay=5
-DESKTOP_EOF
+# Onboarding launches first and then spawns the fullscreen launcher
+# Remove old homescreen autostart - onboarding handles the transition
+rm -f ~/.config/autostart/auraos-homescreen.desktop 2>/dev/null || true
 
-# Create autostart for onboarding
+# Create autostart for onboarding (runs FIRST, with no delay)
 cat > ~/.config/autostart/auraos-onboarding.desktop << 'DESKTOP_EOF'
 [Desktop Entry]
 Type=Application
 Name=AuraOS Onboarding
-Comment=AuraOS Startup Experience
-Exec=/opt/auraos/bin/auraos_onboarding.py
+Comment=AuraOS Startup Experience - Shows boot animation then launches main UI
+Exec=python3 /opt/auraos/bin/auraos_onboarding.py --force
 Hidden=false
 NoDisplay=false
 X-GNOME-Autostart-enabled=true
-X-GNOME-Autostart-Delay=1
+X-GNOME-Autostart-Delay=0
+StartupNotify=false
 DESKTOP_EOF
 
 # Create desktop shortcuts
@@ -2364,6 +2383,7 @@ cmd_help() {
     echo "  health             - Run comprehensive system health check"
     echo "  inference          - Manage AI inference server: start|stop|status|logs|restart"
     echo "  gui-reset          - Complete clean restart of VNC/noVNC services"
+    echo "  ui                 - Launch AuraOS fullscreen interface (onboarding + launcher)"
     echo "  agent-ensure       - Ensure gui agent is installed, venv created and service enabled"
     echo "  agent-logs         - Show GUI agent logs (journalctl)"
     echo "  forward            - Manage port forwarders: forward <start|stop|status>"
@@ -2411,6 +2431,12 @@ case "$1" in
         ;;
     gui-reset)
         cmd_gui_reset
+        ;;
+    ui|launch-ui)
+        # Launch AuraOS UI (onboarding + launcher)
+        echo -e "${GREEN}Launching AuraOS UI...${NC}"
+        multipass exec auraos-multipass -- sudo -u auraos bash -c 'export DISPLAY=:99 && nohup python3 /opt/auraos/bin/auraos_onboarding.py --force >/dev/null 2>&1 &'
+        echo -e "${GREEN}✓ AuraOS UI launched - view at http://localhost:6080/vnc.html${NC}"
         ;;
     disable-screensaver)
         shift

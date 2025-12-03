@@ -1,7 +1,7 @@
 ![aura-os-ss.png](aura-os-ss.png)
 # AuraOS — AI-Powered OS Automation
 
-**Status:** Experimental (2025-11-09)
+**Status:** Experimental (2025-12-03)
 
 AuraOS provides AI-powered automation for Ubuntu desktop environments through vision-based screen understanding and automated interactions. The system uses local vision models (Ollama LLaVA) to understand what's on screen and perform tasks like clicking icons, opening applications, and navigating interfaces.
 
@@ -54,6 +54,7 @@ date              # Show date/time
 - 📸 **Screen Context**: AI understands last 5 minutes of activity
 - 🔒 **Safe**: Dangerous operations blocked automatically
 - 📝 **Logged**: All actions tracked with full audit trail
+- 🔌 **WebSocket Agent**: Low-latency native VM agent for direct input (see `V2_README.md`)
 
 See `TERMINAL_README.md` for detailed terminal guide.
 
