@@ -315,19 +315,12 @@ Output ONLY the bash command, nothing else."""
 
     def _extract_command_from_response(self, response_text):
         """Extract the actual command from potentially verbose AI response"""
-        # First, prefer extracting content from fenced code blocks if present
-        try:
-            fenced_match = re.search(r"```(?:[a-zA-Z0-9_+-]*)\n(.*?)```", response_text, flags=re.S)
-            if fenced_match:
-                # Use the inner contents of the first fenced block
-                response_text = fenced_match.group(1)
-
-            # Remove any remaining triple-backticks and inline backticks
-            response_text = re.sub(r"```", "", response_text)
-            response_text = re.sub(r"`([^`]+)`", r"\1", response_text)
-        except Exception:
-            # If regex fails for any reason, fall back to original text
-            pass
+        # First, strip all code-fence markers (with optional language identifier and spaces)
+        # This handles ```bash, ``` bash, ```sh, ``` etc.
+        response_text = re.sub(r"```\s*(?:[a-zA-Z0-9_+-]*)", "", response_text)
+        
+        # Remove inline backticks
+        response_text = re.sub(r"`([^`]*)`", r"\1", response_text)
 
         lines = response_text.strip().split('\n')
 
@@ -337,7 +330,7 @@ Output ONLY the bash command, nothing else."""
             'here is', 'this command', 'to accomplish', 'to convert',
             'example:', 'output:', 'note:', 'first,', 'then,', 'finally,',
             'the command', 'you can', 'alternatively', 'use:', 'try:',
-            'run:', 'execute:', 'the bash', 'a command'
+            'run:', 'execute:', 'the bash', 'a command', 'to check'
         ]
 
         for line in lines:
@@ -353,10 +346,6 @@ Output ONLY the bash command, nothing else."""
             if line_lower in ('bash', 'sh', 'shell'):
                 continue
 
-            # Skip leftover fence markers
-            if line.startswith('```'):
-                continue
-
             # Skip obvious description patterns
             if any(line_lower.startswith(p) or line_lower.endswith(p) for p in desc_patterns):
                 continue
@@ -364,17 +353,13 @@ Output ONLY the bash command, nothing else."""
             # Handle lines that prefix the command (e.g., "Command: ...")
             if re.match(r'^(command:|to fix:)', line_lower):
                 parts = line.split(':', 1)[1].strip()
-                # Strip any surrounding backticks or language tokens
-                parts = re.sub(r"^```[a-zA-Z0-9_+-]*", "", parts)
-                parts = parts.replace('`', '').strip()
                 if parts:
                     command_lines.append(parts)
                 continue
 
-            # Looks like a real command line — strip stray backticks and append
-            cleaned = line.replace('`', '').strip()
-            if cleaned:
-                command_lines.append(cleaned)
+            # Looks like a real command line — append it
+            if line:
+                command_lines.append(line)
 
         # Return joined command lines if any
         if command_lines:
