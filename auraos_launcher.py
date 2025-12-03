@@ -46,6 +46,12 @@ class AuraOSLauncher:
         self.root.resizable(True, True)
         self.root.minsize(600, 400)
         
+        # Enable window decorations (title bar with close button)
+        try:
+            self.root.attributes('-type', 'normal')
+        except:
+            pass  # -type not supported on all window managers
+        
         if fullscreen:
             # Fullscreen mode - completely overlay XFCE
             self.root.attributes('-fullscreen', True)

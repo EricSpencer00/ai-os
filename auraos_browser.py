@@ -41,6 +41,11 @@ class AuraOSBrowser:
         # Enable proper window manager integration for resize/drag
         self.root.resizable(True, True)
         self.root.minsize(800, 500)
+        # Enable window decorations (title bar with close button)
+        try:
+            self.root.attributes('-type', 'normal')
+        except:
+            pass  # -type not supported on all window managers
         
         # State
         self.search_history = []

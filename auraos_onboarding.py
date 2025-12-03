@@ -23,6 +23,7 @@ class AuraOSOnboarding:
         
         # Fullscreen and black background
         self.root.attributes('-fullscreen', True)
+        self.root.attributes('-type', 'normal')  # Ensure proper window decorations
         self.root.configure(bg='black')
         self.root.bind("<Escape>", lambda e: self.skip_animation())
         self.root.bind("<Return>", lambda e: self.skip_animation())
