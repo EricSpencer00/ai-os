@@ -343,7 +343,7 @@ PY
     echo ""
     
     # Check 7: Web Server (with automated recovery)
-    echo -e "${YELLOW}[7/10]${NC} Web Server"
+    echo -e "${YELLOW}[7/11]${NC} Web Server"
     # Use a short timeout so check is responsive
     HTTP_CODE=$(curl -s -m 10 -o /dev/null -w "%{http_code}" http://localhost:6080/vnc.html 2>&1 || echo "000")
 
@@ -448,8 +448,8 @@ PY
     fi
     echo ""
 
-    # Check 10: Inference Server
-    echo -e "${YELLOW}[10/10]${NC} Inference Server (localhost:8081)"
+    # Check 11: Inference Server
+    echo -e "${YELLOW}[11/11]${NC} Inference Server (localhost:8081)"
     INFERENCE_UP=0
     if curl -s -m 3 http://localhost:8081/health >/dev/null 2>&1; then
         INFERENCE_UP=1
@@ -496,13 +496,13 @@ cmd_gui_reset() {
     
     VM_NAME="auraos-multipass"
     
-    # Step 1: Stop services
-    echo -e "${YELLOW}[1/7]${NC} Stopping VNC services..."
+    # Step 1: Stop services (keep desktop service for now)
+    echo -e "${YELLOW}[1/9]${NC} Stopping VNC services..."
     multipass exec "$VM_NAME" -- sudo systemctl stop auraos-x11vnc.service auraos-novnc.service 2>/dev/null || true
     sleep 2
     
-    # Step 2: Kill orphaned processes
-    echo -e "${YELLOW}[2/7]${NC} Cleaning up orphaned processes..."
+    # Step 2: Kill orphaned processes (but not xfwm4 - that needs X11)
+    echo -e "${YELLOW}[2/9]${NC} Cleaning up orphaned processes..."
         multipass exec "$VM_NAME" -- bash -c '
             sudo pkill -9 x11vnc 2>/dev/null || true
             sudo pkill -9 Xvfb 2>/dev/null || true
@@ -512,7 +512,7 @@ cmd_gui_reset() {
     sleep 2
     
     # Step 3: Setup VNC password
-    echo -e "${YELLOW}[3/7]${NC} Setting up VNC authentication..."
+    echo -e "${YELLOW}[3/9]${NC} Setting up VNC authentication..."
     multipass exec "$VM_NAME" -- sudo bash <<VNC_PASSWORD_EOF 2>/dev/null
         mkdir -p /home/${AURAOS_USER}/.vnc
         rm -f /home/${AURAOS_USER}/.vnc/passwd
@@ -527,7 +527,7 @@ VNC_PASSWORD_EOF
     fi
     
     # Step 4: Fix noVNC service configuration
-    echo -e "${YELLOW}[4/7]${NC} Configuring noVNC service..."
+    echo -e "${YELLOW}[4/9]${NC} Configuring noVNC service..."
     multipass exec "$VM_NAME" -- sudo bash <<SERVICE_EOF 2>/dev/null
 cat > /etc/systemd/system/auraos-novnc.service << 'CONFIG_EOF'
 [Unit]
@@ -555,7 +555,7 @@ SERVICE_EOF
     fi
     
     # Step 5: Start x11vnc
-    echo -e "${YELLOW}[5/7]${NC} Starting x11vnc and Xvfb..."
+    echo -e "${YELLOW}[5/9]${NC} Starting x11vnc and Xvfb..."
     if ! multipass exec "$VM_NAME" -- sudo systemctl start auraos-x11vnc.service; then
         echo -e "${RED}✗ Failed to start x11vnc service${NC}"
         return 1
@@ -563,7 +563,7 @@ SERVICE_EOF
     sleep 5
     
     # Step 6: Verify x11vnc is listening (robust host-driven check)
-    echo -e "${YELLOW}[6/7]${NC} Verifying x11vnc is listening..."
+    echo -e "${YELLOW}[6/9]${NC} Verifying x11vnc is listening..."
 
     found_x11vnc=false
     for i in {1..10}; do
@@ -587,7 +587,7 @@ SERVICE_EOF
     fi
     
     # Step 7: Start noVNC
-    echo -e "${YELLOW}[7/7]${NC} Starting noVNC web server..."
+    echo -e "${YELLOW}[7/9]${NC} Starting noVNC web server..."
     if ! multipass exec "$VM_NAME" -- sudo systemctl start auraos-novnc.service; then
         echo -e "${RED}✗ Failed to start noVNC service${NC}"
         return 1
@@ -623,51 +623,40 @@ SERVICE_EOF
     echo -e "  ${GREEN}http://localhost:6080/vnc.html${NC}"
     echo -e "  Password: ${GREEN}auraos123${NC}"
 
-    # Step 8: Ensure GUI agent is present and started (best-effort, with timeouts)
+    # Step 8: Ensure GUI agent is present and started (best-effort)
     echo ""
     echo -e "${YELLOW}[8/8]${NC} Ensuring auraos-gui-agent is present and running..."
-    
-    # Run agent setup in background with timeout to prevent hanging
-    (
-        if multipass exec "$VM_NAME" -- sudo test -f /home/${AURAOS_USER}/gui_agent.py 2>/dev/null; then
-            echo "→ GUI agent file already present in VM"
-            # Skip pip install - it's slow and likely already done
-            multipass exec "$VM_NAME" -- sudo systemctl daemon-reload 2>/dev/null || true
-            multipass exec "$VM_NAME" -- sudo systemctl enable --now auraos-gui-agent.service 2>/dev/null || true
-        elif [ -f "$SCRIPT_DIR/gui_agent.py" ]; then
-            echo "→ Uploading local gui_agent.py to VM..."
+    # If local gui_agent.py exists, transfer it; also try to install minimal deps and start service
+    if multipass exec "$VM_NAME" -- sudo test -f /home/${AURAOS_USER}/gui_agent.py 2>/dev/null; then
+        echo -e "${GREEN}→ GUI agent file already present in VM${NC}"
+        multipass exec "$VM_NAME" -- sudo pip3 install --upgrade flask pyautogui pillow requests numpy >/dev/null 2>&1 || true
+        multipass exec "$VM_NAME" -- sudo systemctl daemon-reload || true
+        multipass exec "$VM_NAME" -- sudo systemctl enable --now auraos-gui-agent.service || true
+    else
+        if [ -f "$SCRIPT_DIR/gui_agent.py" ]; then
+            echo -e "${YELLOW}→ Uploading local gui_agent.py to VM...${NC}"
+            # Use /tmp as transfer target and then move with sudo
             multipass transfer "$SCRIPT_DIR/gui_agent.py" "$VM_NAME:/tmp/gui_agent.py" 2>/dev/null || true
-            multipass exec "$VM_NAME" -- sudo mv /tmp/gui_agent.py /home/${AURAOS_USER}/gui_agent.py 2>/dev/null || true
-            multipass exec "$VM_NAME" -- sudo chown ${AURAOS_USER}:${AURAOS_USER} /home/${AURAOS_USER}/gui_agent.py 2>/dev/null || true
-            multipass exec "$VM_NAME" -- sudo chmod +x /home/${AURAOS_USER}/gui_agent.py 2>/dev/null || true
-            multipass exec "$VM_NAME" -- sudo systemctl daemon-reload 2>/dev/null || true
-            multipass exec "$VM_NAME" -- sudo systemctl enable --now auraos-gui-agent.service 2>/dev/null || true
+            multipass exec "$VM_NAME" -- sudo mv /tmp/gui_agent.py /home/${AURAOS_USER}/gui_agent.py || true
+            multipass exec "$VM_NAME" -- sudo chown ${AURAOS_USER}:${AURAOS_USER} /home/${AURAOS_USER}/gui_agent.py || true
+            multipass exec "$VM_NAME" -- sudo chmod +x /home/${AURAOS_USER}/gui_agent.py || true
+            multipass exec "$VM_NAME" -- sudo pip3 install --upgrade flask pyautogui pillow requests numpy >/dev/null 2>&1 || true
+            multipass exec "$VM_NAME" -- sudo systemctl daemon-reload || true
+            multipass exec "$VM_NAME" -- sudo systemctl enable --now auraos-gui-agent.service || true
+        else
+            echo -e "${YELLOW}⚠ No local gui_agent.py found; unable to install GUI agent${NC}"
         fi
-    ) &
-    AGENT_SETUP_PID=$!
-    
-    # Wait max 15 seconds for agent setup
-    for i in {1..15}; do
-        if ! kill -0 $AGENT_SETUP_PID 2>/dev/null; then
-            break
-        fi
-        sleep 1
-    done
-    
-    # Kill if still running
-    if kill -0 $AGENT_SETUP_PID 2>/dev/null; then
-        kill $AGENT_SETUP_PID 2>/dev/null || true
-        echo -e "${YELLOW}→ Agent setup timed out (service may start later)${NC}"
     fi
 
-    # Quick check agent status (with timeout)
-    if multipass exec "$VM_NAME" -- sudo systemctl is-active --quiet auraos-gui-agent.service 2>/dev/null; then
+    # Report agent status
+    if multipass exec "$VM_NAME" -- sudo systemctl is-active --quiet auraos-gui-agent.service; then
         echo -e "${GREEN}✓ GUI Agent running${NC}"
     else
-        echo -e "${YELLOW}→ GUI Agent not running yet (may start momentarily)${NC}"
+        echo -e "${RED}✗ GUI Agent not running after restart; review logs with: ./auraos.sh logs${NC}"
     fi
-    
-    echo -e "${GREEN}✓ GUI reset complete${NC}"
+
+    # Also run the agent installer/ensure logic for consistent behavior
+    cmd_agent_ensure >/dev/null 2>&1 || true
 }
 
 cmd_agent_ensure() {
