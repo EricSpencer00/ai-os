@@ -61,7 +61,7 @@ class AuraOSLauncher:
         
         # 1. Terminal
         term_btn = tk.Button(
-            btn_frame, text="💻 AI Terminal", command=self.launch_terminal,
+            btn_frame, text="[Terminal] AI Terminal", command=self.launch_terminal,
             bg='#00d4ff', fg='#0a0e27', font=('Arial', 14, 'bold'),
             width=20, pady=10, relief='flat', cursor='hand2'
         )
@@ -69,7 +69,7 @@ class AuraOSLauncher:
         
         # 2. Browser
         browser_btn = tk.Button(
-            btn_frame, text="🌐 AI Browser", command=self.launch_browser,
+            btn_frame, text="[Web] AI Browser", command=self.launch_browser,
             bg='#ff7f50', fg='#ffffff', font=('Arial', 14, 'bold'),
             width=20, pady=10, relief='flat', cursor='hand2'
         )
@@ -77,7 +77,7 @@ class AuraOSLauncher:
         
         # 3. Vision OS (VNC)
         vision_btn = tk.Button(
-            btn_frame, text="👁️ Vision Desktop", command=self.launch_vision_os,
+            btn_frame, text="[Vision] Vision Desktop", command=self.launch_vision_os,
             bg='#00ff88', fg='#0a0e27', font=('Arial', 14, 'bold'),
             width=20, pady=10, relief='flat', cursor='hand2'
         )
@@ -85,7 +85,7 @@ class AuraOSLauncher:
         
         # 4. Settings
         settings_btn = tk.Button(
-            btn_frame, text="⚙️ Settings", command=self.launch_settings,
+            btn_frame, text="[Settings] Settings", command=self.launch_settings,
             bg='#2d3547', fg='#ffffff', font=('Arial', 14, 'bold'),
             width=20, pady=10, relief='flat', cursor='hand2'
         )
@@ -106,18 +106,15 @@ class AuraOSLauncher:
             try:
                 terminal_path = find_app_path("auraos_terminal.py")
                 if terminal_path:
+                    # Terminal is now a Tkinter GUI app, launch directly
                     subprocess.Popen(
                         [sys.executable, terminal_path],
                         env=os.environ.copy(),
                         start_new_session=True
                     )
+                    self.status_label.config(text="System Ready", fg='#6db783')
                 else:
-                    # Fallback: try system terminal
-                    if shutil.which("xfce4-terminal"):
-                        subprocess.Popen(["xfce4-terminal"], start_new_session=True)
-                    else:
-                        raise FileNotFoundError("No terminal application found")
-                self.status_label.config(text="System Ready", fg='#6db783')
+                    raise FileNotFoundError("auraos_terminal.py not found")
             except Exception as e:
                 self.status_label.config(text=f"Error: {str(e)[:30]}", fg='#ff0000')
         
@@ -137,9 +134,20 @@ class AuraOSLauncher:
                         start_new_session=True
                     )
                 else:
-                    # Fallback: try Firefox directly
-                    if shutil.which("firefox"):
-                        subprocess.Popen(["firefox"], start_new_session=True)
+                    # Fallback: try Firefox directly with proper env
+                    firefox_path = shutil.which("firefox")
+                    if firefox_path:
+                        env = os.environ.copy()
+                        env["DISPLAY"] = env.get("DISPLAY", ":99")
+                        env["XDG_RUNTIME_DIR"] = env.get("XDG_RUNTIME_DIR", "/run/user/1000")
+                        env["HOME"] = env.get("HOME", os.path.expanduser("~"))
+                        subprocess.Popen(
+                            [firefox_path],
+                            env=env,
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            start_new_session=True
+                        )
                     else:
                         raise FileNotFoundError("No browser application found")
                 self.status_label.config(text="System Ready", fg='#6db783')
@@ -149,28 +157,39 @@ class AuraOSLauncher:
         threading.Thread(target=_launch, daemon=True).start()
 
     def launch_vision_os(self):
-        self.status_label.config(text="Starting Vision Desktop...", fg='#00ff88')
+        self.status_label.config(text="Launching Vision Desktop...", fg='#00ff88')
         self.root.update_idletasks()
         
         def _launch():
             try:
-                # Try to open VNC in browser
-                import webbrowser as wb
-                vnc_url = "http://localhost:6080/vnc.html"
-                
-                # Try Firefox first (more reliable in VM)
-                if shutil.which("firefox"):
+                vision_path = find_app_path("auraos_vision.py")
+                if vision_path:
+                    # Launch the Vision app directly
                     subprocess.Popen(
-                        ["firefox", vnc_url],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
+                        [sys.executable, vision_path],
+                        env=os.environ.copy(),
                         start_new_session=True
                     )
-                    self.status_label.config(text="Vision Desktop Opened", fg='#6db783')
-                elif wb.open(vnc_url):
-                    self.status_label.config(text="Vision Desktop Opened", fg='#6db783')
+                    self.status_label.config(text="System Ready", fg='#6db783')
                 else:
-                    self.status_label.config(text="Open: " + vnc_url, fg='#dcdcaa')
+                    # Fallback: open VNC in browser
+                    vnc_url = "http://localhost:6080/vnc.html"
+                    firefox_path = shutil.which("firefox")
+                    if firefox_path:
+                        env = os.environ.copy()
+                        env["DISPLAY"] = env.get("DISPLAY", ":99")
+                        env["XDG_RUNTIME_DIR"] = env.get("XDG_RUNTIME_DIR", "/run/user/1000")
+                        env["HOME"] = env.get("HOME", os.path.expanduser("~"))
+                        subprocess.Popen(
+                            [firefox_path, vnc_url],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            env=env,
+                            start_new_session=True
+                        )
+                    else:
+                        webbrowser.open(vnc_url)
+                    self.status_label.config(text="System Ready", fg='#6db783')
             except Exception as e:
                 self.status_label.config(text=f"Error: {str(e)[:30]}", fg='#ff0000')
         

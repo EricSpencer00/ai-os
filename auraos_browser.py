@@ -21,6 +21,13 @@ import requests
 from datetime import datetime
 from pathlib import Path
 
+# Smart URL detection: use host gateway IP when running inside VM
+def get_agent_url():
+    """Get the correct GUI agent URL - always localhost since agent runs locally."""
+    return "http://localhost:8765"
+
+AGENT_URL = get_agent_url()
+
 
 class AuraOSBrowser:
     """AI-powered browser with Firefox integration"""
@@ -49,7 +56,7 @@ class AuraOSBrowser:
         
         # Open Firefox button
         firefox_btn = tk.Button(
-            top_frame, text="🌐 Open Firefox", command=self.open_firefox,
+            top_frame, text="[Web] Firefox", command=self.open_firefox,
             bg='#ff7f50', fg='#ffffff', font=('Arial', 11, 'bold'),
             relief='flat', cursor='hand2', padx=15, pady=12
         )
@@ -57,7 +64,7 @@ class AuraOSBrowser:
         
         # Title
         self.title_label = tk.Label(
-            top_frame, text="🔍 AuraOS Browser - AI Search", 
+            top_frame, text="AuraOS Browser - AI Search", 
             font=('Arial', 16, 'bold'), fg='#00ff88', bg='#1a1e37'
         )
         self.title_label.pack(side='left', padx=20, pady=10)
@@ -118,7 +125,7 @@ class AuraOSBrowser:
         
         # Search prompt
         prompt_label = tk.Label(
-            input_frame, text="🔍 Search: ", font=('Menlo', 12, 'bold'),
+            input_frame, text="Search: ", font=('Menlo', 12, 'bold'),
             fg='#00ff88', bg='#1a1e37'
         )
         prompt_label.pack(side='left', padx=(15, 0), pady=10)
@@ -179,13 +186,13 @@ class AuraOSBrowser:
                 return True
             
             # App not found locally - try to install via GUI Agent
-            self.append(f"⟳ {app_name.title()} not found. Installing via smart installer...\n", "info")
+            self.append(f"[*] {app_name.title()} not found. Installing via smart installer...\n", "info")
             self.log_event("APP_INSTALL_START", f"Installing {app_name}")
             
             # Send install request to GUI Agent
             install_query = f"install {app_name} application"
             response = requests.post(
-                "http://localhost:8765/ask",
+                f"{AGENT_URL}/ask",
                 json={"query": install_query},
                 timeout=300  # Allow up to 5 minutes for installation
             )
@@ -196,28 +203,28 @@ class AuraOSBrowser:
                 
                 # Verify installation
                 if shutil.which(app_name):
-                    self.append(f"✓ {app_name.title()} installed successfully!\n", "success")
+                    self.append(f"[OK] {app_name.title()} installed successfully!\n", "success")
                     self.app_install_cache[app_name] = True
                     self.log_event("APP_INSTALL_SUCCESS", app_name)
                     return True
                 else:
-                    self.append(f"⚠ Installation attempted but {app_name} still not found.\n", "warning")
+                    self.append(f"[!] Installation attempted but {app_name} still not found.\n", "warning")
                     self.log_event("APP_INSTALL_VERIFY_FAILED", app_name)
                     self.app_install_cache[app_name] = False
                     return False
             else:
-                self.append(f"✗ Failed to install {app_name}: {response.text[:100]}\n", "error")
+                self.append(f"[X] Failed to install {app_name}: {response.text[:100]}\n", "error")
                 self.log_event("APP_INSTALL_ERROR", f"{app_name}: {response.text[:50]}")
                 self.app_install_cache[app_name] = False
                 return False
                 
         except requests.exceptions.ConnectionError:
-            self.append(f"✗ Cannot reach installer: GUI Agent offline\n", "error")
+            self.append(f"[X] Cannot reach installer: GUI Agent offline\n", "error")
             self.log_event("APP_INSTALL_CONNECTION_ERROR", app_name)
             self.app_install_cache[app_name] = False
             return False
         except Exception as e:
-            self.append(f"✗ Installation error: {str(e)}\n", "error")
+            self.append(f"[X] Installation error: {str(e)}\n", "error")
             self.log_event("APP_INSTALL_EXCEPTION", f"{app_name}: {str(e)}")
             self.app_install_cache[app_name] = False
             return False
@@ -290,7 +297,7 @@ class AuraOSBrowser:
         self.output_area.delete(1.0, tk.END)
         self.output_area.config(state='disabled')
         
-        self.append("🔍 AuraOS Browser\n", "system")
+        self.append("AuraOS Browser\n", "system")
         self.append("Perplexity Comet-Inspired AI Search\n\n", "system")
         self.append("Search for anything:\n", "info")
         self.append("  • python tutorials\n", "output")
@@ -299,7 +306,7 @@ class AuraOSBrowser:
         self.append("  • compare python vs javascript for web development\n", "output")
         self.append("  • machine learning best practices\n\n", "output")
         self.append("Features:\n", "info")
-        self.append("  🌐 Firefox integration - open results in browser\n", "output")
+        self.append("  [Web] Firefox integration - open results in browser\n", "output")
         self.append("  ⚡ AI-powered search recommendations\n", "output")
         self.append("  💬 Conversation history on the left\n", "output")
         self.append("  📚 Follow-up questions and related topics\n\n", "output")
@@ -319,10 +326,10 @@ class AuraOSBrowser:
         self.search_input.delete(0, tk.END)
         
         # Add to history display
-        self.append_history(f"\n🔍 {query}", "search")
+        self.append_history(f"\n[Q] {query}", "search")
         
         # Display search request
-        self.append(f"🔍 Searching: {query}\n\n", "ai")
+        self.append(f"[Search] {query}\n\n", "ai")
         
         # Run search in thread
         threading.Thread(target=self._perform_search, args=(query,), daemon=True).start()
@@ -337,8 +344,8 @@ class AuraOSBrowser:
             import urllib.parse
             search_url = f"https://duckduckgo.com/?q={urllib.parse.quote(query)}"
             
-            self.append(f"⟳ Searching for: {query}\n", "info")
-            self.append(f"⟳ Opening: {search_url}\n", "info")
+            self.append(f"[*] Searching for: {query}\n", "info")
+            self.append(f"[*] Opening: {search_url}\n", "info")
             
             # Try direct Firefox launch first
             if shutil.which("firefox"):
@@ -353,20 +360,20 @@ class AuraOSBrowser:
                         stderr=subprocess.DEVNULL,
                         start_new_session=True
                     )
-                    self.append("✓ Search opened in Firefox\n", "success")
+                    self.append("[OK] Search opened in Firefox\n", "success")
                     self.log_event("SEARCH_SUCCESS", f"Direct: {query[:60]}")
                     self.is_processing = False
                     self.update_status("Ready", "#6db783")
                     return
                 except Exception as e:
-                    self.append(f"⚠ Direct launch failed: {e}\n", "warning")
+                    self.append(f"[!] Direct launch failed: {e}\n", "warning")
             
             # Fallback to GUI Agent
-            self.append("⟳ Trying via GUI Agent...\n", "info")
+            self.append("[*] Trying via GUI Agent...\n", "info")
             try:
                 search_request = f"open firefox and navigate to {search_url}"
                 response = requests.post(
-                    "http://localhost:8765/ask",
+                    f"{AGENT_URL}/ask",
                     json={"query": search_request},
                     timeout=180
                 )
@@ -374,49 +381,51 @@ class AuraOSBrowser:
                 if response.status_code == 200:
                     result = response.json()
                     executed = result.get("executed", [])
-                    self.append(f"✓ Agent executed {len(executed)} actions.\n", "success")
+                    self.append(f"[OK] Agent executed {len(executed)} actions.\n", "success")
                     for action in executed:
                         act = action.get("action", {})
                         self.append(f"  - {act}\n", "output")
                     self.log_event("SEARCH_SUCCESS", f"Agent search: {query[:60]}")
                 else:
-                    self.append(f"✗ Agent Error: {response.text}\n", "error")
+                    self.append(f"[X] Agent Error: {response.text}\n", "error")
                     self.log_event("SEARCH_ERROR", response.text)
                     
             except requests.exceptions.ConnectionError:
-                self.append("✗ Cannot reach GUI Agent\n", "error")
+                self.append("[X] Cannot reach GUI Agent\n", "error")
                 self.append(f"\n  Fallback: Open Firefox manually and go to:\n", "info")
                 self.append(f"  {search_url}\n\n", "info")
                 self.log_event("SEARCH_EXCEPTION", "Connection refused")
             except requests.exceptions.Timeout:
-                self.append("✗ Request timed out\n", "error")
+                self.append("[X] Request timed out\n", "error")
                 self.log_event("SEARCH_EXCEPTION", "Timeout")
                 
         except Exception as e:
-            self.append(f"✗ Unexpected error: {e}\n", "error")
+            self.append(f"[X] Unexpected error: {e}\n", "error")
             self.log_event("SEARCH_EXCEPTION", str(e))
             
         self.is_processing = False
         self.update_status("Ready", "#6db783")
 
     def open_firefox(self, url=None):
-        """Open Firefox browser - direct launch with fallback to GUI Agent"""
+        """Open Firefox browser - direct launch with proper environment"""
         try:
             self.update_status("Opening Firefox...", "#ff7f50")
-            self.append("⟳ Starting Firefox...\n", "info")
+            self.append("[*] Starting Firefox...\n", "info")
             
-            # Try direct launch first (works when running inside VM)
+            # Build command
             firefox_cmd = ["firefox"]
             if url:
                 firefox_cmd.append(url)
             
-            # Check if firefox is available locally
+            # Set proper environment for snap Firefox
+            env = os.environ.copy()
+            env["DISPLAY"] = env.get("DISPLAY", ":99")
+            env["XDG_RUNTIME_DIR"] = "/run/user/1000"
+            env["HOME"] = os.path.expanduser("~")
+            
+            # Check if firefox is available
             if shutil.which("firefox"):
                 try:
-                    # Set DISPLAY for VM environment
-                    env = os.environ.copy()
-                    env["DISPLAY"] = env.get("DISPLAY", ":99")
-                    
                     subprocess.Popen(
                         firefox_cmd,
                         env=env,
@@ -424,20 +433,20 @@ class AuraOSBrowser:
                         stderr=subprocess.DEVNULL,
                         start_new_session=True
                     )
-                    self.append("✓ Firefox launched directly\n", "success")
+                    self.append("[OK] Firefox launched\n", "success")
                     self.update_status("Ready", "#6db783")
                     self.log_event("FIREFOX_OPENED", "direct launch")
                     return
                 except Exception as e:
-                    self.append(f"⚠ Direct launch failed: {e}\n", "warning")
+                    self.append(f"[!] Launch failed: {e}\n", "warning")
                     self.log_event("FIREFOX_DIRECT_FAILED", str(e))
             
             # Fallback: Try via GUI Agent
-            self.append("⟳ Trying via GUI Agent...\n", "info")
+            self.append("[*] Trying via GUI Agent...\n", "info")
             try:
                 query = f"open firefox{' and navigate to ' + url if url else ''}"
                 response = requests.post(
-                    "http://localhost:8765/ask",
+                    f"{AGENT_URL}/ask",
                     json={"query": query},
                     timeout=60
                 )
@@ -445,13 +454,13 @@ class AuraOSBrowser:
                 if response.status_code == 200:
                     result = response.json()
                     executed = result.get("executed", [])
-                    self.append(f"✓ Firefox opened via agent - {len(executed)} actions\n", "success")
+                    self.append(f"[OK] Firefox via agent\n", "success")
                     self.log_event("FIREFOX_OPENED", "via agent")
                 else:
-                    self.append(f"✗ Agent Error: {response.text}\n", "error")
+                    self.append(f"[X] Agent Error: {response.text}\n", "error")
                     self.log_event("FIREFOX_ERROR", response.text)
             except requests.exceptions.ConnectionError:
-                self.append("✗ GUI Agent not reachable\n", "error")
+                self.append("[X] GUI Agent not reachable\n", "error")
                 self.append("  Firefox may not be installed. Run:\n", "info")
                 self.append("  sudo apt-get install -y firefox\n", "info")
                 self.log_event("FIREFOX_ERROR", "Connection refused")
@@ -459,7 +468,7 @@ class AuraOSBrowser:
             self.update_status("Ready", "#6db783")
         
         except Exception as e:
-            self.append(f"✗ Error opening Firefox: {str(e)}\n", "error")
+            self.append(f"[X] Error opening Firefox: {str(e)}\n", "error")
             self.update_status("Error", "#f48771")
             self.log_event("FIREFOX_ERROR", str(e))
     

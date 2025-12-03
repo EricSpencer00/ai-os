@@ -53,18 +53,18 @@ class AuraOSDiagnostics:
             shell=True, capture_output=True, text=True, timeout=5
         )
         if result.returncode == 0:
-            log.info(f"✓ Inference server accessible from HOST: {result.stdout}")
+            log.info(f"[OK] Inference server accessible from HOST: {result.stdout}")
         else:
-            log.error(f"✗ Cannot reach inference server from host")
+            log.error(f"[X] Cannot reach inference server from host")
             return False
         
         # Test from VM
         stdout, stderr, rc = self.run_vm_cmd(f'curl -s http://{self.host_ip}:{self.inference_port}/health')
         if rc == 0:
-            log.info(f"✓ Inference server accessible from VM at {self.host_ip}:{self.inference_port}")
+            log.info(f"[OK] Inference server accessible from VM at {self.host_ip}:{self.inference_port}")
             log.info(f"  Backend: {stdout}")
         else:
-            log.error(f"✗ Cannot reach inference server from VM: {stderr}")
+            log.error(f"[X] Cannot reach inference server from VM: {stderr}")
             return False
         
         return True
@@ -81,10 +81,10 @@ class AuraOSDiagnostics:
             shell=True, capture_output=True, text=True, timeout=5
         )
         if result.returncode == 0:
-            log.info(f"✓ GUI Agent accessible: {result.stdout}")
+            log.info(f"[OK] GUI Agent accessible: {result.stdout}")
             return True
         else:
-            log.error(f"✗ Cannot reach GUI Agent: {result.stderr}")
+            log.error(f"[X] Cannot reach GUI Agent: {result.stderr}")
             return False
     
     def test_vision_with_image(self):
@@ -132,14 +132,14 @@ class AuraOSDiagnostics:
             
             if result.returncode == 0:
                 response = json.loads(result.stdout)
-                log.info(f"✓ Inference server responded")
+                log.info(f"[OK] Inference server responded")
                 log.info(f"  Response: {response.get('response', '')[:200]}...")
                 return True
             else:
-                log.error(f"✗ Inference server error: {result.stderr}")
+                log.error(f"[X] Inference server error: {result.stderr}")
                 return False
         except Exception as e:
-            log.error(f"✗ Exception: {e}")
+            log.error(f"[X] Exception: {e}")
             return False
     
     def test_action_generation(self):
@@ -191,14 +191,14 @@ Output ONLY valid JSON list. Example: [{"action": "click", "x": 100, "y": 200}]"
             
             if result.returncode == 0:
                 response = json.loads(result.stdout)
-                log.info(f"✓ Server responded")
+                log.info(f"[OK] Server responded")
                 
                 # Check if actions are present and valid
                 if "actions" in response:
                     actions = response["actions"]
                     log.info(f"  Actions returned: {actions}")
                     if isinstance(actions, list) and len(actions) > 0:
-                        log.info(f"✓ Valid action JSON generated!")
+                        log.info(f"[OK] Valid action JSON generated!")
                         return True
                     else:
                         log.warning(f"  Actions is empty or not a list")
@@ -208,10 +208,10 @@ Output ONLY valid JSON list. Example: [{"action": "click", "x": 100, "y": 200}]"
                 
                 return False
             else:
-                log.error(f"✗ Server error: {result.stderr}")
+                log.error(f"[X] Server error: {result.stderr}")
                 return False
         except Exception as e:
-            log.error(f"✗ Exception: {e}")
+            log.error(f"[X] Exception: {e}")
             return False
     
     def test_gui_agent_ask(self):
@@ -255,7 +255,7 @@ Output ONLY valid JSON list. Example: [{"action": "click", "x": 100, "y": 200}]"
             
             if result.returncode == 0:
                 response = json.loads(result.stdout)
-                log.info(f"✓ GUI Agent responded")
+                log.info(f"[OK] GUI Agent responded")
                 if "executed" in response and response.get("status") == "success":
                     log.info(f"  Executed actions: {response.get('executed', [])}")
                     return True
@@ -263,10 +263,10 @@ Output ONLY valid JSON list. Example: [{"action": "click", "x": 100, "y": 200}]"
                     log.warning(f"  Response: {response}")
                     return False
             else:
-                log.error(f"✗ GUI Agent error: {result.stderr}")
+                log.error(f"[X] GUI Agent error: {result.stderr}")
                 return False
         except Exception as e:
-            log.error(f"✗ Exception: {e}")
+            log.error(f"[X] Exception: {e}")
             return False
     
     def run_all_tests(self):
@@ -291,7 +291,7 @@ Output ONLY valid JSON list. Example: [{"action": "click", "x": 100, "y": 200}]"
             try:
                 results[name] = test_func()
             except Exception as e:
-                log.error(f"✗ {name} test failed: {e}")
+                log.error(f"[X] {name} test failed: {e}")
                 results[name] = False
         
         # Summary
@@ -300,7 +300,7 @@ Output ONLY valid JSON list. Example: [{"action": "click", "x": 100, "y": 200}]"
         log.info("SUMMARY")
         log.info("=" * 60)
         for name, result in results.items():
-            status = "✓ PASS" if result else "✗ FAIL"
+            status = "[OK] PASS" if result else "[X] FAIL"
             log.info(f"{status}: {name}")
         
         passed = sum(1 for r in results.values() if r)
