@@ -171,20 +171,39 @@ class AuraOSTerminal:
         threading.Thread(target=self._convert_and_execute, args=(text,), daemon=True).start()
         
     def _build_system_prompt(self):
-        """Build the system prompt for command generation (from TerminalGPT)"""
+        """Build the system prompt for command generation (from TerminalGPT, with strict output format)"""
         return """You are a highly capable shell command generator that converts plain-English requests into fully self-contained, executable shell commands for a Unix-like environment. You must produce all necessary commands so that the user never needs to perform any manual steps.
 
-Completeness: Generate complete commands that include any prerequisite steps (e.g., if a referenced folder does not exist, include a command such as `mkdir -p` to create it).
+CRITICAL: Your response must contain ONLY the bash command(s). No explanations, no preamble, no descriptions.
 
-Clarity & Safety: If the request is ambiguous, incomplete, or potentially dangerous (e.g., commands that could result in data loss or system instability), ask for clarification before proceeding.
+Core Requirements:
+1. Completeness: Generate complete commands that include any prerequisite steps (e.g., if a referenced folder does not exist, include a command such as `mkdir -p` to create it).
 
-No Placeholders: Do not use placeholders like `/path/to/folder` or `<argument>`. All paths and arguments must be explicitly specified.
+2. Always consider dependencies, file/directory existence, and command safety.
 
-Formatting: Output only the final command(s) without any extra commentary, markdown formatting, code fences, or additional text.
+3. No Placeholders: Do not use placeholders like `/path/to/folder` or `<argument>`. All paths and arguments must be explicitly specified.
 
-Multiple Commands: If more than one command is required, list each command on a separate line in the correct execution order.
+4. Multiple Commands: If more than one command is required, list each command on a separate line in the correct execution order.
 
-Edge Cases: Always consider dependencies, file/directory existence, and command safety (e.g., using flags for non-interactive execution if needed). Your response should consist solely of the final command(s) ready for execution."""
+5. Edge Cases: Use flags for non-interactive execution if needed. Your response should consist solely of the final command(s) ready for execution.
+
+OUTPUT FORMAT (CRITICAL):
+- Start directly with the command
+- No introductory text whatsoever
+- No markdown, code fences, or formatting
+- Chain any commands separated by newlines
+- If unsafe or cannot convert: output only "CANNOT_CONVERT"
+
+EXAMPLE CORRECT OUTPUT:
+mkdir -p /home/user/project
+cd /home/user/project
+git clone https://github.com/EricSpencer00/ai-os.git
+
+EXAMPLE WRONG OUTPUT (DO NOT DO THIS):
+"Here is the command to clone the repository:
+git clone https://github.com/username/repo.git"
+
+REMEMBER: Output ONLY the command(s). Nothing else."""
 
     def _validate_command(self, command):
         """Validate command for dangerous patterns"""
@@ -255,35 +274,80 @@ Output ONLY the bash command, nothing else."""
         except:
             return None
 
+    def _extract_command_from_response(self, response_text):
+        """Extract the actual command from potentially verbose AI response"""
+        lines = response_text.strip().split('\n')
+        
+        # Filter out empty lines and comments
+        command_lines = []
+        for line in lines:
+            line = line.strip()
+            
+            # Skip empty lines
+            if not line:
+                continue
+            
+            # Skip comment lines
+            if line.startswith('#'):
+                continue
+            
+            # Skip obvious description patterns
+            desc_patterns = [
+                'here is', 'this command', 'to accomplish', 'to convert', 
+                'example:', 'output:', 'note:', 'first,', 'then,', 'finally,',
+                'the command', 'you can', 'alternatively', 'use:', 'try:',
+                'run:', 'execute:', 'the bash', 'a command'
+            ]
+            
+            line_lower = line.lower()
+            if any(line_lower.startswith(p) or line_lower.endswith(p) for p in desc_patterns):
+                continue
+            
+            # Skip lines that contain colons at start (like "Command: mkdir...")
+            if line.startswith(('Command:', 'command:', 'To fix:')):
+                # Extract the part after the colon
+                cmd = line.split(':', 1)[1].strip()
+                if cmd:
+                    command_lines.append(cmd)
+                continue
+            
+            # This looks like an actual command
+            command_lines.append(line)
+        
+        # Return all command lines (will be joined with semicolons or newlines)
+        if command_lines:
+            # If multiple commands, join them
+            return '\n'.join(command_lines)
+        return ""
+
     def _generate_command(self, user_request, error_analysis=None):
         """Generate a bash command using AI"""
         try:
             # Build the prompt
             if error_analysis:
                 # Error recovery mode: use AI analysis to craft fix
-                prompt = f"""The previous command failed:
-Issue: {error_analysis.get('issue', 'Unknown')}
-Reason: {error_analysis.get('reason', 'Unknown')}
-
+                prompt = f"""Fix this command that failed:
 Original request: {user_request}
+Error: {error_analysis.get('issue', 'Unknown')}
 
-Please provide a corrected command that will work around this specific error."""
+Output ONLY a new bash command to fix this. NOTHING ELSE."""
             else:
-                prompt = f"""Convert this request to a bash command: {user_request}"""
+                prompt = f"""{user_request}"""
             
             self.append_text("[?] Generating command...\n", "info")
             
             response = requests.post(
                 f"{INFERENCE_URL}/generate",
-                json={"prompt": self._build_system_prompt() + f"\n\nRequest: {prompt}"},
+                json={"prompt": self._build_system_prompt() + f"\n\n{prompt}"},
                 timeout=15
             )
             
             if response.status_code == 200:
                 result = response.json()
-                command = result.get("response", "").strip()
-                # Get first line (handle multi-line responses)
-                command = command.split('\n')[0].strip()
+                response_text = result.get("response", "").strip()
+                
+                # Extract command from potentially verbose response
+                command = self._extract_command_from_response(response_text)
                 
                 if command and "CANNOT_CONVERT" not in command and len(command) < 2000:
                     # Validate command safety
@@ -294,7 +358,10 @@ Please provide a corrected command that will work around this specific error."""
                     
                     return command
                 else:
-                    self.append_text("[X] Could not generate valid command\n", "error")
+                    if not command or "CANNOT_CONVERT" in command:
+                        self.append_text("[X] Could not generate valid command\n", "error")
+                    else:
+                        self.append_text(f"[X] Command too long ({len(command)} chars)\n", "error")
                     return None
             else:
                 self.append_text(f"[X] Server error: {response.text[:100]}\n", "error")
