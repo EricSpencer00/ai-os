@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 AuraOS Terminal - English to Bash GUI with TerminalGPT-style Resilience
-Automatic error recovery: if a command fails, AI generates a corrected command
+Persistent PTY shell with true terminal context and self-healing retry logic
 """
 import tkinter as tk
 from tkinter import scrolledtext
@@ -12,6 +12,11 @@ import os
 import requests
 import re
 import json
+import pty
+import select
+import time
+import signal
+import fcntl
 
 # Smart URL detection: use host gateway IP when running inside VM
 def get_inference_url():
@@ -42,11 +47,45 @@ class AuraOSTerminal:
         except:
             pass  # -type not supported on all window managers
         
+        # Initialize persistent shell session
+        self.shell_pid = None
+        self.shell_fd = None
+        self._init_shell()
+        
         self.is_processing = False
         self.conversation_history = []  # Track conversation for context
         self.retry_count = 0
         self.max_retries = MAX_RETRIES
         self.setup_ui()
+        
+        # Handle cleanup on window close
+        self.root.protocol("WM_DELETE_WINDOW", self._cleanup_and_exit)
+    
+    def _init_shell(self):
+        """Initialize persistent PTY shell session"""
+        try:
+            self.shell_pid, self.shell_fd = pty.forkpty()
+            if self.shell_pid == 0:
+                # Child process - start bash
+                os.execvp("bash", ["bash", "--noprofile", "--norc"])
+                sys.exit(0)
+            else:
+                # Parent process - set non-blocking mode
+                flags = fcntl.fcntl(self.shell_fd, fcntl.F_GETFL)
+                fcntl.fcntl(self.shell_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+        except Exception as e:
+            print(f"Failed to initialize shell: {e}")
+            self.shell_pid = None
+            self.shell_fd = None
+    
+    def _cleanup_and_exit(self):
+        """Clean up shell and exit"""
+        if self.shell_pid:
+            try:
+                os.kill(self.shell_pid, signal.SIGTERM)
+            except:
+                pass
+        self.root.destroy()
         
     def setup_ui(self):
         # Title Bar
@@ -221,7 +260,7 @@ REMEMBER: Output ONLY the command(s). Nothing else."""
         
         return True, ""
 
-    def _analyze_command_result(self, command, stdout, stderr, exit_code):
+    def _analyze_command_result(self, command, stdout, stderr, exit_code, cwd=""):
         """Analyze if a command succeeded or failed"""
         # Simple heuristic: exit code 0 almost always means success
         # Only use AI for ambiguous cases (exit code != 0 but might have partial success)
@@ -321,14 +360,16 @@ Output ONLY the bash command, nothing else."""
         return ""
 
     def _generate_command(self, user_request, error_analysis=None):
-        """Generate a bash command using AI"""
+        """Generate a bash command using AI, with context for recovery"""
         try:
-            # Build the prompt
+            # Build the prompt - include context from error_analysis including cwd
             if error_analysis:
-                # Error recovery mode: use AI analysis to craft fix
+                # Error recovery mode: use AI analysis to craft fix with full context
+                cwd_context = f"Current directory: {error_analysis.get('cwd', '~')}\n" if error_analysis.get('cwd') else ""
                 prompt = f"""Fix this command that failed:
 Original request: {user_request}
-Error: {error_analysis.get('issue', 'Unknown')}
+{cwd_context}Error: {error_analysis.get('issue', 'Unknown')}
+Previous output: {error_analysis.get('output', '')}
 
 Output ONLY a new bash command to fix this. NOTHING ELSE."""
             else:
@@ -377,6 +418,77 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
             self.append_text(f"[X] Error: {str(e)}\n", "error")
             return None
 
+    def _run_in_shell(self, command, timeout=30):
+        """
+        Execute command in persistent PTY shell and capture output.
+        This maintains shell state (cwd, env, created files) across calls.
+        """
+        if not self.shell_fd:
+            return 1, "", "Shell not initialized", ""
+        
+        try:
+            # Get current working directory before executing
+            pwd_cmd = "pwd\n"
+            os.write(self.shell_fd, pwd_cmd.encode())
+            time.sleep(0.1)
+            cwd = self._read_shell_output(timeout=2).strip().split('\n')[-1]
+            
+            # Write command with status markers for clean output capture
+            marker_start = f"__START_{int(time.time() * 1000)}__"
+            marker_end = f"__END_{int(time.time() * 1000)}__"
+            full_command = f"echo '{marker_start}'\n{command}\necho '__STATUS__'$?'__/STATUS__'\necho '{marker_end}'\n"
+            
+            os.write(self.shell_fd, full_command.encode())
+            
+            # Capture output with timeout
+            output = self._read_shell_output(timeout=timeout)
+            
+            # Parse output between markers
+            if marker_start in output and marker_end in output:
+                start_idx = output.find(marker_start) + len(marker_start)
+                end_idx = output.find(marker_end)
+                captured = output[start_idx:end_idx].strip()
+                
+                # Extract exit status
+                status_match = re.search(r"__STATUS__(\d+)__/STATUS__", captured)
+                exit_code = int(status_match.group(1)) if status_match else 0
+                
+                # Remove status line from output
+                result_output = re.sub(r"__STATUS__\d+__/STATUS__\n?", "", captured)
+                
+                return exit_code, result_output, "", cwd
+            else:
+                # Fallback if markers not found
+                return 0, output, "", cwd
+                
+        except Exception as e:
+            return 1, "", str(e), ""
+    
+    def _read_shell_output(self, timeout=5):
+        """Read available output from shell with timeout"""
+        if not self.shell_fd:
+            return ""
+        
+        output = ""
+        start_time = time.time()
+        
+        while time.time() - start_time < timeout:
+            ready, _, _ = select.select([self.shell_fd], [], [], 0.1)
+            if ready:
+                try:
+                    chunk = os.read(self.shell_fd, 4096)
+                    if chunk:
+                        output += chunk.decode('utf-8', errors='ignore')
+                    else:
+                        break
+                except (OSError, IOError):
+                    break
+            else:
+                # Small delay to avoid busy-waiting
+                time.sleep(0.05)
+        
+        return output
+
     def _convert_and_execute(self, user_request):
         """Convert English to bash and execute with AI-driven error recovery"""
         try:
@@ -393,31 +505,23 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
                 # Execute (safely, with proper timeout and working directory)
                 self.append_text("[*] Executing...\n", "info")
                 try:
-                    result = subprocess.run(
-                        command,
-                        shell=True,
-                        capture_output=True,
-                        text=True,
-                        timeout=30,
-                        cwd=os.path.expanduser("~")
-                    )
-                except subprocess.TimeoutExpired:
-                    self.append_text("[X] Command timed out after 30 seconds\n", "error")
-                    break
+                    # Use persistent PTY shell instead of subprocess
+                    exit_code, stdout, stderr, cwd = self._run_in_shell(command, timeout=30)
                 except Exception as e:
                     self.append_text(f"[X] Execution error: {str(e)}\n", "error")
                     break
                 
                 # Display output
-                if result.stdout:
-                    self.append_text(f"{result.stdout}\n", "info")
+                if stdout:
+                    self.append_text(f"{stdout}\n", "info")
                 
                 # Result analysis: simple heuristic, not expensive AI call
                 analysis = self._analyze_command_result(
                     command, 
-                    result.stdout, 
-                    result.stderr, 
-                    result.returncode
+                    stdout, 
+                    stderr, 
+                    exit_code,
+                    cwd
                 )
                 
                 # Check if command succeeded
@@ -429,7 +533,7 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
                 else:
                     # Command failed - prepare for intelligent recovery
                     failure_reason = analysis.get("reason", "Unknown error")
-                    failure_issue = analysis.get("issue", result.stderr or "No error details")
+                    failure_issue = analysis.get("issue", stderr or "No error details")
                     
                     if AUTO_RETRY_ERRORS and self.retry_count < self.max_retries - 1:
                         self.retry_count += 1
@@ -442,11 +546,12 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
                             "retry"
                         )
                         
-                        # Prepare analysis for next iteration
+                        # Prepare analysis for next iteration (include cwd context)
                         error_analysis = {
                             "reason": failure_reason,
                             "issue": failure_issue[:200],
-                            "output": result.stdout[:100] if result.stdout else ""
+                            "output": stdout[:100] if stdout else "",
+                            "cwd": cwd
                         }
                         self.status_label.config(text=f"Retrying... ({self.retry_count}/{self.max_retries})", fg='#ff7f50')
                         continue
