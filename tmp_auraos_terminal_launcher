@@ -1,2 +1,0 @@
-#!/bin/bash
-exec python3 /opt/auraos/bin/auraos_terminal.py "$@"
