@@ -315,47 +315,69 @@ Output ONLY the bash command, nothing else."""
 
     def _extract_command_from_response(self, response_text):
         """Extract the actual command from potentially verbose AI response"""
+        # First, prefer extracting content from fenced code blocks if present
+        try:
+            fenced_match = re.search(r"```(?:[a-zA-Z0-9_+-]*)\n(.*?)```", response_text, flags=re.S)
+            if fenced_match:
+                # Use the inner contents of the first fenced block
+                response_text = fenced_match.group(1)
+
+            # Remove any remaining triple-backticks and inline backticks
+            response_text = re.sub(r"```", "", response_text)
+            response_text = re.sub(r"`([^`]+)`", r"\1", response_text)
+        except Exception:
+            # If regex fails for any reason, fall back to original text
+            pass
+
         lines = response_text.strip().split('\n')
-        
-        # Filter out empty lines and comments
+
+        # Filter out empty lines, comments and formatting language markers
         command_lines = []
+        desc_patterns = [
+            'here is', 'this command', 'to accomplish', 'to convert',
+            'example:', 'output:', 'note:', 'first,', 'then,', 'finally,',
+            'the command', 'you can', 'alternatively', 'use:', 'try:',
+            'run:', 'execute:', 'the bash', 'a command'
+        ]
+
         for line in lines:
             line = line.strip()
-            
-            # Skip empty lines
-            if not line:
+
+            # Skip empty or comment lines
+            if not line or line.startswith('#'):
                 continue
-            
-            # Skip comment lines
-            if line.startswith('#'):
-                continue
-            
-            # Skip obvious description patterns
-            desc_patterns = [
-                'here is', 'this command', 'to accomplish', 'to convert', 
-                'example:', 'output:', 'note:', 'first,', 'then,', 'finally,',
-                'the command', 'you can', 'alternatively', 'use:', 'try:',
-                'run:', 'execute:', 'the bash', 'a command'
-            ]
-            
+
             line_lower = line.lower()
+
+            # Skip lines that are just a language marker (e.g., 'bash', 'shell')
+            if line_lower in ('bash', 'sh', 'shell'):
+                continue
+
+            # Skip leftover fence markers
+            if line.startswith('```'):
+                continue
+
+            # Skip obvious description patterns
             if any(line_lower.startswith(p) or line_lower.endswith(p) for p in desc_patterns):
                 continue
-            
-            # Skip lines that contain colons at start (like "Command: mkdir...")
-            if line.startswith(('Command:', 'command:', 'To fix:')):
-                # Extract the part after the colon
-                cmd = line.split(':', 1)[1].strip()
-                if cmd:
-                    command_lines.append(cmd)
+
+            # Handle lines that prefix the command (e.g., "Command: ...")
+            if re.match(r'^(command:|to fix:)', line_lower):
+                parts = line.split(':', 1)[1].strip()
+                # Strip any surrounding backticks or language tokens
+                parts = re.sub(r"^```[a-zA-Z0-9_+-]*", "", parts)
+                parts = parts.replace('`', '').strip()
+                if parts:
+                    command_lines.append(parts)
                 continue
-            
-            # This looks like an actual command
-            command_lines.append(line)
-        
-        # Return all command lines (will be joined with semicolons or newlines)
+
+            # Looks like a real command line — strip stray backticks and append
+            cleaned = line.replace('`', '').strip()
+            if cleaned:
+                command_lines.append(cleaned)
+
+        # Return joined command lines if any
         if command_lines:
-            # If multiple commands, join them
             return '\n'.join(command_lines)
         return ""
 
