@@ -300,6 +300,15 @@ REMEMBER: Output ONLY the command(s). Nothing else."""
         
         return result
 
+    def _suggest_fallback(self, binary):
+        """Suggest a fallback binary name for common tools."""
+        fallbacks = {
+            'python': 'python3',
+            'pip': 'pip3',
+            'node': 'nodejs'
+        }
+        return fallbacks.get(binary, binary)
+    
     def _validate_command_safe(self, command):
         """Validate command: detect injection patterns, resolve binaries with fallbacks."""
         if not command or not command.strip():
@@ -326,10 +335,14 @@ REMEMBER: Output ONLY the command(s). Nothing else."""
             binary = tokens[0]
             args = tokens[1] if len(tokens) > 1 else ""
             
+            # Strip any remaining backticks from binary name
+            binary = binary.strip('`')
+            
             # Resolve binary with fallbacks (python->python3, pip->pip3, etc)
             resolved = self._resolve_binary(binary)
             if not resolved:
-                return False, f"Command not found: {binary}", ""
+                hint = self._suggest_fallback(binary)
+                return False, f"Command not found: {binary} (try: {hint})", ""
             
             corrected_lines.append(f"{resolved} {args}".strip())
         
@@ -381,27 +394,41 @@ REMEMBER: Output ONLY the command(s). Nothing else."""
         return True, ""
 
     def _analyze_command_result(self, command, stdout, stderr, exit_code, cwd=""):
-        """Analyze if a command succeeded or failed"""
+        """Analyze if a command succeeded or failed, provide recovery hints for common errors."""
         if exit_code == 0:
-            return {"success": True, "reason": "exit code 0", "issue": ""}
+            return {"success": True, "reason": "exit code 0", "issue": "", "hint": ""}
         
         if exit_code != 0 and not stderr and stdout:
-            return {"success": True, "reason": "exit code non-zero but has output", "issue": ""}
+            return {"success": True, "reason": "exit code non-zero but has output", "issue": "", "hint": ""}
+        
+        # Provide specific hints for common failures
+        hint = ""
+        if exit_code == 127:
+            hint = "Command not found. Try: use python3 instead of python, pip3 instead of pip, nodejs instead of node."
+        elif exit_code == 126:
+            hint = "Permission denied. Consider adding 'chmod +x' first."
+        elif exit_code == 1:
+            hint = "General failure. Check the error message above for details."
+        elif exit_code == 2:
+            hint = "Misuse of shell command. Check syntax and argument usage."
         
         return {
             "success": False,
             "reason": f"exit code {exit_code}",
-            "issue": stderr[:200] if stderr else "No error output"
+            "issue": stderr[:200] if stderr else "No error output",
+            "hint": hint
         }
 
     def _generate_command(self, user_request, error_analysis=None):
-        """Generate a bash command using AI, with context for recovery"""
+        """Generate a bash command using AI, with context for recovery and hints."""
         try:
             if error_analysis:
                 cwd_context = f"Current directory: {error_analysis.get('cwd', '~')}\n" if error_analysis.get('cwd') else ""
+                hint = error_analysis.get('hint', '')
+                hint_text = f"HINT TO FIX: {hint}\n" if hint else ""
                 prompt = f"""Fix this command that failed:
 Original request: {user_request}
-{cwd_context}Error: {error_analysis.get('issue', 'Unknown')}
+{cwd_context}{hint_text}Error: {error_analysis.get('issue', 'Unknown')}
 Previous output: {error_analysis.get('output', '')}
 
 Output ONLY a new bash command to fix this. NOTHING ELSE."""
@@ -429,6 +456,14 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
                     if not is_safe:
                         self.append_text(f"[!] Safety check failed: {reason}\n", "error")
                         return None
+                    
+                    # Try to resolve binaries early (catch missing commands before execution)
+                    is_valid, err, corrected = self._validate_command_safe(command)
+                    if not is_valid:
+                        self.append_text(f"[!] Command validation failed: {err}\n", "error")
+                        return None
+                    if corrected:
+                        command = corrected
                     
                     return command
                 else:
@@ -585,11 +620,13 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
                     self.append_text(f"[OK] Command succeeded\n", "success")
                     self.status_label.config(text="Ready", fg='#6db783')
                     self.is_processing = False
+                    self.retry_count = 0  # CRITICAL: Reset retry counter on success
                     return
                 else:
                     # Command failed - prepare for recovery
                     failure_reason = analysis.get("reason", "Unknown error")
                     failure_issue = analysis.get("issue", stderr or "No error details")
+                    failure_hint = analysis.get("hint", "")
                     
                     if AUTO_RETRY_ERRORS and self.retry_count < self.max_retries - 1:
                         self.retry_count += 1
@@ -602,11 +639,12 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
                             "retry"
                         )
                         
-                        # Prepare analysis for next iteration
+                        # Prepare analysis for next iteration (include hint from analyzer)
                         error_analysis = {
                             "reason": failure_reason,
                             "issue": failure_issue[:200],
                             "output": stdout[:100] if stdout else "",
+                            "hint": failure_hint,  # CRITICAL: Pass hint to AI for recovery
                             "cwd": cwd
                         }
                         self.status_label.config(text=f"Retrying... ({self.retry_count}/{self.max_retries})", fg='#ff7f50')
