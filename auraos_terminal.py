@@ -498,22 +498,22 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
                     return command
                 else:
                     if not command or "CANNOT_CONVERT" in command:
-                        self.append_text("[X] Could not generate valid command\n", "error")
+                        self.append_text("❌ Could not generate valid command\n", "error")
                     else:
-                        self.append_text(f"[X] Command too long ({len(command)} chars)\n", "error")
+                        self.append_text(f"❌ Command too long ({len(command)} chars)\n", "error")
                     return None
             else:
-                self.append_text(f"[X] Server error: {response.text[:100]}\n", "error")
+                self.append_text(f"❌ Server error: {response.text[:100]}\n", "error")
                 return None
                 
         except requests.exceptions.Timeout:
-            self.append_text("[X] AI request timeout\n", "error")
+            self.append_text("⏱️ AI request timeout\n", "error")
             return None
         except requests.exceptions.ConnectionError:
-            self.append_text(f"[X] Cannot reach inference server: {INFERENCE_URL}\n", "error")
+            self.append_text(f"🔌 Cannot reach inference server: {INFERENCE_URL}\n", "error")
             return None
         except Exception as e:
-            self.append_text(f"[X] Error: {str(e)}\n", "error")
+            self.append_text(f"❌ Error: {str(e)}\n", "error")
             return None
 
     def _run_in_shell(self, command, timeout=30):
@@ -625,11 +625,11 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
                 self.append_text(f"Command: {command}\n", "command")
                 
                 # Execute
-                self.append_text("[*] Executing...\n", "info")
+                self.append_text("⚡ Executing...\n", "info")
                 try:
                     exit_code, stdout, stderr, cwd = self._run_in_shell(command, timeout=30)
                 except Exception as e:
-                    self.append_text(f"[X] Execution error: {str(e)}\n", "error")
+                    self.append_text(f"❌ Execution error: {str(e)}\n", "error")
                     break
                 
                 # Display output
@@ -665,7 +665,7 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
                             "error"
                         )
                         self.append_text(
-                            f"[*] Attempt {self.retry_count + 1}/{self.max_retries}...\n",
+                            f"🔄 Attempt {self.retry_count + 1}/{self.max_retries}...\n",
                             "retry"
                         )
                         
@@ -682,7 +682,7 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
                     else:
                         # Max retries exceeded
                         self.append_text(
-                            f"[X] Failed after {self.max_retries} attempts\n",
+                            f"❌ Failed after {self.max_retries} attempts\n",
                             "error"
                         )
                         if failure_issue:
@@ -690,7 +690,7 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
                         break
                 
         except Exception as e:
-            self.append_text(f"[X] Unexpected error: {str(e)}\n", "error")
+            self.append_text(f"❌ Unexpected error: {str(e)}\n", "error")
             
         self.is_processing = False
         self.status_label.config(text="Ready", fg='#6db783')
