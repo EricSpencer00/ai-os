@@ -211,8 +211,27 @@ class AuraOSTerminal:
         threading.Thread(target=self._convert_and_execute, args=(text,), daemon=True).start()
         
     def _build_system_prompt(self):
-        """Build the system prompt for command generation (strict output format)"""
-        return """You are a highly capable shell command generator that converts plain-English requests into fully self-contained, executable shell commands for a Unix-like environment. You must produce all necessary commands so that the user never needs to perform any manual steps.
+        """Build the system prompt for command generation (strict output format, with platform info)"""
+        import platform
+        os_name = platform.system()
+        
+        platform_guidance = ""
+        if os_name == 'Darwin':
+            platform_guidance = """
+PLATFORM: macOS
+- Use ifconfig or networksetup instead of 'ip'
+- Use netstat, lsof, or netstat -tuln instead of 'ss'
+- Use 'brew install <pkg>' instead of 'apt-get' if package management needed
+- Use 'last reboot' or 'who -b' for reboot info"""
+        elif os_name == 'Linux':
+            platform_guidance = """
+PLATFORM: Linux
+- Use 'ip' for network configuration
+- Use 'ss' or 'netstat' for listening ports
+- Use 'apt-get' or 'apt' for package management
+- Use 'who -b' for reboot time"""
+        
+        return f"""You are a highly capable shell command generator that converts plain-English requests into fully self-contained, executable shell commands for a Unix-like environment. You must produce all necessary commands so that the user never needs to perform any manual steps.{platform_guidance}
 
 CRITICAL: Your response must contain ONLY the bash command(s). No explanations, no preamble, no descriptions.
 
@@ -301,11 +320,16 @@ REMEMBER: Output ONLY the command(s). Nothing else."""
         return result
 
     def _suggest_fallback(self, binary):
-        """Suggest a fallback binary name for common tools."""
+        """Suggest a fallback binary name for common tools (platform-aware)."""
+        import platform
+        is_mac = platform.system() == 'Darwin'
+        
         fallbacks = {
             'python': 'python3',
             'pip': 'pip3',
-            'node': 'nodejs'
+            'node': 'nodejs',
+            'ip': 'ifconfig' if is_mac else 'ip',
+            'ss': 'netstat' if is_mac else 'ss',
         }
         return fallbacks.get(binary, binary)
     
@@ -352,13 +376,19 @@ REMEMBER: Output ONLY the command(s). Nothing else."""
         return True, "", '\n'.join(corrected_lines)
     
     def _resolve_binary(self, binary):
-        """Resolve binary path; try common fallbacks (python->python3, pip->pip3, etc)."""
-        fallbacks = {
+        """Resolve binary path; try common fallbacks including platform-specific (python->python3, ip->ifconfig on macOS, etc)."""
+        import platform
+        is_mac = platform.system() == 'Darwin'
+        
+        fallbacks_map = {
             'python': ['python3', 'python'],
             'pip': ['pip3', 'pip'],
-            'node': ['nodejs', 'node']
+            'node': ['nodejs', 'node'],
+            'ip': (['ifconfig', 'networksetup'] if is_mac else ['ip']),
+            'ss': (['netstat', 'lsof'] if is_mac else ['ss', 'netstat']),
         }
-        candidates = [binary] + fallbacks.get(binary, [])
+        
+        candidates = [binary] + fallbacks_map.get(binary, [])
         
         for candidate in candidates:
             try:
