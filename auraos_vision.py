@@ -96,9 +96,9 @@ class AuraOSVision:
         btn_frame = tk.Frame(self.root, bg='#0a0e27')
         btn_frame.pack(fill='x', padx=10, pady=5)
         
-        # Screenshot button - text symbols for compatibility
+        # Screenshot button - with emoji icon
         self.screenshot_btn = tk.Button(
-            btn_frame, text="[+] Capture",
+            btn_frame, text="📷 Capture",
             command=self.take_screenshot,
             bg='#00d4ff', fg='#0a0e27', font=('Arial', 10, 'bold'),
             relief='flat', cursor='hand2', padx=8, pady=5
@@ -107,7 +107,7 @@ class AuraOSVision:
         
         # Analyze button
         self.analyze_btn = tk.Button(
-            btn_frame, text="[*] Analyze",
+            btn_frame, text="🤖 Analyze",
             command=self.analyze,
             bg='#00ff88', fg='#0a0e27', font=('Arial', 10, 'bold'),
             relief='flat', cursor='hand2', padx=8, pady=5
@@ -116,7 +116,7 @@ class AuraOSVision:
         
         # Clear button
         self.clear_btn = tk.Button(
-            btn_frame, text="[x]",
+            btn_frame, text="✖️",
             command=self.clear_output,
             bg='#2d3547', fg='#ffffff', font=('Arial', 10, 'bold'),
             relief='flat', cursor='hand2', padx=8, pady=5
@@ -142,7 +142,7 @@ class AuraOSVision:
         self.output_area.tag_config('action', foreground='#ffaa00')
         
         # Welcome
-        self.append_text("[Vision] Ready - Capture then Analyze\n", "info")
+        self.append_text("👁️ Ready - Capture then Analyze\n", "info")
         
         # Separator
         sep = tk.Frame(self.root, bg='#2d3547', height=2)
@@ -256,7 +256,7 @@ class AuraOSVision:
         
         # Auto-capture if needed
         if not self.screenshot_data:
-            self.append_text("[*] Auto-capturing...\n", "info")
+            self.append_text("📷 Auto-capturing...\n", "info")
             self.take_screenshot()
             self.root.after(1500, self.analyze)
             return
@@ -274,7 +274,7 @@ class AuraOSVision:
     def _analyze(self):
         """Analyze screenshot with AI"""
         try:
-            self.append_text("[*] Sending to AI...\n", "info")
+            self.append_text("🤖 Sending to AI...\n", "info")
             logger.debug("Starting analysis request to %s", INFERENCE_URL)
             
             # Vision endpoint is /ask on the unified inference server

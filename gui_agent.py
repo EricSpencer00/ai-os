@@ -115,19 +115,28 @@ class VisionClient:
             except Exception as e:
                 logging.error(f"Failed to read image {path}: {e}")
 
-        # Craft a prompt for the vision model
-        prompt = f"""You are an AI OS Assistant controlling a computer.
-User Request: "{query}"
-Based on the attached screenshots of the user's screen, output a JSON list of actions to perform.
-Supported actions:
-- {{"action": "click", "x": 100, "y": 200}}
-- {{"action": "type", "text": "hello"}}
-- {{"action": "key", "key": "enter"}}
-- {{"action": "scroll", "amount": 10}}
-- {{"action": "wait", "seconds": 1}}
+        # Craft a prompt for the vision model with platform guidance
+        import platform
+        os_name = platform.system()
+        platform_guidance = "PLATFORM: Linux" if os_name == 'Linux' else "PLATFORM: macOS"
 
-Output ONLY the JSON list. Example: [{{"action": "click", "x": 10, "y": 10}}]
-"""
+        prompt = f"""You are an AI OS Assistant controlling a computer. {platform_guidance}
+    User Request: "{query}"
+    Based on the attached screenshots of the user's screen, output a JSON list of actions to perform.
+    Allowed actions (output EXACTLY a JSON array of objects, nothing else):
+    - {{"action": "click", "x": 100, "y": 200}}
+    - {{"action": "type", "text": "hello"}}
+    - {{"action": "key", "key": "enter"}}
+    - {{"action": "scroll", "amount": 10}}
+    - {{"action": "wait", "seconds": 1}}
+
+    Rules:
+    - Output ONLY the JSON array (no explanation, no markdown).
+    - Each object must contain only the allowed keys for its action type.
+    - Coordinates must be integers and inside the screen bounds.
+
+    Example output: [{"action": "click", "x": 10, "y": 10}]
+    """
         
         payload = {
             "query": prompt,
@@ -145,6 +154,58 @@ Output ONLY the JSON list. Example: [{{"action": "click", "x": 10, "y": 10}}]
         except Exception as e:
             logging.error(f"VisionClient error: {e}")
             return None
+
+    def validate_action(self, action, screen_size=None):
+        """Validate a single action dict returned by the AI.
+        Ensures only allowed actions/keys and values are present. Returns (ok, reason).
+        """
+        if not isinstance(action, dict):
+            return False, "action-not-dict"
+
+        act = action.get('action')
+        if act not in ('click', 'type', 'key', 'scroll', 'wait'):
+            return False, f"invalid-action:{act}"
+
+        # Validate by action type
+        if act == 'click':
+            x = action.get('x')
+            y = action.get('y')
+            if not isinstance(x, int) or not isinstance(y, int):
+                return False, 'click-coords-not-int'
+            if screen_size:
+                w, h = screen_size
+                if not (0 <= x <= w and 0 <= y <= h):
+                    return False, 'click-out-of-bounds'
+        elif act == 'type':
+            text = action.get('text')
+            if not isinstance(text, str) or len(text) > 1000:
+                return False, 'type-invalid'
+        elif act == 'key':
+            key = action.get('key')
+            if not isinstance(key, str) or len(key) > 50:
+                return False, 'key-invalid'
+        elif act == 'scroll':
+            amt = action.get('amount')
+            if not isinstance(amt, int) or abs(amt) > 10000:
+                return False, 'scroll-invalid'
+        elif act == 'wait':
+            secs = action.get('seconds', 1)
+            if not (isinstance(secs, (int, float)) and 0 <= secs <= 300):
+                return False, 'wait-invalid'
+
+        # Only allow expected keys for each action
+        allowed_keys = {
+            'click': {'action', 'x', 'y', 'why'},
+            'type': {'action', 'text', 'why'},
+            'key': {'action', 'key', 'why'},
+            'scroll': {'action', 'amount', 'why'},
+            'wait': {'action', 'seconds', 'why'}
+        }
+        extra_keys = set(action.keys()) - allowed_keys.get(act, set())
+        if extra_keys:
+            return False, f'extraneous-keys:{extra_keys}'
+
+        return True, 'ok'
 
 # Initialize components
 monitor = ScreenMonitor()
@@ -188,25 +249,44 @@ def ask():
                 return jsonify({"error": "AI response is not a list or dict", "raw": llm_response}), 500
                 
             results = []
+            # Determine screen bounds for validation when possible
+            screen_size = None
+            try:
+                screen_w, screen_h = pyautogui.size()
+                screen_size = (screen_w, screen_h)
+            except Exception:
+                screen_size = None
+
             for action in actions:
                 if not isinstance(action, dict):
                     continue
-                    
+
+                ok, reason = vision_client.validate_action(action, screen_size=screen_size)
+                if not ok:
+                    logging.warning(f"Skipping invalid action: {reason} - {action}")
+                    results.append({"status": "skipped", "reason": reason, "action": action})
+                    continue
+
                 act_type = action.get("action")
-                if act_type == "click":
-                    pyautogui.click(x=action.get("x"), y=action.get("y"))
-                elif act_type == "type":
-                    pyautogui.write(action.get("text"), interval=0.05)
-                elif act_type == "key":
-                    pyautogui.press(action.get("key"))
-                elif act_type == "scroll":
-                    pyautogui.scroll(action.get("amount"))
-                elif act_type == "wait":
-                    time.sleep(action.get("seconds", 1))
-                results.append({"status": "success", "action": action})
+                try:
+                    if act_type == "click":
+                        pyautogui.click(x=action.get("x"), y=action.get("y"))
+                    elif act_type == "type":
+                        pyautogui.write(action.get("text"), interval=0.05)
+                    elif act_type == "key":
+                        pyautogui.press(action.get("key"))
+                    elif act_type == "scroll":
+                        pyautogui.scroll(action.get("amount"))
+                    elif act_type == "wait":
+                        time.sleep(action.get("seconds", 1))
+                    results.append({"status": "success", "action": action})
+                except Exception as e:
+                    logging.error(f"Failed to execute action {action}: {e}")
+                    results.append({"status": "failed", "error": str(e), "action": action})
+
                 time.sleep(0.5)
-                
-            return jsonify({"status": "success", "executed": results})
+
+            return jsonify({"status": "completed", "executed": results})
             
         except json.JSONDecodeError:
             return jsonify({"error": "Invalid JSON from AI", "raw": llm_response}), 500

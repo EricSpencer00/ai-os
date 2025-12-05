@@ -211,8 +211,27 @@ class AuraOSTerminal:
         threading.Thread(target=self._convert_and_execute, args=(text,), daemon=True).start()
         
     def _build_system_prompt(self):
-        """Build the system prompt for command generation (strict output format)"""
-        return """You are a highly capable shell command generator that converts plain-English requests into fully self-contained, executable shell commands for a Unix-like environment. You must produce all necessary commands so that the user never needs to perform any manual steps.
+        """Build the system prompt for command generation (strict output format, with platform info)"""
+        import platform
+        os_name = platform.system()
+        
+        platform_guidance = ""
+        if os_name == 'Darwin':
+            platform_guidance = """
+PLATFORM: macOS
+- Use ifconfig or networksetup instead of 'ip'
+- Use netstat, lsof, or netstat -tuln instead of 'ss'
+- Use 'brew install <pkg>' instead of 'apt-get' if package management needed
+- Use 'last reboot' or 'who -b' for reboot info"""
+        elif os_name == 'Linux':
+            platform_guidance = """
+PLATFORM: Linux
+- Use 'ip' for network configuration
+- Use 'ss' or 'netstat' for listening ports
+- Use 'apt-get' or 'apt' for package management
+- Use 'who -b' for reboot time"""
+        
+        return f"""You are a highly capable shell command generator that converts plain-English requests into fully self-contained, executable shell commands for a Unix-like environment. You must produce all necessary commands so that the user never needs to perform any manual steps.{platform_guidance}
 
 CRITICAL: Your response must contain ONLY the bash command(s). No explanations, no preamble, no descriptions.
 
@@ -300,6 +319,20 @@ REMEMBER: Output ONLY the command(s). Nothing else."""
         
         return result
 
+    def _suggest_fallback(self, binary):
+        """Suggest a fallback binary name for common tools (platform-aware)."""
+        import platform
+        is_mac = platform.system() == 'Darwin'
+        
+        fallbacks = {
+            'python': 'python3',
+            'pip': 'pip3',
+            'node': 'nodejs',
+            'ip': 'ifconfig' if is_mac else 'ip',
+            'ss': 'netstat' if is_mac else 'ss',
+        }
+        return fallbacks.get(binary, binary)
+    
     def _validate_command_safe(self, command):
         """Validate command: detect injection patterns, resolve binaries with fallbacks."""
         if not command or not command.strip():
@@ -326,10 +359,14 @@ REMEMBER: Output ONLY the command(s). Nothing else."""
             binary = tokens[0]
             args = tokens[1] if len(tokens) > 1 else ""
             
+            # Strip any remaining backticks from binary name
+            binary = binary.strip('`')
+            
             # Resolve binary with fallbacks (python->python3, pip->pip3, etc)
             resolved = self._resolve_binary(binary)
             if not resolved:
-                return False, f"Command not found: {binary}", ""
+                hint = self._suggest_fallback(binary)
+                return False, f"Command not found: {binary} (try: {hint})", ""
             
             corrected_lines.append(f"{resolved} {args}".strip())
         
@@ -339,13 +376,19 @@ REMEMBER: Output ONLY the command(s). Nothing else."""
         return True, "", '\n'.join(corrected_lines)
     
     def _resolve_binary(self, binary):
-        """Resolve binary path; try common fallbacks (python->python3, pip->pip3, etc)."""
-        fallbacks = {
+        """Resolve binary path; try common fallbacks including platform-specific (python->python3, ip->ifconfig on macOS, etc)."""
+        import platform
+        is_mac = platform.system() == 'Darwin'
+        
+        fallbacks_map = {
             'python': ['python3', 'python'],
             'pip': ['pip3', 'pip'],
-            'node': ['nodejs', 'node']
+            'node': ['nodejs', 'node'],
+            'ip': (['ifconfig', 'networksetup'] if is_mac else ['ip']),
+            'ss': (['netstat', 'lsof'] if is_mac else ['ss', 'netstat']),
         }
-        candidates = [binary] + fallbacks.get(binary, [])
+        
+        candidates = [binary] + fallbacks_map.get(binary, [])
         
         for candidate in candidates:
             try:
@@ -381,27 +424,41 @@ REMEMBER: Output ONLY the command(s). Nothing else."""
         return True, ""
 
     def _analyze_command_result(self, command, stdout, stderr, exit_code, cwd=""):
-        """Analyze if a command succeeded or failed"""
+        """Analyze if a command succeeded or failed, provide recovery hints for common errors."""
         if exit_code == 0:
-            return {"success": True, "reason": "exit code 0", "issue": ""}
+            return {"success": True, "reason": "exit code 0", "issue": "", "hint": ""}
         
         if exit_code != 0 and not stderr and stdout:
-            return {"success": True, "reason": "exit code non-zero but has output", "issue": ""}
+            return {"success": True, "reason": "exit code non-zero but has output", "issue": "", "hint": ""}
+        
+        # Provide specific hints for common failures
+        hint = ""
+        if exit_code == 127:
+            hint = "Command not found. Try: use python3 instead of python, pip3 instead of pip, nodejs instead of node."
+        elif exit_code == 126:
+            hint = "Permission denied. Consider adding 'chmod +x' first."
+        elif exit_code == 1:
+            hint = "General failure. Check the error message above for details."
+        elif exit_code == 2:
+            hint = "Misuse of shell command. Check syntax and argument usage."
         
         return {
             "success": False,
             "reason": f"exit code {exit_code}",
-            "issue": stderr[:200] if stderr else "No error output"
+            "issue": stderr[:200] if stderr else "No error output",
+            "hint": hint
         }
 
     def _generate_command(self, user_request, error_analysis=None):
-        """Generate a bash command using AI, with context for recovery"""
+        """Generate a bash command using AI, with context for recovery and hints."""
         try:
             if error_analysis:
                 cwd_context = f"Current directory: {error_analysis.get('cwd', '~')}\n" if error_analysis.get('cwd') else ""
+                hint = error_analysis.get('hint', '')
+                hint_text = f"HINT TO FIX: {hint}\n" if hint else ""
                 prompt = f"""Fix this command that failed:
 Original request: {user_request}
-{cwd_context}Error: {error_analysis.get('issue', 'Unknown')}
+{cwd_context}{hint_text}Error: {error_analysis.get('issue', 'Unknown')}
 Previous output: {error_analysis.get('output', '')}
 
 Output ONLY a new bash command to fix this. NOTHING ELSE."""
@@ -430,25 +487,33 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
                         self.append_text(f"[!] Safety check failed: {reason}\n", "error")
                         return None
                     
+                    # Try to resolve binaries early (catch missing commands before execution)
+                    is_valid, err, corrected = self._validate_command_safe(command)
+                    if not is_valid:
+                        self.append_text(f"[!] Command validation failed: {err}\n", "error")
+                        return None
+                    if corrected:
+                        command = corrected
+                    
                     return command
                 else:
                     if not command or "CANNOT_CONVERT" in command:
-                        self.append_text("[X] Could not generate valid command\n", "error")
+                        self.append_text("❌ Could not generate valid command\n", "error")
                     else:
-                        self.append_text(f"[X] Command too long ({len(command)} chars)\n", "error")
+                        self.append_text(f"❌ Command too long ({len(command)} chars)\n", "error")
                     return None
             else:
-                self.append_text(f"[X] Server error: {response.text[:100]}\n", "error")
+                self.append_text(f"❌ Server error: {response.text[:100]}\n", "error")
                 return None
                 
         except requests.exceptions.Timeout:
-            self.append_text("[X] AI request timeout\n", "error")
+            self.append_text("⏱️ AI request timeout\n", "error")
             return None
         except requests.exceptions.ConnectionError:
-            self.append_text(f"[X] Cannot reach inference server: {INFERENCE_URL}\n", "error")
+            self.append_text(f"🔌 Cannot reach inference server: {INFERENCE_URL}\n", "error")
             return None
         except Exception as e:
-            self.append_text(f"[X] Error: {str(e)}\n", "error")
+            self.append_text(f"❌ Error: {str(e)}\n", "error")
             return None
 
     def _run_in_shell(self, command, timeout=30):
@@ -560,11 +625,11 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
                 self.append_text(f"Command: {command}\n", "command")
                 
                 # Execute
-                self.append_text("[*] Executing...\n", "info")
+                self.append_text("⚡ Executing...\n", "info")
                 try:
                     exit_code, stdout, stderr, cwd = self._run_in_shell(command, timeout=30)
                 except Exception as e:
-                    self.append_text(f"[X] Execution error: {str(e)}\n", "error")
+                    self.append_text(f"❌ Execution error: {str(e)}\n", "error")
                     break
                 
                 # Display output
@@ -585,11 +650,13 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
                     self.append_text(f"[OK] Command succeeded\n", "success")
                     self.status_label.config(text="Ready", fg='#6db783')
                     self.is_processing = False
+                    self.retry_count = 0  # CRITICAL: Reset retry counter on success
                     return
                 else:
                     # Command failed - prepare for recovery
                     failure_reason = analysis.get("reason", "Unknown error")
                     failure_issue = analysis.get("issue", stderr or "No error details")
+                    failure_hint = analysis.get("hint", "")
                     
                     if AUTO_RETRY_ERRORS and self.retry_count < self.max_retries - 1:
                         self.retry_count += 1
@@ -598,15 +665,16 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
                             "error"
                         )
                         self.append_text(
-                            f"[*] Attempt {self.retry_count + 1}/{self.max_retries}...\n",
+                            f"🔄 Attempt {self.retry_count + 1}/{self.max_retries}...\n",
                             "retry"
                         )
                         
-                        # Prepare analysis for next iteration
+                        # Prepare analysis for next iteration (include hint from analyzer)
                         error_analysis = {
                             "reason": failure_reason,
                             "issue": failure_issue[:200],
                             "output": stdout[:100] if stdout else "",
+                            "hint": failure_hint,  # CRITICAL: Pass hint to AI for recovery
                             "cwd": cwd
                         }
                         self.status_label.config(text=f"Retrying... ({self.retry_count}/{self.max_retries})", fg='#ff7f50')
@@ -614,7 +682,7 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
                     else:
                         # Max retries exceeded
                         self.append_text(
-                            f"[X] Failed after {self.max_retries} attempts\n",
+                            f"❌ Failed after {self.max_retries} attempts\n",
                             "error"
                         )
                         if failure_issue:
@@ -622,7 +690,7 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
                         break
                 
         except Exception as e:
-            self.append_text(f"[X] Unexpected error: {str(e)}\n", "error")
+            self.append_text(f"❌ Unexpected error: {str(e)}\n", "error")
             
         self.is_processing = False
         self.status_label.config(text="Ready", fg='#6db783')

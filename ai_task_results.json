@@ -1,0 +1,512 @@
+[
+  {
+    "task_id": 1,
+    "task": "Show current working directory",
+    "attempts": [
+      {
+        "attempt": 1,
+        "ai_raw_response": "pwd",
+        "extracted_command": "pwd",
+        "validation_ok": true,
+        "validation_err": "",
+        "corrected": "pwd",
+        "should_retry": false
+      }
+    ],
+    "final_command": "pwd",
+    "status": "validated"
+  },
+  {
+    "task_id": 2,
+    "task": "List files in the current directory (long listing)",
+    "attempts": [
+      {
+        "attempt": 1,
+        "ai_raw_response": "ls -la",
+        "extracted_command": "ls -la",
+        "validation_ok": true,
+        "validation_err": "",
+        "corrected": "/bin/ls -la",
+        "should_retry": false
+      }
+    ],
+    "final_command": "/bin/ls -la",
+    "status": "validated"
+  },
+  {
+    "task_id": 3,
+    "task": "Show hidden files",
+    "attempts": [
+      {
+        "attempt": 1,
+        "ai_raw_response": "ls -la --hidden",
+        "extracted_command": "ls -la --hidden",
+        "validation_ok": true,
+        "validation_err": "",
+        "corrected": "/bin/ls -la --hidden",
+        "should_retry": false
+      }
+    ],
+    "final_command": "/bin/ls -la --hidden",
+    "status": "validated"
+  },
+  {
+    "task_id": 4,
+    "task": "List Python files recursively",
+    "attempts": [
+      {
+        "attempt": 1,
+        "ai_raw_response": "find . -name '*.py'",
+        "extracted_command": "find . -name '*.py'",
+        "validation_ok": true,
+        "validation_err": "",
+        "corrected": "/usr/bin/find . -name '*.py'",
+        "should_retry": false
+      }
+    ],
+    "final_command": "/usr/bin/find . -name '*.py'",
+    "status": "validated"
+  },
+  {
+    "task_id": 5,
+    "task": "Count number of lines in a file `README.md`",
+    "attempts": [
+      {
+        "attempt": 1,
+        "ai_raw_response": "wc -l README.md",
+        "extracted_command": "wc -l README.md",
+        "validation_ok": true,
+        "validation_err": "",
+        "corrected": "/usr/bin/wc -l README.md",
+        "should_retry": false
+      }
+    ],
+    "final_command": "/usr/bin/wc -l README.md",
+    "status": "validated"
+  },
+  {
+    "task_id": 6,
+    "task": "Show first 10 lines of `README.md`",
+    "attempts": [
+      {
+        "attempt": 1,
+        "ai_raw_response": "head -n 10 README.md",
+        "extracted_command": "head -n 10 README.md",
+        "validation_ok": true,
+        "validation_err": "",
+        "corrected": "/usr/bin/head -n 10 README.md",
+        "should_retry": false
+      }
+    ],
+    "final_command": "/usr/bin/head -n 10 README.md",
+    "status": "validated"
+  },
+  {
+    "task_id": 7,
+    "task": "Show disk usage of current directory",
+    "attempts": [
+      {
+        "attempt": 1,
+        "ai_raw_response": "du -sh .",
+        "extracted_command": "du -sh .",
+        "validation_ok": true,
+        "validation_err": "",
+        "corrected": "/usr/bin/du -sh .",
+        "should_retry": false
+      }
+    ],
+    "final_command": "/usr/bin/du -sh .",
+    "status": "validated"
+  },
+  {
+    "task_id": 8,
+    "task": "Show free disk space",
+    "attempts": [
+      {
+        "attempt": 1,
+        "ai_raw_response": "df -h",
+        "extracted_command": "df -h",
+        "validation_ok": true,
+        "validation_err": "",
+        "corrected": "/bin/df -h",
+        "should_retry": false
+      }
+    ],
+    "final_command": "/bin/df -h",
+    "status": "validated"
+  },
+  {
+    "task_id": 9,
+    "task": "Show `python` version",
+    "attempts": [
+      {
+        "attempt": 1,
+        "ai_raw_response": "python --version",
+        "extracted_command": "python --version",
+        "validation_ok": true,
+        "validation_err": "",
+        "corrected": "/opt/homebrew/bin/python3 --version",
+        "should_retry": false
+      }
+    ],
+    "final_command": "/opt/homebrew/bin/python3 --version",
+    "status": "validated"
+  },
+  {
+    "task_id": 10,
+    "task": "Show `python3` version",
+    "attempts": [
+      {
+        "attempt": 1,
+        "ai_raw_response": "python3 --version",
+        "extracted_command": "python3 --version",
+        "validation_ok": true,
+        "validation_err": "",
+        "corrected": "/opt/homebrew/bin/python3 --version",
+        "should_retry": false
+      }
+    ],
+    "final_command": "/opt/homebrew/bin/python3 --version",
+    "status": "validated"
+  },
+  {
+    "task_id": 11,
+    "task": "Install `requests` into user site (pip)",
+    "attempts": [
+      {
+        "attempt": 1,
+        "ai_raw_response": "pip install --user requests",
+        "extracted_command": "pip install --user requests",
+        "validation_ok": true,
+        "validation_err": "",
+        "corrected": "/opt/homebrew/bin/pip3 install --user requests",
+        "should_retry": false
+      }
+    ],
+    "final_command": "/opt/homebrew/bin/pip3 install --user requests",
+    "status": "validated"
+  },
+  {
+    "task_id": 12,
+    "task": "Show active network interfaces",
+    "attempts": [
+      {
+        "attempt": 1,
+        "ai_raw_response": "ifconfig || networksetup -listallnetworkservices",
+        "extracted_command": "ifconfig || networksetup -listallnetworkservices",
+        "validation_ok": true,
+        "validation_err": "",
+        "corrected": "/sbin/ifconfig || networksetup -listallnetworkservices",
+        "should_retry": false
+      }
+    ],
+    "final_command": "/sbin/ifconfig || networksetup -listallnetworkservices",
+    "status": "validated"
+  },
+  {
+    "task_id": 13,
+    "task": "Ping `8.8.8.8` once",
+    "attempts": [
+      {
+        "attempt": 1,
+        "ai_raw_response": "ping -c 1 8.8.8.8",
+        "extracted_command": "ping -c 1 8.8.8.8",
+        "validation_ok": true,
+        "validation_err": "",
+        "corrected": "/sbin/ping -c 1 8.8.8.8",
+        "should_retry": false
+      }
+    ],
+    "final_command": "/sbin/ping -c 1 8.8.8.8",
+    "status": "validated"
+  },
+  {
+    "task_id": 14,
+    "task": "Show top 5 memory-consuming processes",
+    "attempts": [
+      {
+        "attempt": 1,
+        "ai_raw_response": "ps aux --sort=-%mem | head -n 6",
+        "extracted_command": "ps aux --sort=-%mem | head -n 6",
+        "validation_ok": true,
+        "validation_err": "",
+        "corrected": "/bin/ps aux --sort=-%mem | head -n 6",
+        "should_retry": false
+      }
+    ],
+    "final_command": "/bin/ps aux --sort=-%mem | head -n 6",
+    "status": "validated"
+  },
+  {
+    "task_id": 15,
+    "task": "Show last 200 lines of `debug_logs.md` (if present)",
+    "attempts": [
+      {
+        "attempt": 1,
+        "ai_raw_response": "tail -n 200 debug_logs.md",
+        "extracted_command": "tail -n 200 debug_logs.md",
+        "validation_ok": true,
+        "validation_err": "",
+        "corrected": "/usr/bin/tail -n 200 debug_logs.md",
+        "should_retry": false
+      }
+    ],
+    "final_command": "/usr/bin/tail -n 200 debug_logs.md",
+    "status": "validated"
+  },
+  {
+    "task_id": 16,
+    "task": "Search for \"TODO\" in repository",
+    "attempts": [
+      {
+        "attempt": 1,
+        "ai_raw_response": "grep -R \"TODO\" . || true",
+        "extracted_command": "grep -R \"TODO\" . || true",
+        "validation_ok": true,
+        "validation_err": "",
+        "corrected": "/usr/bin/grep -R \"TODO\" . || true",
+        "should_retry": false
+      }
+    ],
+    "final_command": "/usr/bin/grep -R \"TODO\" . || true",
+    "status": "validated"
+  },
+  {
+    "task_id": 17,
+    "task": "Count files in repository",
+    "attempts": [
+      {
+        "attempt": 1,
+        "ai_raw_response": "find . -type f | wc -l",
+        "extracted_command": "find . -type f | wc -l",
+        "validation_ok": true,
+        "validation_err": "",
+        "corrected": "/usr/bin/find . -type f | wc -l",
+        "should_retry": false
+      }
+    ],
+    "final_command": "/usr/bin/find . -type f | wc -l",
+    "status": "validated"
+  },
+  {
+    "task_id": 18,
+    "task": "Find large files (>10M)",
+    "attempts": [
+      {
+        "attempt": 1,
+        "ai_raw_response": "find . -type f -size +10M -exec ls -lh {} \\; || true",
+        "extracted_command": "find . -type f -size +10M -exec ls -lh {} \\; || true",
+        "validation_ok": true,
+        "validation_err": "",
+        "corrected": "/usr/bin/find . -type f -size +10M -exec ls -lh {} \\; || true",
+        "should_retry": false
+      }
+    ],
+    "final_command": "/usr/bin/find . -type f -size +10M -exec ls -lh {} \\; || true",
+    "status": "validated"
+  },
+  {
+    "task_id": 19,
+    "task": "Show available package updates (apt-get) [non-destructive]",
+    "attempts": [
+      {
+        "attempt": 1,
+        "ai_raw_response": "sudo apt-get -s upgrade | head -n 20 || echo \"apt-get not available\"",
+        "extracted_command": "sudo apt-get -s upgrade | head -n 20 || echo \"apt-get not available\"",
+        "validation_ok": true,
+        "validation_err": "",
+        "corrected": "/usr/bin/sudo apt-get -s upgrade | head -n 20 || echo \"apt-get not available\"",
+        "should_retry": false
+      }
+    ],
+    "final_command": "/usr/bin/sudo apt-get -s upgrade | head -n 20 || echo \"apt-get not available\"",
+    "status": "validated"
+  },
+  {
+    "task_id": 20,
+    "task": "Print environment variables related to PATH",
+    "attempts": [
+      {
+        "attempt": 1,
+        "ai_raw_response": "env | grep PATH",
+        "extracted_command": "env | grep PATH",
+        "validation_ok": true,
+        "validation_err": "",
+        "corrected": "/usr/bin/env | grep PATH",
+        "should_retry": false
+      }
+    ],
+    "final_command": "/usr/bin/env | grep PATH",
+    "status": "validated"
+  },
+  {
+    "task_id": 21,
+    "task": "Show git branch and latest commit",
+    "attempts": [
+      {
+        "attempt": 1,
+        "ai_raw_response": "git rev-parse --abbrev-ref HEAD && git log -1 --oneline",
+        "extracted_command": "git rev-parse --abbrev-ref HEAD && git log -1 --oneline",
+        "validation_ok": true,
+        "validation_err": "",
+        "corrected": "/usr/bin/git rev-parse --abbrev-ref HEAD && git log -1 --oneline",
+        "should_retry": false
+      }
+    ],
+    "final_command": "/usr/bin/git rev-parse --abbrev-ref HEAD && git log -1 --oneline",
+    "status": "validated"
+  },
+  {
+    "task_id": 22,
+    "task": "Create a directory `tmp_test_dir` (non-destructive)",
+    "attempts": [
+      {
+        "attempt": 1,
+        "ai_raw_response": "mkdir -p tmp_test_dir",
+        "extracted_command": "mkdir -p tmp_test_dir",
+        "validation_ok": true,
+        "validation_err": "",
+        "corrected": "/bin/mkdir -p tmp_test_dir",
+        "should_retry": false
+      }
+    ],
+    "final_command": "/bin/mkdir -p tmp_test_dir",
+    "status": "validated"
+  },
+  {
+    "task_id": 23,
+    "task": "Remove the created `tmp_test_dir` (only if exists and empty)",
+    "attempts": [
+      {
+        "attempt": 1,
+        "ai_raw_response": "rmdir tmp_test_dir || true",
+        "extracted_command": "rmdir tmp_test_dir || true",
+        "validation_ok": true,
+        "validation_err": "",
+        "corrected": "/bin/rmdir tmp_test_dir || true",
+        "should_retry": false
+      }
+    ],
+    "final_command": "/bin/rmdir tmp_test_dir || true",
+    "status": "validated"
+  },
+  {
+    "task_id": 24,
+    "task": "Show installed pip packages (user)",
+    "attempts": [
+      {
+        "attempt": 1,
+        "ai_raw_response": "pip list --user",
+        "extracted_command": "pip list --user",
+        "validation_ok": true,
+        "validation_err": "",
+        "corrected": "/opt/homebrew/bin/pip3 list --user",
+        "should_retry": false
+      }
+    ],
+    "final_command": "/opt/homebrew/bin/pip3 list --user",
+    "status": "validated"
+  },
+  {
+    "task_id": 25,
+    "task": "Show Node.js version",
+    "attempts": [
+      {
+        "attempt": 1,
+        "ai_raw_response": "node --version",
+        "extracted_command": "node --version",
+        "validation_ok": true,
+        "validation_err": "",
+        "corrected": "/opt/homebrew/bin/node --version",
+        "should_retry": false
+      }
+    ],
+    "final_command": "/opt/homebrew/bin/node --version",
+    "status": "validated"
+  },
+  {
+    "task_id": 26,
+    "task": "List listening TCP ports",
+    "attempts": [
+      {
+        "attempt": 1,
+        "ai_raw_response": "netstat -tuln || lsof -i -P -n",
+        "extracted_command": "netstat -tuln || lsof -i -P -n",
+        "validation_ok": true,
+        "validation_err": "",
+        "corrected": "/usr/sbin/netstat -tuln || lsof -i -P -n",
+        "should_retry": false
+      }
+    ],
+    "final_command": "/usr/sbin/netstat -tuln || lsof -i -P -n",
+    "status": "validated"
+  },
+  {
+    "task_id": 27,
+    "task": "Show last reboot time",
+    "attempts": [
+      {
+        "attempt": 1,
+        "ai_raw_response": "who -b || last reboot | head -1",
+        "extracted_command": "who -b || last reboot | head -1",
+        "validation_ok": true,
+        "validation_err": "",
+        "corrected": "/usr/bin/who -b || last reboot | head -1",
+        "should_retry": false
+      }
+    ],
+    "final_command": "/usr/bin/who -b || last reboot | head -1",
+    "status": "validated"
+  },
+  {
+    "task_id": 28,
+    "task": "Display kernel uname info",
+    "attempts": [
+      {
+        "attempt": 1,
+        "ai_raw_response": "uname -a",
+        "extracted_command": "uname -a",
+        "validation_ok": true,
+        "validation_err": "",
+        "corrected": "/usr/bin/uname -a",
+        "should_retry": false
+      }
+    ],
+    "final_command": "/usr/bin/uname -a",
+    "status": "validated"
+  },
+  {
+    "task_id": 29,
+    "task": "Show contents of `/etc/passwd` (read-only)",
+    "attempts": [
+      {
+        "attempt": 1,
+        "ai_raw_response": "cat /etc/passwd",
+        "extracted_command": "cat /etc/passwd",
+        "validation_ok": true,
+        "validation_err": "",
+        "corrected": "/bin/cat /etc/passwd",
+        "should_retry": false
+      }
+    ],
+    "final_command": "/bin/cat /etc/passwd",
+    "status": "validated"
+  },
+  {
+    "task_id": 30,
+    "task": "Run shell command to check if port 8081 is open locally",
+    "attempts": [
+      {
+        "attempt": 1,
+        "ai_raw_response": "netstat -tuln | grep 8081 || lsof -i :8081 || echo \"Port 8081 not open\"",
+        "extracted_command": "netstat -tuln | grep 8081 || lsof -i :8081 || echo \"Port 8081 not open\"",
+        "validation_ok": true,
+        "validation_err": "",
+        "corrected": "/usr/sbin/netstat -tuln | grep 8081 || lsof -i :8081 || echo \"Port 8081 not open\"",
+        "should_retry": false
+      }
+    ],
+    "final_command": "/usr/sbin/netstat -tuln | grep 8081 || lsof -i :8081 || echo \"Port 8081 not open\"",
+    "status": "validated"
+  }
+]
