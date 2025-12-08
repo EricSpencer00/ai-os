@@ -400,9 +400,12 @@ class AuraOSBrowser:
         if firefox_path:
             try:
                 env = os.environ.copy()
+                env = os.environ.copy()
                 env["DISPLAY"] = env.get("DISPLAY", ":99")
                 env["XDG_RUNTIME_DIR"] = "/run/user/1000"
                 env["HOME"] = os.path.expanduser("~")
+                # Ensure X authority is set so subprocesses can connect to Xvfb
+                env["XAUTHORITY"] = env.get("XAUTHORITY", os.path.expanduser("~/.Xauthority"))
                 
                 self.append(f"[*] Launching Firefox...\n", "info")
                 proc = subprocess.Popen(
@@ -491,6 +494,8 @@ class AuraOSBrowser:
             env = os.environ.copy()
             env["DISPLAY"] = env.get("DISPLAY", ":99")
             env["HOME"] = os.path.expanduser("~")
+            # Ensure X authority is present so the browser can attach to Xvfb
+            env["XAUTHORITY"] = env.get("XAUTHORITY", os.path.expanduser("~/.Xauthority"))
             
             # Try Chromium first (more reliable on ARM), then Firefox
             browsers = [
