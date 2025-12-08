@@ -439,35 +439,85 @@ class AuraOSBrowser:
                 ("Firefox", "firefox-wrapped", ["firefox-wrapped"]),
                 ("Firefox", "firefox", ["firefox", "--new-window", "--no-sandbox"])
             ]
-            
+            log_path = "/tmp/auraos_browser_launch.log"
             for browser_name, browser_cmd, browser_args in browsers:
-                if shutil.which(browser_cmd):
+                # Prefer checking the actual executable name (first arg), fall back to the wrapper name
+                exe = browser_args[0] if browser_args else browser_cmd
+                if shutil.which(exe) or shutil.which(browser_cmd):
                     try:
-                        self.append(f"[*] Attempting {browser_name} launch...\n", "info")
+                        self.append(f"[*] Attempting {browser_name} launch ({exe})...\n", "info")
                         cmd = browser_args.copy()
                         if url:
                             cmd.append(url)
-                        
-                        subprocess.Popen(
+
+                        # Log the attempted command and environment vars helpful for X11
+                        try:
+                            with open(log_path, "a") as lf:
+                                ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                                lf.write(f"[{ts}] LAUNCH ATTEMPT: {cmd} ENV_DISPLAY={env.get('DISPLAY')} XAUTHORITY={env.get('XAUTHORITY')}\n")
+                        except Exception:
+                            pass
+
+                        # Try local launch, capturing stdout/stderr to log file
+                        lf = open(log_path, "a")
+                        p = subprocess.Popen(
                             cmd,
                             env=env,
-                            stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL,
+                            stdout=lf,
+                            stderr=lf,
                             start_new_session=True
                         )
-                        
-                        # Give it a moment to start
-                        time.sleep(1)
-                        
-                        self.append(f"[OK] {browser_name} launched\n", "success")
-                        self.update_status("Ready", "#6db783")
-                        self.log_event("BROWSER_OPENED", browser_name)
-                        return
-                        
+
+                        # Give it a moment to start and check if it's still running
+                        time.sleep(2)
+                        poll = p.poll()
+                        if poll is None or poll == 0:
+                            self.append(f"[OK] {browser_name} launched (pid={p.pid})\n", "success")
+                            self.update_status("Ready", "#6db783")
+                            self.log_event("BROWSER_OPENED", f"{browser_name} pid={p.pid}")
+                            try:
+                                lf.close()
+                            except:
+                                pass
+                            return
+                        else:
+                            # Process exited quickly - capture exit code
+                            self.append(f"[!] {browser_name} exited early (code={poll}). Trying VM fallback...\n", "warning")
+                            self.log_event(f"{browser_name.upper()}_EARLY_EXIT", str(poll))
+                            try:
+                                lf.close()
+                            except:
+                                pass
+
                     except Exception as e:
                         error_msg = str(e)
-                        self.append(f"[!] {browser_name} launch failed: {error_msg[:60]}\n", "warning")
+                        self.append(f"[!] {browser_name} launch failed: {error_msg[:200]}\n", "warning")
                         self.log_event(f"{browser_name.upper()}_FAILED", error_msg)
+
+                    # Fallback: try launching inside the Multipass VM as the auraos user
+                    try:
+                        fallback_cmd = " ".join([shutil.which(exe) or exe] + ([url] if url else []))
+                        vm_cmd = [
+                            "multipass", "exec", "auraos-multipass", "--",
+                            "bash", "-lc",
+                            f"sudo -u auraos DISPLAY=\":99\" XAUTHORITY=/home/auraos/.Xauthority {fallback_cmd} &>/tmp/auraos_browser_vm_launch.log &"
+                        ]
+                        self.append(f"[*] Attempting VM fallback launch for {browser_name}...\n", "info")
+                        self.log_event("BROWSER_VM_FALLBACK", browser_name)
+                        vm_result = subprocess.run(vm_cmd, capture_output=True, text=True, timeout=60)
+                        with open(log_path, "a") as lf2:
+                            ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                            lf2.write(f"[{ts}] VM FALLBACK CMD: {' '.join(vm_cmd)}\n")
+                            lf2.write(f"STDOUT:\n{vm_result.stdout}\nSTDERR:\n{vm_result.stderr}\n")
+
+                        # Wait a moment and report success if no obvious error
+                        time.sleep(2)
+                        self.append(f"[OK] VM fallback attempted; see /tmp/auraos_browser_vm_launch.log and {log_path}\n", "success")
+                        self.update_status("Ready", "#6db783")
+                        return
+                    except Exception as e:
+                        self.append(f"[!] VM fallback failed: {e}\n", "warning")
+                        self.log_event("BROWSER_VM_FALLBACK_FAILED", str(e))
             
             # Fallback: Show user instructions
             self.append("\n", "info")
