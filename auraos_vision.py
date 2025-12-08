@@ -27,10 +27,16 @@ except ImportError:
     HAS_REQUESTS = False
 
 try:
-    from PIL import ImageGrab, Image
+    from PIL import Image
     HAS_PIL = True
 except ImportError:
     HAS_PIL = False
+
+try:
+    import pyautogui
+    HAS_PYAUTOGUI = True
+except ImportError:
+    HAS_PYAUTOGUI = False
 
 # Setup logging
 LOG_DIR = Path.home() / ".auraos" / "logs"
@@ -221,6 +227,10 @@ class AuraOSVision:
         if not HAS_PIL:
             self.append_text("[Error] PIL not installed\n", "error")
             return
+        
+        if not HAS_PYAUTOGUI:
+            self.append_text("[Error] pyautogui not installed\n", "error")
+            return
             
         self.is_processing = True
         self.status_label.config(text="Capturing...", fg='#ffaa00')
@@ -229,9 +239,10 @@ class AuraOSVision:
         threading.Thread(target=self._take_screenshot, daemon=True).start()
         
     def _take_screenshot(self):
-        """Take screenshot in background"""
+        """Take screenshot in background using pyautogui (works on Linux with X11)"""
         try:
-            screenshot = ImageGrab.grab()
+            # Use pyautogui.screenshot() which works on Linux with DISPLAY set
+            screenshot = pyautogui.screenshot()
             self.screenshot_size = screenshot.size
             img_byte_arr = io.BytesIO()
             screenshot.save(img_byte_arr, format='PNG')
@@ -345,12 +356,12 @@ class AuraOSVision:
             
             try:
                 # Capture FULL screen (entire desktop, not just this window)
-                if not HAS_PIL:
-                    self.append_text("[Error] PIL required\n", "error")
-                    logger.error("PIL not available")
+                if not HAS_PIL or not HAS_PYAUTOGUI:
+                    self.append_text("[Error] PIL and pyautogui required\n", "error")
+                    logger.error("PIL or pyautogui not available")
                     break
                 
-                screenshot = ImageGrab.grab()
+                screenshot = pyautogui.screenshot()
                 self.screenshot_size = screenshot.size
                 
                 # Log captured size for debugging
@@ -526,8 +537,29 @@ RESPOND ONLY WITH JSON, nothing else. Example valid responses:
         }
         return cooldowns.get(action_type, cooldowns['default'])
     
+    def _check_xdotool(self):
+        """Check if xdotool is available"""
+        import shutil
+        return shutil.which('xdotool') is not None
+    
     def _do_click(self, x, y):
-        """Execute click with error handling"""
+        """Execute click with error handling - uses pyautogui as fallback"""
+        # Try pyautogui first (more reliable)
+        if HAS_PYAUTOGUI:
+            try:
+                pyautogui.click(x, y)
+                logger.debug("Click executed at (%d, %d) via pyautogui", x, y)
+                return
+            except Exception as e:
+                logger.warning("pyautogui click failed: %s, trying xdotool", e)
+        
+        # Fallback to xdotool
+        if not self._check_xdotool():
+            err_msg = "[Error] xdotool not found and pyautogui failed"
+            self.append_text(f"{err_msg}\n", "error")
+            logger.error(err_msg)
+            return
+            
         try:
             subprocess.run(
                 ['xdotool', 'mousemove', str(x), str(y), 'click', '1'],
@@ -535,7 +567,7 @@ RESPOND ONLY WITH JSON, nothing else. Example valid responses:
                 timeout=5,
                 capture_output=True
             )
-            logger.debug("Click executed at (%d, %d)", x, y)
+            logger.debug("Click executed at (%d, %d) via xdotool", x, y)
         except subprocess.TimeoutExpired:
             err_msg = "[Error] Click timeout"
             self.append_text(f"{err_msg}\n", "error")
@@ -546,7 +578,23 @@ RESPOND ONLY WITH JSON, nothing else. Example valid responses:
             logger.error(err_msg)
     
     def _do_type(self, text):
-        """Execute typing with error handling"""
+        """Execute typing with error handling - uses pyautogui as fallback"""
+        # Try pyautogui first (more reliable)
+        if HAS_PYAUTOGUI:
+            try:
+                pyautogui.typewrite(text, interval=0.02)
+                logger.debug("Typed %d characters via pyautogui", len(text))
+                return
+            except Exception as e:
+                logger.warning("pyautogui type failed: %s, trying xdotool", e)
+        
+        # Fallback to xdotool
+        if not self._check_xdotool():
+            err_msg = "[Error] xdotool not found and pyautogui failed"
+            self.append_text(f"{err_msg}\n", "error")
+            logger.error(err_msg)
+            return
+            
         try:
             subprocess.run(
                 ['xdotool', 'type', '--clearmodifiers', text],
@@ -554,7 +602,7 @@ RESPOND ONLY WITH JSON, nothing else. Example valid responses:
                 timeout=10,
                 capture_output=True
             )
-            logger.debug("Typed %d characters", len(text))
+            logger.debug("Typed %d characters via xdotool", len(text))
         except subprocess.TimeoutExpired:
             err_msg = "[Error] Type timeout"
             self.append_text(f"{err_msg}\n", "error")
