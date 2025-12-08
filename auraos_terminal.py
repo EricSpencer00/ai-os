@@ -12,6 +12,7 @@ import os
 import requests
 import re
 import json
+import shlex
 import pty
 import select
 import time
@@ -251,6 +252,50 @@ class AuraOSTerminal:
         import tkinter.simpledialog as simpledialog
         password = simpledialog.askstring("Password Required", "Enter password:", show='*')
         return password
+
+    def _run_subprocess_fallback(self, command, timeout=60):
+        """Fallback execution path when PTY shell is unavailable: use subprocess.run."""
+        try:
+            proc = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=timeout)
+            return proc.returncode, proc.stdout or "", proc.stderr or "", os.getcwd()
+        except Exception as e:
+            return 1, "", str(e), os.getcwd()
+
+    def _should_try_sudo(self, command):
+        """Heuristic: decide whether to attempt running command with sudo.
+        Targets package managers, systemctl, chown/chmod on system paths, snap, and writing to /opt or /usr."""
+        low = command.lower()
+        triggers = ['apt-get', 'apt ', 'dnf ', 'yum ', 'pacman', 'systemctl', 'snap', 'add-apt-repository', 'chown ', 'chmod ', 'mount ', 'umount ', 'mkfs', '/opt/', '/usr/', 'iptables', 'ufw', 'service ', 'reboot']
+        for t in triggers:
+            if t in low:
+                return True
+        return False
+
+    def _attempt_with_sudo(self, command, timeout=60):
+        """Try to run given command with sudo. First try non-interactive sudo, then prompt for password if needed."""
+        try:
+            # If command already contains sudo, just run it
+            if command.strip().startswith('sudo'):
+                return self._run_in_shell(command, timeout=timeout)
+
+            # Try non-interactive sudo first
+            sudo_try = f"sudo -n {command}"
+            code, out, err, cwd = self._run_in_shell(sudo_try, timeout=10)
+            if code == 0:
+                return code, out, err, cwd
+
+            # If non-interactive sudo failed due to password, prompt
+            password = self._request_password()
+            if not password:
+                return 1, "", "sudo password required but not provided", os.getcwd()
+
+            # Safely quote password and command
+            safe_pw = shlex.quote(password)
+            # Use -S to read password from stdin, -p '' to suppress prompt
+            full_cmd = f"echo {safe_pw} | sudo -S -p '' {command}"
+            return self._run_in_shell(full_cmd, timeout=timeout)
+        except Exception as e:
+            return 1, "", str(e), os.getcwd()
         
     def setup_ui(self):
         # Title Bar
@@ -704,16 +749,10 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
         Execute command in persistent PTY shell and capture output safely.
         Validates command, resolves binaries with fallbacks, escapes safely.
         """
-        if not self.shell_fd:
-            # Provide detailed diagnostic info
-            error_msg = f"Shell not initialized (fd={self.shell_fd}, pid={self.shell_pid})"
-            print(f"[ERROR] {error_msg}", file=sys.stderr)
-            return 1, "", error_msg, ""
-        
-        if self.shell_pid is None or self.shell_pid <= 0:
-            error_msg = f"Shell process not running (pid={self.shell_pid})"
-            print(f"[ERROR] {error_msg}", file=sys.stderr)
-            return 1, "", error_msg, ""
+        if not self.shell_fd or self.shell_pid is None or self.shell_pid <= 0:
+            # If PTY shell not available, fall back to subprocess.run to ensure commands still execute.
+            print(f"[WARN] PTY shell unavailable, falling back to subprocess for: {command[:80]}", file=sys.stderr)
+            return self._run_subprocess_fallback(command, timeout=max(30, timeout))
         
         try:
             # Pre-exec validation: detect injections and resolve binaries
@@ -868,26 +907,26 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
                     failure_issue = analysis.get("issue", stderr or "No error details")
                     failure_hint = analysis.get("hint", "")
                     
-                    # Special handling for password prompts
+                    # Special handling for password prompts and permission issues
                     if failure_reason == "password_required":
                         self.append_text(f"\n🔐 Password required:\n", "info")
                         self.append_text(f"Command: {command}\n\n", "command")
-                        
+
                         # Show password input field
                         password = self._request_password()
                         if password:
                             # Re-run with password via sudo -S (read from stdin)
                             self.append_text(f"[*] Retrying with password...\n", "info")
                             try:
-                                # Use echo to pipe password to sudo
-                                full_cmd = f"echo '{password}' | sudo -S {command.replace('sudo ', '')}"
+                                safe_pw = shlex.quote(password)
+                                full_cmd = f"echo {safe_pw} | sudo -S -p '' {command.replace('sudo ', '')}"
                                 exit_code, stdout, stderr, cwd = self._run_in_shell(full_cmd, timeout=30)
-                                
+
                                 if stdout:
                                     clean = self._clean_shell_output(stdout)
                                     if clean:
                                         self.append_text(f"{clean}\n", "info")
-                                
+
                                 if exit_code == 0:
                                     self.append_text(f"[OK] Command succeeded\n", "success")
                                     self.status_label.config(text="Ready", fg='#6db783')
@@ -898,8 +937,37 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
                                 self.append_text(f"[!] Password execution failed: {e}\n", "error")
                         else:
                             self.append_text(f"[!] Password entry cancelled\n", "error")
-                        
+
                         # Fall through to retry logic
+
+                    # If permission denied or heuristics say this likely needs sudo, try automatically
+                    if failure_reason == 'permission_denied' or self._should_try_sudo(command):
+                        self.append_text(f"[!] Detected permission issue or privileged action. Trying with sudo...\n", "info")
+                        try:
+                            code, out, err, cwd = self._attempt_with_sudo(command, timeout=30)
+                            if out:
+                                clean = self._clean_shell_output(out)
+                                if clean:
+                                    self.append_text(f"{clean}\n", "info")
+                            if code == 0:
+                                self.append_text(f"[OK] Command succeeded with sudo\n", "success")
+                                self.status_label.config(text="Ready", fg='#6db783')
+                                self.is_processing = False
+                                self.retry_count = 0
+                                return
+                            else:
+                                self.append_text(f"[!] Sudo attempt failed: {err}\n", "error")
+                                # feed this into error_analysis for AI retry
+                                error_analysis = {
+                                    'reason': 'sudo_attempt_failed',
+                                    'issue': (err or out)[:200],
+                                    'output': out[:100] if out else '',
+                                    'hint': 'Tried sudo, still failed',
+                                    'cwd': cwd
+                                }
+                                # continue to retry via AI below
+                        except Exception as e:
+                            self.append_text(f"[!] Sudo attempt exception: {e}\n", "error")
                     
                     if AUTO_RETRY_ERRORS and self.retry_count < self.max_retries - 1:
                         self.retry_count += 1
