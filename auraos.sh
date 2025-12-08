@@ -779,6 +779,12 @@ UNIT
 
 systemctl daemon-reload || true
 systemctl enable --now auraos-gui-agent.service || true
+# Create limited passwordless sudoers for auraos (ensure agent can perform maintenance tasks)
+cat > /etc/sudoers.d/auraos-nopasswd <<'SUDOEOF'
+# Allow auraos to run specified maintenance commands without password
+auraos ALL=(ALL) NOPASSWD: /usr/bin/apt-get, /usr/bin/apt, /usr/bin/systemctl, /usr/bin/chown, /usr/bin/chmod, /usr/bin/snap, /usr/bin/add-apt-repository, /usr/bin/pip3, /usr/bin/pip, /bin/mount, /bin/umount, /usr/bin/dpkg, /usr/bin/git
+SUDOEOF
+chmod 0440 /etc/sudoers.d/auraos-nopasswd || true
 AGENT_SETUP
 
 echo ""
@@ -1162,6 +1168,12 @@ rm -f /home/${AURAOS_USER}/.vnc/passwd
 
 # Use printf to avoid interactive prompts
 printf 'auraos123\nauraos123\ny\n' | x11vnc -storepasswd /home/${AURAOS_USER}/.vnc/passwd >/dev/null 2>&1 || true
+# Create limited passwordless sudoers file for auraos to allow common maintenance commands
+cat > /etc/sudoers.d/auraos-nopasswd <<'SUDOEOF'
+# Allow auraos to run specified maintenance commands without password
+auraos ALL=(ALL) NOPASSWD: /usr/bin/apt-get, /usr/bin/apt, /usr/bin/systemctl, /usr/bin/chown, /usr/bin/chmod, /usr/bin/snap, /usr/bin/add-apt-repository, /usr/bin/pip3, /usr/bin/pip, /bin/mount, /bin/umount, /usr/bin/dpkg, /usr/bin/git
+SUDOEOF
+chmod 0440 /etc/sudoers.d/auraos-nopasswd || true
 
 # Ensure correct permissions on password file
 chown -R ${AURAOS_USER}:${AURAOS_USER} /home/${AURAOS_USER}/.vnc
@@ -2586,6 +2598,10 @@ cmd_dev() {
     
     multipass exec "$VM_NAME" -- sudo bash <<'DEV_INSTALL'
 AURAOS_USER='auraos'
+
+# Ensure bin dir exists so copies don't fail if vm-setup wasn't run
+mkdir -p /opt/auraos/bin
+chown -R ${AURAOS_USER}:${AURAOS_USER} /opt/auraos/bin || true
 
 # Install transferred Python files
 for pyfile in auraos_terminal.py auraos_browser.py auraos_vision.py auraos_launcher.py auraos_onboarding.py; do

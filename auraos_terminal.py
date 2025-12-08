@@ -12,6 +12,8 @@ import os
 import requests
 import re
 import json
+import shlex
+import queue
 import pty
 import select
 import time
@@ -172,11 +174,12 @@ class AuraOSTerminal:
                         # attrs[3] is c_lflag (local flags)
                         # DISABLE ECHO - we don't want to see commands echoed back
                         # Keep ICANON for line-buffered input
-                        attrs[3] &= ~termios.ECHO  # Turn OFF echo
-                        attrs[3] |= termios.ICANON  # Keep line buffering
-                        # attrs[6] is cc (control characters)
-                        attrs[6][termios.VMIN] = 0    # Non-blocking read
-                        attrs[6][termios.VTIME] = 0   # No timeout
+                        # Keep ECHO enabled so interactive prompts behave normally
+                        attrs[3] |= termios.ECHO  # Ensure echo ON
+                        attrs[3] |= termios.ICANON  # Keep line buffering (canonical mode)
+                        # attrs[6] is cc (control characters). Use blocking reads per-line.
+                        attrs[6][termios.VMIN] = 1    # Wait for at least 1 byte (canonical)
+                        attrs[6][termios.VTIME] = 0   # No inter-byte timeout
                         termios.tcsetattr(0, termios.TCSANOW, attrs)
                     except:
                         pass  # Terminal attributes may not be fully available
@@ -245,6 +248,92 @@ class AuraOSTerminal:
             except:
                 pass
         self.root.destroy()
+    
+    def _request_password(self):
+        """Show a password dialog safely from any thread.
+
+        If called from the main thread, show the dialog directly. If called
+        from a background thread (common), schedule the dialog to run on the
+        Tk mainloop via `self.root.after` and wait on a Queue for the result.
+        This avoids Tkinter focus/input issues caused by calling dialog APIs
+        from non-main threads.
+        """
+        import tkinter.simpledialog as simpledialog
+        import threading
+
+        # If we're on the main thread, show dialog directly
+        if threading.current_thread() is threading.main_thread():
+            return simpledialog.askstring("Password Required", "Enter password:", show='*', parent=self.root)
+
+        q = queue.Queue()
+
+        def ask():
+            try:
+                pw = simpledialog.askstring("Password Required", "Enter password:", show='*', parent=self.root)
+                q.put(pw)
+            except Exception:
+                q.put(None)
+
+        # Schedule the dialog to run on the Tk mainloop
+        try:
+            self.root.after(0, ask)
+        except Exception:
+            # If scheduling fails, fall back to direct call (may not work)
+            try:
+                return simpledialog.askstring("Password Required", "Enter password:", show='*', parent=self.root)
+            except Exception:
+                return None
+
+        try:
+            # Wait (up to 5 minutes) for the user to enter a password
+            pw = q.get(timeout=300)
+            return pw
+        except queue.Empty:
+            return None
+
+    def _run_subprocess_fallback(self, command, timeout=60):
+        """Fallback execution path when PTY shell is unavailable: use subprocess.run."""
+        try:
+            proc = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=timeout)
+            return proc.returncode, proc.stdout or "", proc.stderr or "", os.getcwd()
+        except Exception as e:
+            return 1, "", str(e), os.getcwd()
+
+    def _should_try_sudo(self, command):
+        """Heuristic: decide whether to attempt running command with sudo.
+        Targets package managers, systemctl, chown/chmod on system paths, snap, and writing to /opt or /usr."""
+        low = command.lower()
+        triggers = ['apt-get', 'apt ', 'dnf ', 'yum ', 'pacman', 'systemctl', 'snap', 'add-apt-repository', 'chown ', 'chmod ', 'mount ', 'umount ', 'mkfs', '/opt/', '/usr/', 'iptables', 'ufw', 'service ', 'reboot']
+        for t in triggers:
+            if t in low:
+                return True
+        return False
+
+    def _attempt_with_sudo(self, command, timeout=60):
+        """Try to run given command with sudo. First try non-interactive sudo, then prompt for password if needed."""
+        try:
+            # If command already contains sudo, just run it
+            if command.strip().startswith('sudo'):
+                return self._run_in_shell(command, timeout=timeout)
+
+            # Try non-interactive sudo first
+            sudo_try = f"sudo -n {command}"
+            code, out, err, cwd = self._run_in_shell(sudo_try, timeout=10)
+            if code == 0:
+                return code, out, err, cwd
+
+            # If non-interactive sudo failed due to password, prompt
+            password = self._request_password()
+            if not password:
+                return 1, "", "sudo password required but not provided", os.getcwd()
+
+            # Safely quote password and command
+            safe_pw = shlex.quote(password)
+            # Use -S to read password from stdin, -p '' to suppress prompt
+            full_cmd = f"echo {safe_pw} | sudo -S -p '' {command}"
+            return self._run_in_shell(full_cmd, timeout=timeout)
+        except Exception as e:
+            return 1, "", str(e), os.getcwd()
         
     def setup_ui(self):
         # Title Bar
@@ -413,7 +502,7 @@ REMEMBER: Output ONLY the command(s). Nothing else."""
         original_text = response_text
         
         # Strip code fences with optional language markers: ```bash, ``` bash, ``` etc.
-        response_text = re.sub(r"```\s*(?:[a-zA-Z0-9_+-]*)", "", response_text)
+        response_text = re.sub(r"```\s*(?:[a-zA-Z0-9_+-]*)", "", response_text)  # Remove stray code fences
         
         # Remove inline backticks: `cmd` -> cmd
         response_text = re.sub(r"`([^`]*)`", r"\1", response_text)
@@ -496,37 +585,94 @@ REMEMBER: Output ONLY the command(s). Nothing else."""
         if not command or not command.strip():
             return False, "Empty command", ""
         
-        # Check for injection patterns
-        injection_patterns = [r"\$\(", r"\$\{", r"`;.*`"]
+        # Check for injection patterns. Keep simple blocking of backticks (old-style
+        # command substitution) but allow modern $() and ${} parameter expansion
+        # so AI-generated commands that use $(...) or ${...} are accepted.
+        injection_patterns = [r"`"]
         for pattern in injection_patterns:
             if re.search(pattern, command):
                 return False, f"Injection pattern: {pattern}", ""
         
         lines = command.strip().split('\n')
         corrected_lines = []
-        
+
         for line in lines:
             line = line.strip()
             if not line:
                 continue
-            
-            tokens = line.split(None, 1)
-            if not tokens:
+
+            # Use shlex.split for robust tokenization (handles quotes)
+            try:
+                parts = shlex.split(line)
+            except Exception:
+                parts = line.split()
+
+            if not parts:
                 continue
-            
-            binary = tokens[0]
-            args = tokens[1] if len(tokens) > 1 else ""
-            
+
+            binary = parts[0]
+            args_parts = parts[1:]
+
+            # If the first token looks like flags (e.g. '-sL'), try to infer the intended binary.
+            if binary.startswith('-'):
+                inferred = None
+
+                # 1) If any token looks like a URL, prefer curl/wget
+                for t in parts:
+                    if isinstance(t, str) and (t.startswith('http://') or t.startswith('https://')):
+                        for cand in ('curl', 'wget'):
+                            if self._resolve_binary(cand):
+                                inferred = cand
+                                break
+                        if inferred:
+                            break
+
+                # 2) Otherwise, search later tokens for an executable name
+                if not inferred:
+                    for idx, t in enumerate(parts[1:], start=1):
+                        if not t.startswith('-'):
+                            if self._resolve_binary(t):
+                                inferred = t
+                                # Remove the found binary from its later position so we don't duplicate it
+                                args_parts = [p for i, p in enumerate(parts[1:], start=1) if i != idx]
+                                break
+
+                # 3) Fallback heuristic: if a path-like token is present, assume 'ls' (if available)
+                if not inferred:
+                    if any('/' in t or t.startswith('.') or t.startswith('~') for t in parts[1:]):
+                        if self._resolve_binary('ls'):
+                            inferred = 'ls'
+
+                # 4) As a last resort, if flags contain typical curl flags, assume curl
+                if not inferred:
+                    flagstr = ''.join(parts[0].lstrip('-'))
+                    if any(ch in flagstr for ch in ('s', 'L', 'S')):
+                        if self._resolve_binary('curl'):
+                            inferred = 'curl'
+
+                # If we inferred a binary, insert it at the front and rebuild parts
+                if inferred:
+                    # Avoid duplicating the inferred token if it already appears later
+                    new_parts = [inferred] + [p for p in parts if p != inferred]
+                    parts = new_parts
+                    binary = parts[0]
+                    args_parts = parts[1:]
+
             # Strip any remaining backticks from binary name
             binary = binary.strip('`')
-            
+
             # Resolve binary with fallbacks (python->python3, pip->pip3, etc)
             resolved = self._resolve_binary(binary)
             if not resolved:
                 hint = self._suggest_fallback(binary)
+                # If binary looks like flags, provide a clearer hint
+                if binary.startswith('-'):
+                    return False, f"Command appears to start with flags: {binary}. Did you mean e.g. 'curl {binary} <url>' or include the binary name? (try: {hint})", ""
                 return False, f"Command not found: {binary} (try: {hint})", ""
-            
-            corrected_lines.append(f"{resolved} {args}".strip())
+
+            # Reconstruct corrected line using resolved binary path and remaining args
+            corrected = ' '.join([resolved] + args_parts).strip()
+            corrected_lines.append(corrected)
         
         if not corrected_lines:
             return False, "No valid commands", ""
@@ -583,18 +729,36 @@ REMEMBER: Output ONLY the command(s). Nothing else."""
 
     def _analyze_command_result(self, command, stdout, stderr, exit_code, cwd=""):
         """Analyze if a command succeeded or failed, provide recovery hints for common errors."""
+        # Check for sudo password prompt in output
+        combined_output = stdout + stderr
+        if "[sudo]" in combined_output or "password" in combined_output.lower() or "Password:" in combined_output:
+            return {
+                "success": False,
+                "reason": "password_required",
+                "issue": "Command requires password input",
+                "hint": "User needs to enter password"
+            }
+        
         if exit_code == 0:
             return {"success": True, "reason": "exit code 0", "issue": "", "hint": ""}
+        # Do not treat non-zero exit codes as success even if stdout contains text.
+        # Rely on explicit exit_code == 0 for success to avoid false positives.
         
-        if exit_code != 0 and not stderr and stdout:
-            return {"success": True, "reason": "exit code non-zero but has output", "issue": "", "hint": ""}
+        # Check for common permission denied patterns
+        if "permission denied" in stderr.lower() or "permission denied" in stdout.lower():
+            return {
+                "success": False,
+                "reason": "permission_denied",
+                "issue": stderr[:200] if stderr else stdout[:200],
+                "hint": "Permission denied. Try with 'sudo' or check file permissions with 'ls -l'"
+            }
         
         # Provide specific hints for common failures
         hint = ""
         if exit_code == 127:
             hint = "Command not found. Try: use python3 instead of python, pip3 instead of pip, nodejs instead of node."
         elif exit_code == 126:
-            hint = "Permission denied. Consider adding 'chmod +x' first."
+            hint = "Permission denied. Consider adding 'chmod +x' first or use sudo."
         elif exit_code == 1:
             hint = "General failure. Check the error message above for details."
         elif exit_code == 2:
@@ -679,16 +843,10 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
         Execute command in persistent PTY shell and capture output safely.
         Validates command, resolves binaries with fallbacks, escapes safely.
         """
-        if not self.shell_fd:
-            # Provide detailed diagnostic info
-            error_msg = f"Shell not initialized (fd={self.shell_fd}, pid={self.shell_pid})"
-            print(f"[ERROR] {error_msg}", file=sys.stderr)
-            return 1, "", error_msg, ""
-        
-        if self.shell_pid is None or self.shell_pid <= 0:
-            error_msg = f"Shell process not running (pid={self.shell_pid})"
-            print(f"[ERROR] {error_msg}", file=sys.stderr)
-            return 1, "", error_msg, ""
+        if not self.shell_fd or self.shell_pid is None or self.shell_pid <= 0:
+            # If PTY shell not available, fall back to subprocess.run to ensure commands still execute.
+            print(f"[WARN] PTY shell unavailable, falling back to subprocess for: {command[:80]}", file=sys.stderr)
+            return self._run_subprocess_fallback(command, timeout=max(30, timeout))
         
         try:
             # Pre-exec validation: detect injections and resolve binaries
@@ -809,11 +967,24 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
                 
                 # Execute
                 self.append_text("⚡ Executing...\n", "info")
-                try:
-                    exit_code, stdout, stderr, cwd = self._run_in_shell(command, timeout=30)
-                except Exception as e:
-                    self.append_text(f"❌ Execution error: {str(e)}\n", "error")
-                    break
+
+                # If this command looks like it requires privileges, attempt sudo first
+                exit_code = None
+                stdout = stderr = cwd = ""
+                if self._should_try_sudo(command):
+                    self.append_text("[i] Command appears privileged — attempting with sudo first...\n", "info")
+                    try:
+                        exit_code, stdout, stderr, cwd = self._attempt_with_sudo(command, timeout=30)
+                    except Exception as e:
+                        self.append_text(f"❌ Sudo attempt error: {e}\n", "error")
+
+                # If sudo attempt was not done or failed, run the original command normally
+                if exit_code is None or exit_code != 0:
+                    try:
+                        exit_code, stdout, stderr, cwd = self._run_in_shell(command, timeout=30)
+                    except Exception as e:
+                        self.append_text(f"❌ Execution error: {str(e)}\n", "error")
+                        break
                 
                 # Display output (cleaned for readability)
                 if stdout:
@@ -842,6 +1013,68 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
                     failure_reason = analysis.get("reason", "Unknown error")
                     failure_issue = analysis.get("issue", stderr or "No error details")
                     failure_hint = analysis.get("hint", "")
+                    
+                    # Special handling for password prompts and permission issues
+                    if failure_reason == "password_required":
+                        self.append_text(f"\n🔐 Password required:\n", "info")
+                        self.append_text(f"Command: {command}\n\n", "command")
+
+                        # Show password input field
+                        password = self._request_password()
+                        if password:
+                            # Re-run with password via sudo -S (read from stdin)
+                            self.append_text(f"[*] Retrying with password...\n", "info")
+                            try:
+                                safe_pw = shlex.quote(password)
+                                full_cmd = f"echo {safe_pw} | sudo -S -p '' {command.replace('sudo ', '')}"
+                                exit_code, stdout, stderr, cwd = self._run_in_shell(full_cmd, timeout=30)
+
+                                if stdout:
+                                    clean = self._clean_shell_output(stdout)
+                                    if clean:
+                                        self.append_text(f"{clean}\n", "info")
+
+                                if exit_code == 0:
+                                    self.append_text(f"[OK] Command succeeded\n", "success")
+                                    self.status_label.config(text="Ready", fg='#6db783')
+                                    self.is_processing = False
+                                    self.retry_count = 0
+                                    return
+                            except Exception as e:
+                                self.append_text(f"[!] Password execution failed: {e}\n", "error")
+                        else:
+                            self.append_text(f"[!] Password entry cancelled\n", "error")
+
+                        # Fall through to retry logic
+
+                    # If permission denied or heuristics say this likely needs sudo, try automatically
+                    if failure_reason == 'permission_denied' or self._should_try_sudo(command):
+                        self.append_text(f"[!] Detected permission issue or privileged action. Trying with sudo...\n", "info")
+                        try:
+                            code, out, err, cwd = self._attempt_with_sudo(command, timeout=30)
+                            if out:
+                                clean = self._clean_shell_output(out)
+                                if clean:
+                                    self.append_text(f"{clean}\n", "info")
+                            if code == 0:
+                                self.append_text(f"[OK] Command succeeded with sudo\n", "success")
+                                self.status_label.config(text="Ready", fg='#6db783')
+                                self.is_processing = False
+                                self.retry_count = 0
+                                return
+                            else:
+                                self.append_text(f"[!] Sudo attempt failed: {err}\n", "error")
+                                # feed this into error_analysis for AI retry
+                                error_analysis = {
+                                    'reason': 'sudo_attempt_failed',
+                                    'issue': (err or out)[:200],
+                                    'output': out[:100] if out else '',
+                                    'hint': 'Tried sudo, still failed',
+                                    'cwd': cwd
+                                }
+                                # continue to retry via AI below
+                        except Exception as e:
+                            self.append_text(f"[!] Sudo attempt exception: {e}\n", "error")
                     
                     if AUTO_RETRY_ERRORS and self.retry_count < self.max_retries - 1:
                         self.retry_count += 1

@@ -105,20 +105,18 @@ class AuraOSBrowser:
         left_panel.pack(side='left', fill='both', padx=0, pady=0)
         
         history_title = tk.Label(
-            left_panel, text="Search History", font=('Arial', 12, 'bold'),
+            left_panel, text="Recent Searches", font=('Arial', 10, 'bold'),
             fg='#00d4ff', bg='#1a1e37'
         )
         history_title.pack(padx=10, pady=10)
         
-        self.history_display = scrolledtext.ScrolledText(
-            left_panel, wrap=tk.WORD, bg='#0a0e27', fg='#d4d4d4',
-            font=('Menlo', 9), relief='flat', padx=10, pady=10
+        # Minimal recent searches display (just a label)
+        self.recent_label = tk.Label(
+            left_panel, text="Use ↑↓ arrows to navigate\nrecent searches",
+            font=('Menlo', 9), fg='#888888', bg='#1a1e37',
+            justify='center'
         )
-        self.history_display.pack(fill='both', expand=True, padx=10, pady=(0, 10))
-        self.history_display.config(state='disabled')
-        
-        self.append_history("Welcome to AuraOS Browser!", "system")
-        self.append_history("\nYour search history will appear here.", "info")
+        self.recent_label.pack(fill='both', expand=True, padx=10, pady=10)
         
         # Right panel: Main content
         right_panel = tk.Frame(main_frame, bg='#0a0e27')
@@ -345,9 +343,6 @@ class AuraOSBrowser:
         self.history_index = len(self.search_history)
         self.search_input.delete(0, tk.END)
         
-        # Add to history display
-        self.append_history(f"\n[Q] {query}", "search")
-        
         # Display search request
         self.append(f"[Search] {query}\n\n", "ai")
         
@@ -542,14 +537,6 @@ class AuraOSBrowser:
         self.output_area.insert(tk.END, text, tag)
         self.output_area.see(tk.END)
         self.output_area.config(state='disabled')
-        self.root.update_idletasks()
-    
-    def append_history(self, text, tag="info"):
-        """Append text to history display"""
-        self.history_display.config(state='normal')
-        self.history_display.insert(tk.END, text, tag)
-        self.history_display.see(tk.END)
-        self.history_display.config(state='disabled')
         self.root.update_idletasks()
     
     def update_status(self, text, color='#6db783'):
