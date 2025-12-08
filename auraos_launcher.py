@@ -75,6 +75,19 @@ class AuraOSLauncher:
 
         self.setup_ui()
         self.update_clock()
+        # Ensure launcher stays at back of window stack (best-effort)
+        try:
+            # Bind common events that should re-assert z-order
+            self.root.bind('<Map>', lambda e: self.ensure_at_back())
+            self.root.bind('<Unmap>', lambda e: self.ensure_at_back())
+            self.root.bind('<FocusIn>', lambda e: self.ensure_at_back())
+            self.root.bind('<Configure>', lambda e: self.ensure_at_back())
+
+            # Start background thread to periodically lower the window
+            t = threading.Thread(target=self._maintain_zorder, daemon=True)
+            t.start()
+        except Exception:
+            pass
         
         # Force proper window sizing after all widgets are created
         if not fullscreen:
@@ -86,6 +99,8 @@ class AuraOSLauncher:
         self.fullscreen = not self.fullscreen
         self.root.attributes('-fullscreen', self.fullscreen)
         self.root.attributes('-topmost', self.fullscreen)
+        # After toggling, ensure z-order policy is applied
+        self.ensure_at_back()
 
     def setup_ui(self):
         # Main container
@@ -212,6 +227,60 @@ class AuraOSLauncher:
         date_str = now.strftime("%A, %B %d, %Y")
         self.clock_label.config(text=f"{time_str}  •  {date_str}")
         self.root.after(1000, self.update_clock)
+
+    def ensure_at_back(self):
+        """Best-effort: keep the launcher window at the back of the stack.
+
+        This calls `lower()` and clears topmost. Some window managers may ignore this;
+        we periodically re-assert the state in background thread.
+        """
+        try:
+            # Make sure window is not topmost
+            try:
+                self.root.attributes('-topmost', False)
+            except Exception:
+                pass
+
+            # Lower the window under other application windows
+            try:
+                self.root.lower()
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _maintain_zorder(self):
+        """Background thread: periodically enforce z-order policy."""
+        try:
+            while True:
+                # If fullscreen, keep at back but still fullscreen (user wanted overlay behavior)
+                try:
+                    if self.fullscreen:
+                        # ensure not topmost even in fullscreen
+                        try:
+                            self.root.attributes('-topmost', False)
+                        except Exception:
+                            pass
+                        try:
+                            self.root.lower()
+                        except Exception:
+                            pass
+                    else:
+                        # Normal windowed mode: keep lowered behind other apps
+                        try:
+                            self.root.attributes('-topmost', False)
+                        except Exception:
+                            pass
+                        try:
+                            self.root.lower()
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+                time.sleep(2)
+        except Exception:
+            return
 
     def launch_terminal(self):
         self.status_label.config(text="Launching Terminal...", fg='#00d4ff')
