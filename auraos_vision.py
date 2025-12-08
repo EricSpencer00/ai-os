@@ -1,11 +1,3 @@
-#!/usr/bin/env python3
-"""
-AuraOS Vision - Compact Sidebar AI Assistant
-Features:
-1. Small sidebar buttons for quick access
-2. Auto-analyze screen on button click
-3. Cluely Automation - AI operates screen autonomously
-"""
 import tkinter as tk
 from tkinter import scrolledtext
 import subprocess
@@ -19,6 +11,25 @@ import re
 import logging
 import sys
 from pathlib import Path
+
+# Set DISPLAY early before importing any X11-dependent modules
+if "DISPLAY" not in os.environ:
+    os.environ["DISPLAY"] = ":99"
+if "XAUTHORITY" not in os.environ:
+    # Try common locations for .Xauthority
+    xauth_paths = [
+        os.path.expanduser("~/.Xauthority"),
+        "/home/ubuntu/.Xauthority",
+        "/home/auraos/.Xauthority",
+        "/root/.Xauthority"
+    ]
+    for path in xauth_paths:
+        if os.path.exists(path) or os.path.isfile(path):
+            os.environ["XAUTHORITY"] = path
+            break
+    else:
+        # Fallback to home directory
+        os.environ["XAUTHORITY"] = os.path.expanduser("~/.Xauthority")
 
 # Optional imports with detailed fallback
 try:
@@ -40,14 +51,12 @@ except ImportError:
 try:
     import pyautogui
     HAS_PYAUTOGUI = True
-    # Set display early for screenshot
-    if "DISPLAY" not in os.environ:
-        os.environ["DISPLAY"] = ":0"
     pyautogui.FAILSAFE = False
 except ImportError:
     HAS_PYAUTOGUI = False
     pyautogui = None
 except Exception as e:
+    # Catch any exception during import (e.g., DISPLAY not found)
     HAS_PYAUTOGUI = False
     pyautogui = None
 
@@ -117,31 +126,12 @@ class AuraOSVision:
         
         self.setup_ui()
         
-        # Prefer to present this window like the "desktop" layer so it remains
-        # behind normal windows. Many window managers honor _NET_WM_WINDOW_TYPE
-        # = _NET_WM_WINDOW_TYPE_DESKTOP which keeps the window below others.
+        # Vision is a sidebar utility window - let it be a normal window
+        # Don't try to make it desktop type or it gets hidden behind everything
         try:
-            self.root.attributes('-type', 'desktop')
+            self.root.attributes('-type', 'utility')
         except Exception:
-            try:
-                self.root.attributes('-type', 'dock')
-            except Exception:
-                pass
-
-        try:
-            self.root.wm_attributes('-topmost', False)
-        except Exception:
-            pass
-        try:
-            self.root.lower()
-        except Exception:
-            pass
-
-        # Start a lightweight periodic ensure to keep the window below others
-        try:
-            self.root.after(2000, self._ensure_window_below)
-        except Exception:
-            pass
+            pass  # Window manager may not support this, that's ok
         
     def setup_ui(self):
         # Title bar (compact)
@@ -265,23 +255,6 @@ class AuraOSVision:
     def _clear_placeholder(self, event):
         if self.task_entry.get() == "Describe task for AI...":
             self.task_entry.delete(0, 'end')
-
-    def _ensure_window_below(self):
-        """Periodic helper to keep the Vision panel below normal windows."""
-        try:
-            try:
-                self.root.wm_attributes('-topmost', False)
-            except Exception:
-                pass
-            try:
-                self.root.lower()
-            except Exception:
-                pass
-        finally:
-            try:
-                self.root.after(2000, self._ensure_window_below)
-            except Exception:
-                pass
         
     def append_text(self, text, tag='info'):
         """Append text to output area"""
@@ -318,9 +291,36 @@ class AuraOSVision:
         threading.Thread(target=self._take_screenshot, daemon=True).start()
         
     def _take_screenshot(self):
-        """Take screenshot in background using pyautogui"""
+        """Take screenshot in background using scrot (most reliable method)"""
         try:
-            screenshot = pyautogui.screenshot()
+            # Use scrot directly - it's the most reliable method
+            temp_path = f"/tmp/auraos_vision_screenshot_{int(time.time())}.png"
+            
+            result = subprocess.run(
+                ["scrot", temp_path],
+                capture_output=True,
+                timeout=5,
+                env={**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":99")}
+            )
+            
+            if result.returncode != 0:
+                # If scrot fails, try pyautogui as fallback
+                try:
+                    screenshot = pyautogui.screenshot()
+                    self.append_text("[+] Using pyautogui fallback\n", "info")
+                except Exception as e:
+                    raise Exception(f"Both scrot and pyautogui failed: {e}")
+            else:
+                # Load the screenshot from scrot
+                if not os.path.exists(temp_path):
+                    raise Exception(f"scrot created no file at {temp_path}")
+                
+                screenshot = Image.open(temp_path)
+                try:
+                    os.unlink(temp_path)
+                except:
+                    pass
+            
             self.screenshot_size = screenshot.size
             img_byte_arr = io.BytesIO()
             screenshot.save(img_byte_arr, format='PNG')
