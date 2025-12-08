@@ -29,9 +29,9 @@ cmd_vm_setup() {
         DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
             xfce4 xfce4-goodies xvfb x11vnc python3-pip expect curl wget git \
             xdotool python3-venv python3-dev python3-tk \
-            portaudio19-dev firefox
+            portaudio19-dev firefox chromium-browser
     '
-    echo -e "${GREEN}✓ Desktop installed${NC}"
+    echo -e "${GREEN}✓ Desktop and browsers installed${NC}"
 
     echo -e "${YELLOW}Installing noVNC...${NC}"
     multipass exec "$VM_NAME" -- sudo bash -c '
@@ -141,6 +141,25 @@ VNC_START
         apt-get install -y -qq python3-tk python3-pip portaudio19-dev firefox >/dev/null 2>&1 || true
         pip3 install --quiet speech_recognition pyaudio requests flask pyautogui pillow numpy || true
     '
+    
+    echo -e "${YELLOW}Setting up browser wrappers for snap compatibility...${NC}"
+    multipass exec "$VM_NAME" -- bash -c '
+        # Create browser wrapper scripts that force --no-sandbox for snap compatibility
+        cat > /usr/local/bin/firefox-wrapped <<'"'"'EOF'"'"'
+#!/bin/bash
+# Firefox wrapper that bypasses snap confinement issues
+exec /usr/bin/firefox --no-sandbox --new-window "$@"
+EOF
+        chmod +x /usr/local/bin/firefox-wrapped
+        
+        cat > /usr/local/bin/chromium-wrapped <<'"'"'EOF'"'"'
+#!/bin/bash
+# Chromium wrapper that bypasses snap confinement issues
+exec /usr/bin/chromium-browser --no-sandbox --disable-gpu "$@"
+EOF
+        chmod +x /usr/local/bin/chromium-wrapped
+    '
+    echo -e "${GREEN}✓ Browser wrappers installed${NC}"
     
     echo -e "${YELLOW}Setting up GUI Agent environment...${NC}"
     multipass exec "$VM_NAME" -- bash -c '
