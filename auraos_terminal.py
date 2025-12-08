@@ -71,6 +71,64 @@ class AuraOSTerminal:
         ansi_escape = re.compile(r"\x1B[@-_][0-?]*[ -/]*[@-~]")
         return ansi_escape.sub("", text).strip()
     
+    @staticmethod
+    def _clean_shell_noise(text: str, command: str = "") -> str:
+        """Remove bash prompts, command echoes, and shell artifacts from output.
+        
+        This cleans up output to show only the actual command results,
+        hiding bash-5.1$ prompts, printf commands, pwd, markers, etc.
+        """
+        if not text:
+            return ""
+        
+        # First pass: Remove bash prompts from ANYWHERE in the text
+        # This handles cases where prompt appears mid-line like: bash-5.1$ [output
+        text = re.sub(r'bash-[\d.]+\$ ', '', text)
+        text = re.sub(r'sh-[\d.]+\$ ', '', text)
+        text = re.sub(r'zsh-[\d.]+\$ ', '', text)
+        # Also handle case without space after $
+        text = re.sub(r'bash-[\d.]+\$', '', text)
+        text = re.sub(r'sh-[\d.]+\$', '', text)
+        text = re.sub(r'zsh-[\d.]+\$', '', text)
+        
+        lines = text.split('\n')
+        clean_lines = []
+        
+        for line in lines:
+            stripped = line.strip()
+            
+            # Skip printf commands (internal markers)
+            if stripped.startswith("printf '") or stripped.startswith('printf "'):
+                continue
+            
+            # Skip internal variable assignments (__e__=$?)
+            if stripped.startswith('__e__=') or stripped == '__e__=$?':
+                continue
+            
+            # Skip lines containing our internal markers
+            if '__CMD_START_' in stripped or '__CMD_END_' in stripped:
+                continue
+            if '__STATUS__' in stripped:
+                continue
+            
+            # Skip the exact command we ran (echoed back)
+            if command and stripped == command.strip():
+                continue
+            
+            # Skip pwd command echo
+            if stripped == 'pwd':
+                continue
+            
+            # Skip standalone empty brackets/prompts and empty lines
+            if stripped in ['[]', '()', '']:
+                continue
+            
+            clean_lines.append(line)
+        
+        # Strip leading/trailing empty lines
+        result = '\n'.join(clean_lines)
+        return result.strip()
+    
     def _init_shell(self):
         """Initialize persistent PTY shell session using openpty() + fork/exec"""
         try:
@@ -108,12 +166,14 @@ class AuraOSTerminal:
                     rows, cols = 24, 80
                     fcntl.ioctl(0, termios.TIOCSWINSZ, struct.pack('HHHH', rows, cols, 0, 0))
                     
-                    # Get and configure terminal attributes for proper interactive mode
+                    # Get and configure terminal attributes - DISABLE ECHO to hide shell noise
                     try:
                         attrs = termios.tcgetattr(0)
                         # attrs[3] is c_lflag (local flags)
-                        # Set ECHO to see input, set ICANON for line-buffered input
-                        attrs[3] |= termios.ECHO | termios.ICANON
+                        # DISABLE ECHO - we don't want to see commands echoed back
+                        # Keep ICANON for line-buffered input
+                        attrs[3] &= ~termios.ECHO  # Turn OFF echo
+                        attrs[3] |= termios.ICANON  # Keep line buffering
                         # attrs[6] is cc (control characters)
                         attrs[6][termios.VMIN] = 0    # Non-blocking read
                         attrs[6][termios.VTIME] = 0   # No timeout
@@ -680,8 +740,11 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
                 status_match = re.search(r"__STATUS__(\d+)__/STATUS__", captured)
                 exit_code = int(status_match.group(1)) if status_match else 0
                 
-                # Remove status line from output
+                # Remove status line and clean up any shell noise from output
                 result_output = re.sub(r"__STATUS__\d+__/STATUS__\n?", "", captured)
+                
+                # Remove bash prompts, command echoes, and other shell noise
+                result_output = self._clean_shell_noise(result_output, command)
                 
                 return exit_code, result_output, "", cwd
             else:
