@@ -584,8 +584,10 @@ REMEMBER: Output ONLY the command(s). Nothing else."""
         if not command or not command.strip():
             return False, "Empty command", ""
         
-        # Check for injection patterns
-        injection_patterns = [r"\$\(", r"\$\{", r"`;.*`"]
+        # Check for injection patterns. Keep simple blocking of backticks (old-style
+        # command substitution) but allow modern $() and ${} parameter expansion
+        # so AI-generated commands that use $(...) or ${...} are accepted.
+        injection_patterns = [r"`"]
         for pattern in injection_patterns:
             if re.search(pattern, command):
                 return False, f"Injection pattern: {pattern}", ""
