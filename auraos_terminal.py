@@ -18,6 +18,7 @@ import time
 import signal
 import fcntl
 import random
+import struct
 
 # Smart URL detection: use host gateway IP when running inside VM
 def get_inference_url():
@@ -63,19 +64,92 @@ class AuraOSTerminal:
         self.root.protocol("WM_DELETE_WINDOW", self._cleanup_and_exit)
     
     def _init_shell(self):
-        """Initialize persistent PTY shell session"""
+        """Initialize persistent PTY shell session using openpty() + fork/exec"""
         try:
-            self.shell_pid, self.shell_fd = pty.forkpty()
+            # Ensure DISPLAY is set for X11 (important when launched from GUI)
+            if 'DISPLAY' not in os.environ:
+                os.environ['DISPLAY'] = ':99'
+            
+            # Create a PTY pair (master, slave)
+            master_fd, slave_fd = pty.openpty()
+            
+            # Fork a child process
+            self.shell_pid = os.fork()
+            
             if self.shell_pid == 0:
-                # Child process - start bash
-                os.execvp("bash", ["bash", "--noprofile", "--norc"])
-                sys.exit(0)
+                # ===== CHILD PROCESS =====
+                try:
+                    # Close master fd in child (we only need slave)
+                    os.close(master_fd)
+                    
+                    # Create a new session (detach from parent's controlling terminal)
+                    os.setsid()
+                    
+                    # Duplicate slave fd to stdin/stdout/stderr
+                    os.dup2(slave_fd, 0)  # stdin
+                    os.dup2(slave_fd, 1)  # stdout  
+                    os.dup2(slave_fd, 2)  # stderr
+                    
+                    # Close the original slave fd (no longer needed after dup2)
+                    os.close(slave_fd)
+                    
+                    # Set terminal size and attributes
+                    import termios
+                    rows, cols = 24, 80
+                    fcntl.ioctl(0, termios.TIOCSWINSZ, struct.pack('HHHH', rows, cols, 0, 0))
+                    
+                    # Set environment variables
+                    os.environ['LINES'] = str(rows)
+                    os.environ['COLUMNS'] = str(cols)
+                    
+                    # Execute bash interactively
+                    os.execvp("bash", ["bash", "--noprofile", "--norc", "-i"])
+                    # If execvp succeeds, this line is never reached
+                    # If execvp fails, the exception is caught below
+                    
+                except (OSError, ValueError) as child_err:
+                    # If exec fails, write error to stderr and exit
+                    print(f"[SHELL_INIT_ERROR] {child_err}", file=sys.stderr)
+                    sys.exit(127)
+                    
             else:
-                # Parent process - set non-blocking mode
+                # ===== PARENT PROCESS =====
+                # Close slave fd in parent (we only need master)
+                os.close(slave_fd)
+                self.shell_fd = master_fd
+                
+                # Set master fd to non-blocking for reading output
                 flags = fcntl.fcntl(self.shell_fd, fcntl.F_GETFL)
                 fcntl.fcntl(self.shell_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+                
+                # Give the shell a moment to initialize
+                time.sleep(0.3)
+                
+                # Verify shell process is still alive
+                try:
+                    # Check if child is still running (non-blocking wait)
+                    pid_result, status = os.waitpid(self.shell_pid, os.WNOHANG)
+                    
+                    if pid_result == self.shell_pid:
+                        # Shell exited immediately (error)
+                        exit_code = os.WEXITSTATUS(status) if os.WIFEXITED(status) else -1
+                        print(f"[ERROR] Shell process exited immediately with code {exit_code}", file=sys.stderr)
+                        self.shell_pid = None
+                        self.shell_fd = None
+                        try:
+                            os.close(master_fd)
+                        except:
+                            pass
+                except ChildProcessError:
+                    # This is expected if child is still running
+                    pass
+                
+                print(f"[DEBUG] Shell initialized successfully: pid={self.shell_pid}, fd={self.shell_fd}", file=sys.stderr)
+                    
         except Exception as e:
-            print(f"Failed to initialize shell: {e}")
+            import traceback
+            print(f"[ERROR] Failed to initialize shell: {e}", file=sys.stderr)
+            print(traceback.format_exc(), file=sys.stderr)
             self.shell_pid = None
             self.shell_fd = None
     
@@ -522,7 +596,15 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
         Validates command, resolves binaries with fallbacks, escapes safely.
         """
         if not self.shell_fd:
-            return 1, "", "Shell not initialized", ""
+            # Provide detailed diagnostic info
+            error_msg = f"Shell not initialized (fd={self.shell_fd}, pid={self.shell_pid})"
+            print(f"[ERROR] {error_msg}", file=sys.stderr)
+            return 1, "", error_msg, ""
+        
+        if self.shell_pid is None or self.shell_pid <= 0:
+            error_msg = f"Shell process not running (pid={self.shell_pid})"
+            print(f"[ERROR] {error_msg}", file=sys.stderr)
+            return 1, "", error_msg, ""
         
         try:
             # Pre-exec validation: detect injections and resolve binaries
