@@ -104,6 +104,13 @@ class AuraOSLauncher:
         # After toggling, ensure z-order policy is applied
         self.ensure_at_back()
 
+    def on_close(self):
+        """Handle window close - minimize instead of close in fullscreen"""
+        if self.fullscreen:
+            self.root.iconify()
+        else:
+            self.root.quit()
+
     def setup_ui(self):
         # Main container
         main_container = tk.Frame(self.root, bg='#0a0e27')
