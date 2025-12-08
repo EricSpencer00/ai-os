@@ -17,8 +17,8 @@ import time
 import io
 import re
 import logging
+import sys
 from pathlib import Path
-from PIL import ImageChops, ImageDraw
 
 # Optional imports with detailed fallback
 try:
@@ -29,19 +29,21 @@ except ImportError:
     requests = None
 
 try:
-    from PIL import Image
+    from PIL import Image, ImageChops, ImageDraw
     HAS_PIL = True
 except ImportError:
     HAS_PIL = False
     Image = None
+    ImageChops = None
+    ImageDraw = None
 
 try:
     import pyautogui
     HAS_PYAUTOGUI = True
     # Set display early for screenshot
     if "DISPLAY" not in os.environ:
-        os.environ["DISPLAY"] = ":99"
-    pyautogui.FAIL_SAFE = False
+        os.environ["DISPLAY"] = ":0"
+    pyautogui.FAILSAFE = False
 except ImportError:
     HAS_PYAUTOGUI = False
     pyautogui = None
@@ -93,7 +95,7 @@ class AuraOSVision:
     def __init__(self, root):
         self.root = root
         self.root.title("AuraOS Vision")
-        self.root.geometry("340x550")  # Compact sidebar size
+        self.root.geometry("340x550")
         self.root.configure(bg='#0a0e27')
         self.root.resizable(True, True)
         
@@ -101,11 +103,11 @@ class AuraOSVision:
         self.screenshot_data = None
         self.screenshot_size = None
         self.automation_running = False
-        self.last_action_type = None  # Track action type for adaptive cooldown
+        self.last_action_type = None
         
-        # Set DISPLAY for VM
+        # Set DISPLAY for VM - prefer :0 over :99
         if "DISPLAY" not in os.environ:
-            os.environ["DISPLAY"] = ":99"
+            os.environ["DISPLAY"] = ":0"
         
         # Check dependencies early
         check_dependencies()
@@ -136,7 +138,7 @@ class AuraOSVision:
         btn_frame = tk.Frame(self.root, bg='#0a0e27')
         btn_frame.pack(fill='x', padx=10, pady=5)
         
-        # Screenshot button - with emoji icon
+        # Screenshot button
         self.screenshot_btn = tk.Button(
             btn_frame, text="📷 Capture",
             command=self.take_screenshot,
@@ -212,7 +214,7 @@ class AuraOSVision:
         auto_btn_frame.pack(fill='x', padx=10, pady=5)
         
         self.start_auto_btn = tk.Button(
-            auto_btn_frame, text="[>] Start",
+            auto_btn_frame, text="▶ Start",
             command=self.start_automation,
             bg='#ff7f50', fg='#ffffff', font=('Arial', 10, 'bold'),
             relief='flat', cursor='hand2', padx=8, pady=5
@@ -220,7 +222,7 @@ class AuraOSVision:
         self.start_auto_btn.pack(side='left', padx=(0, 5))
         
         self.stop_auto_btn = tk.Button(
-            auto_btn_frame, text="[||] Stop",
+            auto_btn_frame, text="⏸ Stop",
             command=self.stop_automation,
             bg='#ff4444', fg='#ffffff', font=('Arial', 10, 'bold'),
             relief='flat', cursor='hand2', padx=8, pady=5, state='disabled'
@@ -273,9 +275,8 @@ class AuraOSVision:
         threading.Thread(target=self._take_screenshot, daemon=True).start()
         
     def _take_screenshot(self):
-        """Take screenshot in background using pyautogui (works on Linux with X11)"""
+        """Take screenshot in background using pyautogui"""
         try:
-            # Use pyautogui.screenshot() which works on Linux with DISPLAY set
             screenshot = pyautogui.screenshot()
             self.screenshot_size = screenshot.size
             img_byte_arr = io.BytesIO()
@@ -289,7 +290,7 @@ class AuraOSVision:
         except Exception as e:
             err_msg = f"[Error] Screenshot: {e}"
             self.append_text(f"{err_msg}\n", "error")
-            logger.error(err_msg)
+            logger.error(err_msg, exc_info=True)
             
         self.is_processing = False
         self.status_label.config(text="Ready", fg='#6db783')
@@ -322,7 +323,6 @@ class AuraOSVision:
             self.append_text("🤖 Sending to AI...\n", "info")
             logger.debug("Starting analysis request to %s", INFERENCE_URL)
             
-            # Vision endpoint is /ask on the unified inference server
             response = requests.post(
                 f"{INFERENCE_URL}/ask",
                 json={
@@ -367,6 +367,10 @@ class AuraOSVision:
             self.append_text("[Error] Enter a task first\n", "error")
             return
         
+        if not HAS_PIL or not HAS_PYAUTOGUI or not HAS_REQUESTS:
+            self.append_text("[Error] Missing dependencies for automation\n", "error")
+            return
+        
         self.automation_running = True
         self.start_auto_btn.config(state='disabled')
         self.stop_auto_btn.config(state='normal')
@@ -389,51 +393,38 @@ class AuraOSVision:
             self.append_text(f"\n[Step {step}/{max_steps}]\n", "action")
             
             try:
-                # Capture FULL screen (entire desktop, not just this window)
-                if not HAS_PIL or not HAS_PYAUTOGUI:
-                    self.append_text("[Error] PIL and pyautogui required\n", "error")
-                    logger.error("PIL or pyautogui not available")
-                    break
-                
+                # Capture full screen
                 screenshot = pyautogui.screenshot()
                 self.screenshot_size = screenshot.size
                 
-                # Log captured size for debugging
                 logger.debug("Full desktop captured: %dx%d", screenshot.size[0], screenshot.size[1])
-                self.append_text(f"[Screen] Captured full desktop: {screenshot.size[0]}x{screenshot.size[1]}\n", "info")
+                self.append_text(f"[Screen] Captured: {screenshot.size[0]}x{screenshot.size[1]}\n", "info")
                 
                 buffer = io.BytesIO()
                 screenshot.save(buffer, format='PNG')
                 img_data = base64.b64encode(buffer.getvalue()).decode()
                 
-                # Improved automation prompt with full desktop context
-                prompt = f'''You are an AI assistant controlling a desktop computer screen. Your task is to help the user accomplish:
+                # Improved automation prompt
+                prompt = f'''You are an AI assistant controlling a desktop computer. Your task:
 
 TASK: "{task}"
 
-IMPORTANT INSTRUCTIONS:
-1. You are looking at the ENTIRE desktop screen with multiple windows/applications
-2. Do NOT interact with the "AuraOS Vision" application window itself (that's just the control panel)
-3. Focus on completing the task in OTHER applications on the desktop (Terminal, Browser, Files, etc.)
-4. When you see text input fields or UI elements in other apps, that's where you should click and type
-5. Return exactly ONE of these JSON actions:
-   {{"action":"click","x":500,"y":300,"why":"clicking the Firefox icon to open browser"}}
-   {{"action":"type","text":"hello","why":"typing text into the currently focused field"}}
-   {{"action":"done","why":"task has been completed successfully"}}
-   {{"action":"wait","why":"page is loading, need to wait for content"}}
+RULES:
+1. You see the ENTIRE desktop - interact with applications OTHER than "AuraOS Vision"
+2. Return ONLY ONE JSON action per response
+3. Valid actions:
+   {{"action":"click","x":500,"y":300,"why":"reason for clicking here"}}
+   {{"action":"type","text":"hello","why":"reason for typing this"}}
+   {{"action":"done","why":"task completed successfully"}}
+   {{"action":"wait","why":"waiting for something to load"}}
 
-RESPOND ONLY WITH JSON, nothing else. Example valid responses:
-{{"action":"click","x":640,"y":360,"why":"opening Firefox to search"}}
-{{"action":"type","text":"search query","why":"entering search text"}}
-{{"action":"done","why":"search results are now displayed"}}
-'''
+Current step {step}/{max_steps}. Respond with ONLY JSON, nothing else.'''
                 
-                # Send to inference server with full screen context and improved prompt
                 response = requests.post(
                     f"{INFERENCE_URL}/ask",
                     json={
                         "query": prompt,
-                        "images": [img_data],  # Pass the full desktop screenshot
+                        "images": [img_data],
                         "parse_json": False
                     },
                     timeout=60
@@ -450,29 +441,20 @@ RESPOND ONLY WITH JSON, nothing else. Example valid responses:
                 ai_text = response.json().get('response', '{}')
                 logger.debug("AI response: %s", ai_text[:150])
                 
-                # Parse JSON from response with fallback
-                action_data = {"action": "wait"}
-                try:
-                    json_match = re.search(r'\{[^}]+\}', ai_text)
-                    if json_match:
-                        action_data = json.loads(json_match.group())
-                    else:
-                        logger.warning("No JSON found in response: %s", ai_text[:80])
-                except json.JSONDecodeError as e:
-                    logger.warning("JSON parse failed: %s", e)
-                    action_data = {"action": "wait", "why": "parse error"}
+                # Parse JSON from response
+                action_data = self._parse_json_response(ai_text)
                 
                 action = action_data.get('action', 'wait')
                 why = action_data.get('why', '')
                 
                 self.append_text(f"[AI] {why}\n", "ai")
-                logger.info("Action determined: %s - %s", action, why)
+                logger.info("Action: %s - %s", action, why)
                 
-                consecutive_errors = 0  # Reset error counter on success
+                consecutive_errors = 0
                 
                 if action == 'done':
                     self.append_text("[Auto] Task Complete!\n", "success")
-                    logger.info("Automation completed successfully at step %d", step)
+                    logger.info("Automation completed at step %d", step)
                     break
                     
                 elif action == 'click':
@@ -483,18 +465,21 @@ RESPOND ONLY WITH JSON, nothing else. Example valid responses:
                         self._do_click(x, y)
                         self.last_action_type = 'click'
                     else:
-                        self.append_text(f"[Skip] Click out of bounds: ({x},{y})\n", "error")
-                        logger.warning("Click coordinates invalid: (%d, %d)", x, y)
+                        self.append_text(f"[Skip] Invalid coords: ({x},{y})\n", "error")
+                        logger.warning("Invalid coordinates: (%d, %d)", x, y)
                         
                 elif action == 'type':
                     text = action_data.get('text', '')
-                    self.append_text(f"[Type] {text[:20]}...\n", "action")
-                    logger.info("Executing type: %s", text[:30])
-                    self._do_type(text)
-                    self.last_action_type = 'type'
+                    if text:
+                        self.append_text(f"[Type] {text[:30]}...\n", "action")
+                        logger.info("Executing type: %s", text[:30])
+                        self._do_type(text)
+                        self.last_action_type = 'type'
+                    else:
+                        self.append_text("[Skip] Empty text\n", "error")
                     
                 else:  # wait or unknown
-                    self.append_text(f"[Wait] Pausing...\n", "info")
+                    self.append_text("[Wait] Pausing...\n", "info")
                     self.last_action_type = 'wait'
                 
                 # Adaptive cooldown
@@ -502,71 +487,87 @@ RESPOND ONLY WITH JSON, nothing else. Example valid responses:
                 time.sleep(cooldown)
                 
             except requests.exceptions.Timeout:
-                err_msg = "[Error] AI request timeout (60s)"
+                err_msg = "[Error] AI timeout (60s)"
                 self.append_text(f"{err_msg}\n", "error")
                 logger.error(err_msg)
                 consecutive_errors += 1
                 time.sleep(3)
                 
             except requests.exceptions.ConnectionError as e:
-                err_msg = f"[Error] Cannot reach inference server: {e}"
+                err_msg = f"[Error] Connection failed"
                 self.append_text(f"{err_msg}\n", "error")
-                logger.error(err_msg)
+                logger.error("Connection error: %s", e)
                 consecutive_errors += 1
                 time.sleep(3)
                 
             except Exception as e:
                 err_msg = f"[Error] {str(e)[:50]}"
                 self.append_text(f"{err_msg}\n", "error")
-                logger.exception("Automation loop exception")
+                logger.exception("Automation exception")
                 consecutive_errors += 1
                 time.sleep(2)
             
-            # Exit if too many consecutive errors
             if consecutive_errors >= max_consecutive_errors:
-                self.append_text(f"[Error] Too many errors ({consecutive_errors}) - stopping\n", "error")
-                logger.error("Stopping automation due to %d consecutive errors", consecutive_errors)
+                self.append_text(f"[Error] Too many errors - stopping\n", "error")
+                logger.error("Stopping: %d consecutive errors", consecutive_errors)
                 break
         
-        # Final status
         if step >= max_steps and self.automation_running:
-            self.append_text(f"[Auto] Reached max steps ({max_steps})\n", "action")
-            logger.info("Automation stopped: max steps reached")
+            self.append_text(f"[Auto] Max steps reached\n", "action")
+            logger.info("Stopped: max steps")
         
         self.automation_running = False
-        logger.info("Automation loop completed at step %d", step)
+        logger.info("Automation loop ended at step %d", step)
         self.root.after(0, self._reset_auto_ui)
+    
+    def _parse_json_response(self, text):
+        """Parse JSON from AI response with fallback"""
+        try:
+            # Try to find JSON object in response
+            json_match = re.search(r'\{[^}]+\}', text)
+            if json_match:
+                return json.loads(json_match.group())
+            else:
+                logger.warning("No JSON found in: %s", text[:80])
+                return {"action": "wait", "why": "no JSON"}
+        except json.JSONDecodeError as e:
+            logger.warning("JSON parse error: %s", e)
+            return {"action": "wait", "why": "parse error"}
     
     def stop_automation(self):
         """Stop automation"""
         self.automation_running = False
         self.append_text("\n[Auto] Stopped\n", "action")
+        logger.info("Automation stopped by user")
         self._reset_auto_ui()
     
     def _reset_auto_ui(self):
+        """Reset automation UI state"""
         self.start_auto_btn.config(state='normal')
         self.stop_auto_btn.config(state='disabled')
         self.auto_status.config(text="Automation: Idle", fg='#888888')
     
     def _validate_coordinates(self, x, y):
-        """Validate click coordinates are within screen bounds"""
+        """Validate click coordinates"""
         if not self.screenshot_size:
-            logger.warning("No screenshot size - cannot validate coordinates")
+            logger.warning("No screenshot size available")
             return False
         
         width, height = self.screenshot_size
-        if x < 0 or x > width or y < 0 or y > height:
-            logger.warning("Coordinates out of bounds: (%d,%d) vs screen %dx%d", x, y, width, height)
-            return False
+        valid = 0 <= x <= width and 0 <= y <= height
         
-        return True
+        if not valid:
+            logger.warning("Coords out of bounds: (%d,%d) vs %dx%d", x, y, width, height)
+        
+        return valid
     
     def _get_adaptive_cooldown(self, action_type):
-        """Adaptive cooldown based on action type"""
+        """Get cooldown based on action type"""
         cooldowns = {
-            'click': 1.5,     # Clicks are quick
-            'type': 2.5,      # Typing needs time to register
-            'wait': 1.0,      # Waiting is fastest
+            'click': 1.5,
+            'type': 2.5,
+            'wait': 1.0,
+            'done': 0.5,
             'default': 2.0
         }
         return cooldowns.get(action_type, cooldowns['default'])
@@ -577,137 +578,111 @@ RESPOND ONLY WITH JSON, nothing else. Example valid responses:
         return shutil.which('xdotool') is not None
     
     def _do_click(self, x, y):
-        """Execute click with error handling - uses pyautogui as fallback"""
-        # Try pyautogui first (more reliable)
+        """Execute click with fallback"""
+        # Try pyautogui first
         if HAS_PYAUTOGUI:
             try:
-                # Move to coordinate then click - do a small retry loop
-                attempts = 3
-                for i in range(attempts):
-                    try:
-                        pyautogui.moveTo(x, y, duration=0.05)
-                        pyautogui.click(x, y)
-                        logger.debug("Click executed at (%d, %d) via pyautogui (attempt %d)", x, y, i+1)
-                        return True
-                    except Exception as inner_e:
-                        logger.warning("pyautogui click attempt %d failed: %s", i+1, inner_e)
-                        time.sleep(0.15)
-                logger.warning("pyautogui click failed after %d attempts", attempts)
+                pyautogui.moveTo(x, y, duration=0.1)
+                pyautogui.click(x, y)
+                logger.debug("Click via pyautogui at (%d, %d)", x, y)
+                return True
             except Exception as e:
-                logger.warning("pyautogui click failed: %s, trying xdotool", e)
+                logger.warning("pyautogui click failed: %s", e)
         
-        # Fallback to xdotool: use absolute move + click and include X env vars
+        # Fallback to xdotool
         if not self._check_xdotool():
-            err_msg = "[Error] xdotool not found and pyautogui failed"
-            self.append_text(f"{err_msg}\n", "error")
-            logger.error(err_msg)
+            self.append_text("[Error] No click method available\n", "error")
+            logger.error("Neither pyautogui nor xdotool available")
             return False
 
         try:
             env = os.environ.copy()
-            # Respect existing DISPLAY/XAUTHORITY if present, else default to :99
-            env['DISPLAY'] = env.get('DISPLAY', ':99')
-            if 'XAUTHORITY' not in env:
-                env['XAUTHORITY'] = '/home/auraos/.Xauthority'
-
-            # Try a couple of xdotool clicks to be robust
-            for attempt in range(2):
-                cmd = ['xdotool', 'mousemove', str(x), str(y), 'click', '1']
-                res = subprocess.run(cmd, check=False, env=env, timeout=6, capture_output=True, text=True)
-                if res.returncode == 0:
-                    logger.debug("Click executed at (%d, %d) via xdotool (attempt %d)", x, y, attempt+1)
-                    return True
-                else:
-                    logger.warning("xdotool attempt %d failed: rc=%s out=%s err=%s", attempt+1, res.returncode, res.stdout, res.stderr)
-                    time.sleep(0.15)
-
-            err_msg = "[Error] xdotool click attempts failed"
-            self.append_text(f"{err_msg}\n", "error")
-            logger.error(err_msg)
-            return False
+            env['DISPLAY'] = env.get('DISPLAY', ':0')
+            
+            cmd = ['xdotool', 'mousemove', str(x), str(y), 'click', '1']
+            result = subprocess.run(cmd, env=env, timeout=5, capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                logger.debug("Click via xdotool at (%d, %d)", x, y)
+                return True
+            else:
+                logger.error("xdotool failed: %s", result.stderr)
+                return False
+                
         except subprocess.TimeoutExpired:
-            err_msg = "[Error] Click timeout"
-            self.append_text(f"{err_msg}\n", "error")
-            logger.error(err_msg)
+            logger.error("xdotool timeout")
             return False
         except Exception as e:
-            err_msg = f"[Error] Click failed: {e}"
-            self.append_text(f"{err_msg}\n", "error")
-            logger.error(err_msg)
+            logger.error("xdotool error: %s", e)
             return False
     
     def _do_type(self, text):
-        """Execute typing with error handling - uses pyautogui as fallback"""
-        # Try pyautogui first (more reliable)
+        """Execute typing with fallback"""
+        if not text:
+            return
+            
+        # Try pyautogui first
         if HAS_PYAUTOGUI:
             try:
-                pyautogui.typewrite(text, interval=0.02)
-                logger.debug("Typed %d characters via pyautogui", len(text))
-                return
+                pyautogui.write(text, interval=0.05)
+                logger.debug("Typed %d chars via pyautogui", len(text))
+                return True
             except Exception as e:
-                logger.warning("pyautogui type failed: %s, trying xdotool", e)
+                logger.warning("pyautogui type failed: %s", e)
         
         # Fallback to xdotool
         if not self._check_xdotool():
-            err_msg = "[Error] xdotool not found and pyautogui failed"
-            self.append_text(f"{err_msg}\n", "error")
-            logger.error(err_msg)
-            return
+            self.append_text("[Error] No typing method available\n", "error")
+            logger.error("Neither pyautogui nor xdotool available")
+            return False
             
         try:
+            env = os.environ.copy()
+            env['DISPLAY'] = env.get('DISPLAY', ':0')
+            
             subprocess.run(
                 ['xdotool', 'type', '--clearmodifiers', text],
-                check=True, env={**os.environ, 'DISPLAY': ':99'},
+                env=env,
                 timeout=10,
-                capture_output=True
+                capture_output=True,
+                check=True
             )
-            logger.debug("Typed %d characters via xdotool", len(text))
+            logger.debug("Typed %d chars via xdotool", len(text))
+            return True
+            
         except subprocess.TimeoutExpired:
-            err_msg = "[Error] Type timeout"
-            self.append_text(f"{err_msg}\n", "error")
-            logger.error(err_msg)
+            logger.error("xdotool type timeout")
+            return False
         except Exception as e:
-            err_msg = f"[Error] Type failed: {e}"
-            self.append_text(f"{err_msg}\n", "error")
-            logger.error(err_msg)
+            logger.error("xdotool type error: %s", e)
+            return False
 
     def _verify_click_coordinates(self, x, y, save_prefix='/tmp/vision_click'):
-        """Debug helper: capture before/after screenshots around a click and compute diff.
-
-        Saves: {save_prefix}_before.png, {save_prefix}_after.png, {save_prefix}_debug.png
-        Returns a dict with bbox and offset information.
-        """
+        """Debug helper: verify click coordinates with before/after screenshots"""
         try:
             if not HAS_PYAUTOGUI or not HAS_PIL:
                 return {"ok": False, "reason": "missing_dependencies"}
 
-            # Ensure we have a recent screenshot size
             before = pyautogui.screenshot()
             before.save(f"{save_prefix}_before.png")
 
-            # Perform a single click using our normal routine but without retries to exercise exact behaviour
-            try:
-                pyautogui.moveTo(x, y, duration=0.05)
-                pyautogui.click(x, y)
-            except Exception as e:
-                logger.warning("_verify_click_coordinates: pyautogui click error: %s", e)
-
-            time.sleep(0.35)
+            pyautogui.moveTo(x, y, duration=0.1)
+            pyautogui.click(x, y)
+            time.sleep(0.5)
 
             after = pyautogui.screenshot()
             after.save(f"{save_prefix}_after.png")
 
-            # Compute difference bbox
+            # Compute difference
             diff = ImageChops.difference(before, after).convert('L')
-            bbox = diff.getbbox()  # (left, upper, right, lower)
+            bbox = diff.getbbox()
 
             debug_img = after.copy()
             draw = ImageDraw.Draw(debug_img)
 
-            # Draw expected coordinate crosshair
-            cross_color = (0, 255, 0)
-            draw.line((x-10, y, x+10, y), fill=cross_color)
-            draw.line((x, y-10, x, y+10), fill=cross_color)
+            # Draw crosshair at requested position
+            draw.line((x-10, y, x+10, y), fill=(0, 255, 0), width=2)
+            draw.line((x, y-10, x, y+10), fill=(0, 255, 0), width=2)
 
             details = {"ok": True, "requested": (x, y), "bbox": bbox}
 
@@ -717,33 +692,58 @@ RESPOND ONLY WITH JSON, nothing else. Example valid responses:
                 dx = cx - x
                 dy = cy - y
                 details.update({"center": (cx, cy), "offset": (dx, dy)})
-                # Draw bbox in red
                 draw.rectangle(bbox, outline=(255, 0, 0), width=2)
-                draw.ellipse((cx-5, cy-5, cx+5, cy+5), outline=(255,0,0), width=2)
             else:
                 details.update({"center": None, "offset": None})
 
             debug_img.save(f"{save_prefix}_debug.png")
-
-            logger.info("Click verify details: %s", details)
+            logger.info("Click verification: %s", details)
             return details
 
         except Exception as e:
-            logger.exception("_verify_click_coordinates failed: %s", e)
+            logger.exception("Click verification failed")
             return {"ok": False, "reason": str(e)}
 
-if __name__ == "__main__":
+
+def main():
+    """Main entry point"""
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='AuraOS Vision')
+    parser.add_argument('--verify-click', nargs=2, metavar=('X', 'Y'), 
+                       help='Verify click coordinates', type=int)
+    args = parser.parse_args()
+
     try:
+        if args.verify_click:
+            # Verification mode
+            x, y = args.verify_click
+            root = tk.Tk()
+            root.withdraw()
+            app = AuraOSVision(root)
+            result = app._verify_click_coordinates(x, y)
+            print(json.dumps(result, indent=2))
+            return 0
+
+        # Normal GUI mode
         root = tk.Tk()
         app = AuraOSVision(root)
         
-        # Show startup status
         logger.info("AuraOS Vision started successfully")
-        print("AuraOS Vision ready - check ~/.auraos/logs/vision.log for details")
+        print("AuraOS Vision ready - logs at ~/.auraos/logs/vision.log")
         
         root.mainloop()
+        return 0
+        
+    except KeyboardInterrupt:
+        logger.info("Interrupted by user")
+        return 130
     except Exception as e:
-        logger.critical("Failed to start AuraOS Vision: %s", e, exc_info=True)
-        print(f"ERROR: Failed to start Vision app: {e}")
+        logger.critical("Fatal error: %s", e, exc_info=True)
+        print(f"ERROR: {e}")
         print("Check ~/.auraos/logs/vision.log for details")
-        raise
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
