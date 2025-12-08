@@ -646,9 +646,8 @@ REMEMBER: Output ONLY the command(s). Nothing else."""
         
         if exit_code == 0:
             return {"success": True, "reason": "exit code 0", "issue": "", "hint": ""}
-        
-        if exit_code != 0 and not stderr and stdout:
-            return {"success": True, "reason": "exit code non-zero but has output", "issue": "", "hint": ""}
+        # Do not treat non-zero exit codes as success even if stdout contains text.
+        # Rely on explicit exit_code == 0 for success to avoid false positives.
         
         # Check for common permission denied patterns
         if "permission denied" in stderr.lower() or "permission denied" in stdout.lower():
@@ -873,11 +872,24 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
                 
                 # Execute
                 self.append_text("⚡ Executing...\n", "info")
-                try:
-                    exit_code, stdout, stderr, cwd = self._run_in_shell(command, timeout=30)
-                except Exception as e:
-                    self.append_text(f"❌ Execution error: {str(e)}\n", "error")
-                    break
+
+                # If this command looks like it requires privileges, attempt sudo first
+                exit_code = None
+                stdout = stderr = cwd = ""
+                if self._should_try_sudo(command):
+                    self.append_text("[i] Command appears privileged — attempting with sudo first...\n", "info")
+                    try:
+                        exit_code, stdout, stderr, cwd = self._attempt_with_sudo(command, timeout=30)
+                    except Exception as e:
+                        self.append_text(f"❌ Sudo attempt error: {e}\n", "error")
+
+                # If sudo attempt was not done or failed, run the original command normally
+                if exit_code is None or exit_code != 0:
+                    try:
+                        exit_code, stdout, stderr, cwd = self._run_in_shell(command, timeout=30)
+                    except Exception as e:
+                        self.append_text(f"❌ Execution error: {str(e)}\n", "error")
+                        break
                 
                 # Display output (cleaned for readability)
                 if stdout:
