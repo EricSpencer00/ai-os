@@ -26,7 +26,10 @@ cmd_vm_setup() {
     echo -e "${YELLOW}Installing desktop packages...${NC}"
     multipass exec "$VM_NAME" -- sudo bash -c '
         apt-get update -qq
-        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xfce4 xfce4-goodies xvfb x11vnc python3-pip expect curl wget git
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            xfce4 xfce4-goodies xvfb x11vnc python3-pip expect curl wget git \
+            xdotool python3-venv python3-dev python3-tk \
+            portaudio19-dev firefox
     '
     echo -e "${GREEN}✓ Desktop installed${NC}"
 
@@ -132,12 +135,27 @@ sleep 2
 systemctl start auraos-novnc.service || true
 VNC_START
 
-    echo -e "${YELLOW}Installing minimal AuraOS applications...${NC}"
+    echo -e "${YELLOW}Installing Python dependencies and AuraOS applications...${NC}"
     multipass exec "$VM_NAME" -- sudo bash -c '
-        apt-get update -qq && apt-get install -y python3-tk python3-pip portaudio19-dev firefox >/dev/null 2>&1 || true
-        pip3 install --quiet speech_recognition pyaudio || true
+        apt-get update -qq
+        apt-get install -y -qq python3-tk python3-pip portaudio19-dev firefox >/dev/null 2>&1 || true
+        pip3 install --quiet speech_recognition pyaudio requests flask pyautogui pillow numpy || true
     '
-
+    
+    echo -e "${YELLOW}Setting up GUI Agent environment...${NC}"
+    multipass exec "$VM_NAME" -- bash -c '
+        # Create GUI Agent directory
+        mkdir -p ~/gui_agent_env
+        
+        # Create virtual environment for GUI Agent
+        python3 -m venv ~/gui_agent_env
+        
+        # Activate and install GUI Agent dependencies
+        source ~/gui_agent_env/bin/activate
+        pip install --quiet requests flask pyautogui pillow numpy || true
+        deactivate
+    '
+    
     echo -e "${GREEN}✓ VM setup complete. Access via http://localhost:6080/vnc.html (password: auraos123)${NC}"
 }
 
