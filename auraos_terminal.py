@@ -62,6 +62,14 @@ class AuraOSTerminal:
         
         # Handle cleanup on window close
         self.root.protocol("WM_DELETE_WINDOW", self._cleanup_and_exit)
+
+    @staticmethod
+    def _clean_shell_output(text: str) -> str:
+        """Strip ANSI escape codes and trim whitespace for clearer display."""
+        if not text:
+            return ""
+        ansi_escape = re.compile(r"\x1B[@-_][0-?]*[ -/]*[@-~]")
+        return ansi_escape.sub("", text).strip()
     
     def _init_shell(self):
         """Initialize persistent PTY shell session using openpty() + fork/exec"""
@@ -744,9 +752,11 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
                     self.append_text(f"❌ Execution error: {str(e)}\n", "error")
                     break
                 
-                # Display output
+                # Display output (cleaned for readability)
                 if stdout:
-                    self.append_text(f"{stdout}\n", "info")
+                    clean_stdout = self._clean_shell_output(stdout)
+                    if clean_stdout:
+                        self.append_text(f"{clean_stdout}\n", "info")
                 
                 # Result analysis
                 analysis = self._analyze_command_result(

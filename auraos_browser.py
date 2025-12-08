@@ -494,7 +494,9 @@ class AuraOSBrowser:
             
             # Try Chromium first (more reliable on ARM), then Firefox
             browsers = [
+                ("Chromium", "chromium-wrapped", ["chromium-wrapped"]),
                 ("Chromium", "chromium-browser", ["chromium-browser", "--no-sandbox", "--disable-gpu"]),
+                ("Firefox", "firefox-wrapped", ["firefox-wrapped"]),
                 ("Firefox", "firefox", ["firefox", "--new-window", "--no-sandbox"])
             ]
             
