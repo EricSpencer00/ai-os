@@ -174,11 +174,12 @@ class AuraOSTerminal:
                         # attrs[3] is c_lflag (local flags)
                         # DISABLE ECHO - we don't want to see commands echoed back
                         # Keep ICANON for line-buffered input
-                        attrs[3] &= ~termios.ECHO  # Turn OFF echo
-                        attrs[3] |= termios.ICANON  # Keep line buffering
-                        # attrs[6] is cc (control characters)
-                        attrs[6][termios.VMIN] = 0    # Non-blocking read
-                        attrs[6][termios.VTIME] = 0   # No timeout
+                        # Keep ECHO enabled so interactive prompts behave normally
+                        attrs[3] |= termios.ECHO  # Ensure echo ON
+                        attrs[3] |= termios.ICANON  # Keep line buffering (canonical mode)
+                        # attrs[6] is cc (control characters). Use blocking reads per-line.
+                        attrs[6][termios.VMIN] = 1    # Wait for at least 1 byte (canonical)
+                        attrs[6][termios.VTIME] = 0   # No inter-byte timeout
                         termios.tcsetattr(0, termios.TCSANOW, attrs)
                     except:
                         pass  # Terminal attributes may not be fully available
