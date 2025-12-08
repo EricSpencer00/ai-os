@@ -2587,6 +2587,10 @@ cmd_dev() {
     multipass exec "$VM_NAME" -- sudo bash <<'DEV_INSTALL'
 AURAOS_USER='auraos'
 
+# Ensure bin dir exists so copies don't fail if vm-setup wasn't run
+mkdir -p /opt/auraos/bin
+chown -R ${AURAOS_USER}:${AURAOS_USER} /opt/auraos/bin || true
+
 # Install transferred Python files
 for pyfile in auraos_terminal.py auraos_browser.py auraos_vision.py auraos_launcher.py auraos_onboarding.py; do
     if [ -f "/tmp/$pyfile" ]; then
