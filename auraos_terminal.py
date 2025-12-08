@@ -13,6 +13,7 @@ import requests
 import re
 import json
 import shlex
+import queue
 import pty
 import select
 import time
@@ -248,10 +249,46 @@ class AuraOSTerminal:
         self.root.destroy()
     
     def _request_password(self):
-        """Show a simple password input dialog for sudo commands"""
+        """Show a password dialog safely from any thread.
+
+        If called from the main thread, show the dialog directly. If called
+        from a background thread (common), schedule the dialog to run on the
+        Tk mainloop via `self.root.after` and wait on a Queue for the result.
+        This avoids Tkinter focus/input issues caused by calling dialog APIs
+        from non-main threads.
+        """
         import tkinter.simpledialog as simpledialog
-        password = simpledialog.askstring("Password Required", "Enter password:", show='*')
-        return password
+        import threading
+
+        # If we're on the main thread, show dialog directly
+        if threading.current_thread() is threading.main_thread():
+            return simpledialog.askstring("Password Required", "Enter password:", show='*', parent=self.root)
+
+        q = queue.Queue()
+
+        def ask():
+            try:
+                pw = simpledialog.askstring("Password Required", "Enter password:", show='*', parent=self.root)
+                q.put(pw)
+            except Exception:
+                q.put(None)
+
+        # Schedule the dialog to run on the Tk mainloop
+        try:
+            self.root.after(0, ask)
+        except Exception:
+            # If scheduling fails, fall back to direct call (may not work)
+            try:
+                return simpledialog.askstring("Password Required", "Enter password:", show='*', parent=self.root)
+            except Exception:
+                return None
+
+        try:
+            # Wait (up to 5 minutes) for the user to enter a password
+            pw = q.get(timeout=300)
+            return pw
+        except queue.Empty:
+            return None
 
     def _run_subprocess_fallback(self, command, timeout=60):
         """Fallback execution path when PTY shell is unavailable: use subprocess.run."""
