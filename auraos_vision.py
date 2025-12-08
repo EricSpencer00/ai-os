@@ -117,6 +117,32 @@ class AuraOSVision:
         
         self.setup_ui()
         
+        # Prefer to present this window like the "desktop" layer so it remains
+        # behind normal windows. Many window managers honor _NET_WM_WINDOW_TYPE
+        # = _NET_WM_WINDOW_TYPE_DESKTOP which keeps the window below others.
+        try:
+            self.root.attributes('-type', 'desktop')
+        except Exception:
+            try:
+                self.root.attributes('-type', 'dock')
+            except Exception:
+                pass
+
+        try:
+            self.root.wm_attributes('-topmost', False)
+        except Exception:
+            pass
+        try:
+            self.root.lower()
+        except Exception:
+            pass
+
+        # Start a lightweight periodic ensure to keep the window below others
+        try:
+            self.root.after(2000, self._ensure_window_below)
+        except Exception:
+            pass
+        
     def setup_ui(self):
         # Title bar (compact)
         title_frame = tk.Frame(self.root, bg='#0a0e27')
@@ -239,6 +265,23 @@ class AuraOSVision:
     def _clear_placeholder(self, event):
         if self.task_entry.get() == "Describe task for AI...":
             self.task_entry.delete(0, 'end')
+
+    def _ensure_window_below(self):
+        """Periodic helper to keep the Vision panel below normal windows."""
+        try:
+            try:
+                self.root.wm_attributes('-topmost', False)
+            except Exception:
+                pass
+            try:
+                self.root.lower()
+            except Exception:
+                pass
+        finally:
+            try:
+                self.root.after(2000, self._ensure_window_below)
+            except Exception:
+                pass
         
     def append_text(self, text, tag='info'):
         """Append text to output area"""
