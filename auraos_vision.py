@@ -580,35 +580,60 @@ RESPOND ONLY WITH JSON, nothing else. Example valid responses:
         # Try pyautogui first (more reliable)
         if HAS_PYAUTOGUI:
             try:
-                pyautogui.click(x, y)
-                logger.debug("Click executed at (%d, %d) via pyautogui", x, y)
-                return
+                # Move to coordinate then click - do a small retry loop
+                attempts = 3
+                for i in range(attempts):
+                    try:
+                        pyautogui.moveTo(x, y, duration=0.05)
+                        pyautogui.click(x, y)
+                        logger.debug("Click executed at (%d, %d) via pyautogui (attempt %d)", x, y, i+1)
+                        return True
+                    except Exception as inner_e:
+                        logger.warning("pyautogui click attempt %d failed: %s", i+1, inner_e)
+                        time.sleep(0.15)
+                logger.warning("pyautogui click failed after %d attempts", attempts)
             except Exception as e:
                 logger.warning("pyautogui click failed: %s, trying xdotool", e)
         
-        # Fallback to xdotool
+        # Fallback to xdotool: use absolute move + click and include X env vars
         if not self._check_xdotool():
             err_msg = "[Error] xdotool not found and pyautogui failed"
             self.append_text(f"{err_msg}\n", "error")
             logger.error(err_msg)
-            return
-            
+            return False
+
         try:
-            subprocess.run(
-                ['xdotool', 'mousemove', str(x), str(y), 'click', '1'],
-                check=True, env={**os.environ, 'DISPLAY': ':99'},
-                timeout=5,
-                capture_output=True
-            )
-            logger.debug("Click executed at (%d, %d) via xdotool", x, y)
+            env = os.environ.copy()
+            # Respect existing DISPLAY/XAUTHORITY if present, else default to :99
+            env['DISPLAY'] = env.get('DISPLAY', ':99')
+            if 'XAUTHORITY' not in env:
+                env['XAUTHORITY'] = '/home/auraos/.Xauthority'
+
+            # Try a couple of xdotool clicks to be robust
+            for attempt in range(2):
+                cmd = ['xdotool', 'mousemove', str(x), str(y), 'click', '1']
+                res = subprocess.run(cmd, check=False, env=env, timeout=6, capture_output=True, text=True)
+                if res.returncode == 0:
+                    logger.debug("Click executed at (%d, %d) via xdotool (attempt %d)", x, y, attempt+1)
+                    return True
+                else:
+                    logger.warning("xdotool attempt %d failed: rc=%s out=%s err=%s", attempt+1, res.returncode, res.stdout, res.stderr)
+                    time.sleep(0.15)
+
+            err_msg = "[Error] xdotool click attempts failed"
+            self.append_text(f"{err_msg}\n", "error")
+            logger.error(err_msg)
+            return False
         except subprocess.TimeoutExpired:
             err_msg = "[Error] Click timeout"
             self.append_text(f"{err_msg}\n", "error")
             logger.error(err_msg)
+            return False
         except Exception as e:
             err_msg = f"[Error] Click failed: {e}"
             self.append_text(f"{err_msg}\n", "error")
             logger.error(err_msg)
+            return False
     
     def _do_type(self, text):
         """Execute typing with error handling - uses pyautogui as fallback"""
