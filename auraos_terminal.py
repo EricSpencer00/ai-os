@@ -501,7 +501,7 @@ REMEMBER: Output ONLY the command(s). Nothing else."""
         original_text = response_text
         
         # Strip code fences with optional language markers: ```bash, ``` bash, ``` etc.
-        response_text = re.sub(r"```\s*(?:[a-zA-Z0-9_+-]*)", "", response_text)
+        response_text = re.sub(r"```\s*(?:[a-zA-Z0-9_+-]*)", "", response_text)  # Remove stray code fences
         
         # Remove inline backticks: `cmd` -> cmd
         response_text = re.sub(r"`([^`]*)`", r"\1", response_text)
