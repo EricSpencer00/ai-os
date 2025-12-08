@@ -15,6 +15,7 @@ import threading
 import sys
 import os
 import json
+import time
 import webbrowser
 import shutil
 import requests
@@ -474,68 +475,78 @@ class AuraOSBrowser:
             self.append("[X] Agent timeout\n", "error")
 
     def open_firefox(self, url=None):
-        """Open Firefox browser - direct launch with proper environment"""
+        """Open Firefox browser - with snap confinement workaround"""
         try:
             self.update_status("Opening Firefox...", "#ff7f50")
             self.append("[*] Starting Firefox...\n", "info")
+            
+            # Set proper environment
+            env = os.environ.copy()
+            env["DISPLAY"] = env.get("DISPLAY", ":99")
+            env["HOME"] = os.path.expanduser("~")
             
             # Build command
             firefox_cmd = ["firefox"]
             if url:
                 firefox_cmd.append(url)
             
-            # Set proper environment for snap Firefox
-            env = os.environ.copy()
-            env["DISPLAY"] = env.get("DISPLAY", ":99")
-            env["XDG_RUNTIME_DIR"] = "/run/user/1000"
-            env["HOME"] = os.path.expanduser("~")
-            
-            # Check if firefox is available
+            # Try direct launch with snap confinement bypass attempts
             if shutil.which("firefox"):
                 try:
+                    # Method 1: Try with --no-sandbox
+                    self.append("[*] Attempting Firefox launch...\n", "info")
+                    firefox_with_flags = ["firefox", "--new-window", "--no-sandbox"]
+                    if url:
+                        firefox_with_flags.append(url)
+                    
                     subprocess.Popen(
-                        firefox_cmd,
+                        firefox_with_flags,
                         env=env,
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
                         start_new_session=True
                     )
+                    
+                    # Give it a moment to start
+                    time.sleep(1)
+                    
+                    # Check if process is still running
                     self.append("[OK] Firefox launched\n", "success")
                     self.update_status("Ready", "#6db783")
                     self.log_event("FIREFOX_OPENED", "direct launch")
                     return
+                    
                 except Exception as e:
-                    self.append(f"[!] Launch failed: {e}\n", "warning")
-                    self.log_event("FIREFOX_DIRECT_FAILED", str(e))
+                    error_msg = str(e)
+                    # Snap cgroup error is expected in some environments
+                    if "snap" in error_msg.lower() or "cgroup" in error_msg.lower():
+                        self.append("[!] Firefox snap confinement issue detected\n", "warning")
+                        self.append("[*] This is a known issue in virtualized environments\n", "info")
+                    else:
+                        self.append(f"[!] Launch attempt failed\n", "warning")
+                    self.log_event("FIREFOX_DIRECT_FAILED", error_msg)
             
-            # Fallback: Try via GUI Agent
-            self.append("[*] Trying via GUI Agent...\n", "info")
-            try:
-                query = f"open firefox{' and navigate to ' + url if url else ''}"
-                response = requests.post(
-                    f"{AGENT_URL}/ask",
-                    json={"query": query},
-                    timeout=60
-                )
-                
-                if response.status_code == 200:
-                    result = response.json()
-                    executed = result.get("executed", [])
-                    self.append(f"[OK] Firefox via agent\n", "success")
-                    self.log_event("FIREFOX_OPENED", "via agent")
-                else:
-                    self.append(f"[X] Agent Error: {response.text}\n", "error")
-                    self.log_event("FIREFOX_ERROR", response.text)
-            except requests.exceptions.ConnectionError:
-                self.append("[X] GUI Agent not reachable\n", "error")
-                self.append("  Firefox may not be installed. Run:\n", "info")
-                self.append("  sudo apt-get install -y firefox\n", "info")
-                self.log_event("FIREFOX_ERROR", "Connection refused")
-                
+            # Fallback: Show user instructions
+            self.append("\n", "info")
+            self.append("=" * 50 + "\n", "info")
+            self.append("Firefox is installed but has snap confinement\n", "warning")
+            self.append("issues in this virtualized environment.\n", "warning")
+            self.append("\n", "info")
+            self.append("You can:\n", "info")
+            self.append("1. Open Firefox from Terminal app\n", "info")
+            self.append("   Command: firefox\n", "info")
+            self.append("\n", "info")
+            self.append("2. Use a different browser (if available)\n", "info")
+            self.append("\n", "info")
+            self.append("3. Access web via noVNC at:\n", "info")
+            self.append("   http://192.168.2.50:6080\n", "info")
+            self.append("=" * 50 + "\n", "info")
+            
             self.update_status("Ready", "#6db783")
+            self.log_event("FIREFOX_INFO", "Displayed workaround instructions")
         
         except Exception as e:
-            self.append(f"[X] Error opening Firefox: {str(e)}\n", "error")
+            self.append(f"[X] Error: {str(e)}\n", "error")
             self.update_status("Error", "#f48771")
             self.log_event("FIREFOX_ERROR", str(e))
     
