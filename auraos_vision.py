@@ -344,7 +344,7 @@ class AuraOSVision:
             self.append_text(f"\n[Step {step}/{max_steps}]\n", "action")
             
             try:
-                # Capture screen
+                # Capture FULL screen (entire desktop, not just this window)
                 if not HAS_PIL:
                     self.append_text("[Error] PIL required\n", "error")
                     logger.error("PIL not available")
@@ -352,26 +352,43 @@ class AuraOSVision:
                 
                 screenshot = ImageGrab.grab()
                 self.screenshot_size = screenshot.size
+                
+                # Log captured size for debugging
+                logger.debug("Full desktop captured: %dx%d", screenshot.size[0], screenshot.size[1])
+                self.append_text(f"[Screen] Captured full desktop: {screenshot.size[0]}x{screenshot.size[1]}\n", "info")
+                
                 buffer = io.BytesIO()
                 screenshot.save(buffer, format='PNG')
                 img_data = base64.b64encode(buffer.getvalue()).decode()
-                logger.debug("Screenshot captured: %dx%d", screenshot.size[0], screenshot.size[1])
                 
-                # Ask AI what to do
-                prompt = f'''Task: "{task}"
-Look at this screen and determine ONE action to take.
-Reply ONLY with JSON like:
-{{"action":"click","x":500,"y":300,"why":"clicking button"}}
-{{"action":"type","text":"hello","why":"typing text"}}
-{{"action":"done","why":"task complete"}}
-{{"action":"wait","why":"loading"}}
+                # Improved automation prompt with full desktop context
+                prompt = f'''You are an AI assistant controlling a desktop computer screen. Your task is to help the user accomplish:
+
+TASK: "{task}"
+
+IMPORTANT INSTRUCTIONS:
+1. You are looking at the ENTIRE desktop screen with multiple windows/applications
+2. Do NOT interact with the "AuraOS Vision" application window itself (that's just the control panel)
+3. Focus on completing the task in OTHER applications on the desktop (Terminal, Browser, Files, etc.)
+4. When you see text input fields or UI elements in other apps, that's where you should click and type
+5. Return exactly ONE of these JSON actions:
+   {{"action":"click","x":500,"y":300,"why":"clicking the Firefox icon to open browser"}}
+   {{"action":"type","text":"hello","why":"typing text into the currently focused field"}}
+   {{"action":"done","why":"task has been completed successfully"}}
+   {{"action":"wait","why":"page is loading, need to wait for content"}}
+
+RESPOND ONLY WITH JSON, nothing else. Example valid responses:
+{{"action":"click","x":640,"y":360,"why":"opening Firefox to search"}}
+{{"action":"type","text":"search query","why":"entering search text"}}
+{{"action":"done","why":"search results are now displayed"}}
 '''
                 
+                # Send to inference server with full screen context and improved prompt
                 response = requests.post(
                     f"{INFERENCE_URL}/ask",
                     json={
                         "query": prompt,
-                        "images": [img_data],
+                        "images": [img_data],  # Pass the full desktop screenshot
                         "parse_json": False
                     },
                     timeout=60
@@ -386,7 +403,7 @@ Reply ONLY with JSON like:
                     continue
                 
                 ai_text = response.json().get('response', '{}')
-                logger.debug("AI response: %s", ai_text[:100])
+                logger.debug("AI response: %s", ai_text[:150])
                 
                 # Parse JSON from response with fallback
                 action_data = {"action": "wait"}
@@ -395,7 +412,7 @@ Reply ONLY with JSON like:
                     if json_match:
                         action_data = json.loads(json_match.group())
                     else:
-                        logger.warning("No JSON found in response: %s", ai_text[:50])
+                        logger.warning("No JSON found in response: %s", ai_text[:80])
                 except json.JSONDecodeError as e:
                     logger.warning("JSON parse failed: %s", e)
                     action_data = {"action": "wait", "why": "parse error"}
@@ -417,6 +434,7 @@ Reply ONLY with JSON like:
                     x, y = action_data.get('x', 0), action_data.get('y', 0)
                     if self._validate_coordinates(x, y):
                         self.append_text(f"[Click] ({x},{y})\n", "action")
+                        logger.info("Executing click at (%d, %d)", x, y)
                         self._do_click(x, y)
                         self.last_action_type = 'click'
                     else:
@@ -426,6 +444,7 @@ Reply ONLY with JSON like:
                 elif action == 'type':
                     text = action_data.get('text', '')
                     self.append_text(f"[Type] {text[:20]}...\n", "action")
+                    logger.info("Executing type: %s", text[:30])
                     self._do_type(text)
                     self.last_action_type = 'type'
                     

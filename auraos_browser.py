@@ -15,6 +15,7 @@ import threading
 import sys
 import os
 import json
+import time
 import webbrowser
 import shutil
 import requests
@@ -27,6 +28,8 @@ def get_agent_url():
     return "http://localhost:8765"
 
 AGENT_URL = get_agent_url()
+DEFAULT_INFERENCE_URL = "http://192.168.2.1:8081" if os.path.exists("/opt/auraos") else "http://localhost:8081"
+INFERENCE_URL = os.environ.get("AURAOS_INFERENCE_URL", DEFAULT_INFERENCE_URL)
 
 
 class AuraOSBrowser:
@@ -70,6 +73,14 @@ class AuraOSBrowser:
             relief='flat', cursor='hand2', padx=15, pady=12
         )
         firefox_btn.pack(side='left', padx=10, pady=10)
+        
+        # Open Terminal button (for manual browser launch)
+        terminal_btn = tk.Button(
+            top_frame, text="[Terminal]", command=self.open_terminal_for_browser,
+            bg='#4a90e2', fg='#ffffff', font=('Arial', 10, 'bold'),
+            relief='flat', cursor='hand2', padx=12, pady=12
+        )
+        terminal_btn.pack(side='left', padx=5, pady=10)
         
         # Title
         self.title_label = tk.Label(
@@ -307,7 +318,7 @@ class AuraOSBrowser:
         self.output_area.config(state='disabled')
         
         self.append("AuraOS Browser\n", "system")
-        self.append("Perplexity Comet-Inspired AI Search\n\n", "system")
+        self.append("Comet / Perplexity-Style AI Search\n\n", "system")
         self.append("Search for anything:\n", "info")
         self.append("  • python tutorials\n", "output")
         self.append("  • how to set up a docker container\n", "output")
@@ -344,70 +355,26 @@ class AuraOSBrowser:
         threading.Thread(target=self._perform_search, args=(query,), daemon=True).start()
     
     def _perform_search(self, query):
-        """Perform actual search - opens Firefox with search URL directly"""
+        """Perplexity/Comet wrapper: summarize + launch Firefox to live results."""
         try:
             self.is_processing = True
-            self.update_status("Searching...", "#00ff88")
-            
-            # Build search URL (use DuckDuckGo for privacy)
+            self.update_status("Comet search...", "#00ff88")
             import urllib.parse
-            search_url = f"https://duckduckgo.com/?q={urllib.parse.quote(query)}"
-            
-            self.append(f"[*] Searching for: {query}\n", "info")
-            self.append(f"[*] Opening: {search_url}\n", "info")
-            
-            # Try direct Firefox launch first
-            if shutil.which("firefox"):
-                try:
-                    env = os.environ.copy()
-                    env["DISPLAY"] = env.get("DISPLAY", ":99")
-                    
-                    subprocess.Popen(
-                        ["firefox", search_url],
-                        env=env,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        start_new_session=True
-                    )
-                    self.append("[OK] Search opened in Firefox\n", "success")
-                    self.log_event("SEARCH_SUCCESS", f"Direct: {query[:60]}")
-                    self.is_processing = False
-                    self.update_status("Ready", "#6db783")
-                    return
-                except Exception as e:
-                    self.append(f"[!] Direct launch failed: {e}\n", "warning")
-            
-            # Fallback to GUI Agent
-            self.append("[*] Trying via GUI Agent...\n", "info")
-            try:
-                search_request = f"open firefox and navigate to {search_url}"
-                response = requests.post(
-                    f"{AGENT_URL}/ask",
-                    json={"query": search_request},
-                    timeout=180
-                )
-                
-                if response.status_code == 200:
-                    result = response.json()
-                    executed = result.get("executed", [])
-                    self.append(f"[OK] Agent executed {len(executed)} actions.\n", "success")
-                    for action in executed:
-                        act = action.get("action", {})
-                        self.append(f"  - {act}\n", "output")
-                    self.log_event("SEARCH_SUCCESS", f"Agent search: {query[:60]}")
-                else:
-                    self.append(f"[X] Agent Error: {response.text}\n", "error")
-                    self.log_event("SEARCH_ERROR", response.text)
-                    
-            except requests.exceptions.ConnectionError:
-                self.append("[X] Cannot reach GUI Agent\n", "error")
-                self.append(f"\n  Fallback: Open Firefox manually and go to:\n", "info")
-                self.append(f"  {search_url}\n\n", "info")
-                self.log_event("SEARCH_EXCEPTION", "Connection refused")
-            except requests.exceptions.Timeout:
-                self.append("[X] Request timed out\n", "error")
-                self.log_event("SEARCH_EXCEPTION", "Timeout")
-                
+            perp_url = f"https://www.perplexity.ai/search?q={urllib.parse.quote(query)}&src=auraos"
+
+            self.append(f"[*] Comet plan for: {query}\n", "info")
+
+            # Run a fast local summary to mimic Comet cards
+            summary = self._run_comet_planner(query)
+            if summary:
+                self.append(summary + "\n\n", "ai")
+            else:
+                self.append("[!] Comet summarizer unavailable, opening Perplexity directly.\n\n", "warning")
+
+            # Always open Firefox to the Perplexity page
+            self._open_perplexity(perp_url)
+            self.log_event("SEARCH_SUCCESS", f"Perplexity: {query[:60]}")
+
         except Exception as e:
             self.append(f"[X] Unexpected error: {e}\n", "error")
             self.log_event("SEARCH_EXCEPTION", str(e))
@@ -415,71 +382,204 @@ class AuraOSBrowser:
         self.is_processing = False
         self.update_status("Ready", "#6db783")
 
-    def open_firefox(self, url=None):
-        """Open Firefox browser - direct launch with proper environment"""
-        try:
-            self.update_status("Opening Firefox...", "#ff7f50")
-            self.append("[*] Starting Firefox...\n", "info")
-            
-            # Build command
-            firefox_cmd = ["firefox"]
-            if url:
-                firefox_cmd.append(url)
-            
-            # Set proper environment for snap Firefox
-            env = os.environ.copy()
-            env["DISPLAY"] = env.get("DISPLAY", ":99")
-            env["XDG_RUNTIME_DIR"] = "/run/user/1000"
-            env["HOME"] = os.path.expanduser("~")
-            
-            # Check if firefox is available
-            if shutil.which("firefox"):
-                try:
-                    subprocess.Popen(
-                        firefox_cmd,
-                        env=env,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        start_new_session=True
-                    )
-                    self.append("[OK] Firefox launched\n", "success")
-                    self.update_status("Ready", "#6db783")
-                    self.log_event("FIREFOX_OPENED", "direct launch")
-                    return
-                except Exception as e:
-                    self.append(f"[!] Launch failed: {e}\n", "warning")
-                    self.log_event("FIREFOX_DIRECT_FAILED", str(e))
-            
-            # Fallback: Try via GUI Agent
-            self.append("[*] Trying via GUI Agent...\n", "info")
+    def _open_perplexity(self, url):
+        """Open Perplexity/Comet page in Firefox with fallbacks."""
+        self.append(f"[*] Opening Perplexity: {url}\n", "info")
+
+        firefox_path = shutil.which("firefox")
+        if not firefox_path:
+            self.append("[!] Firefox not found; attempting install...\n", "warning")
+            if self._install_firefox():
+                firefox_path = shutil.which("firefox")
+                if not firefox_path:
+                    self.append("[X] Firefox installed but not in PATH\n", "error")
+            else:
+                self.append("[X] Could not install Firefox\n", "error")
+
+        # Try direct Firefox launch
+        if firefox_path:
             try:
-                query = f"open firefox{' and navigate to ' + url if url else ''}"
-                response = requests.post(
-                    f"{AGENT_URL}/ask",
-                    json={"query": query},
-                    timeout=60
+                env = os.environ.copy()
+                env["DISPLAY"] = env.get("DISPLAY", ":99")
+                env["XDG_RUNTIME_DIR"] = "/run/user/1000"
+                env["HOME"] = os.path.expanduser("~")
+                
+                self.append(f"[*] Launching Firefox...\n", "info")
+                proc = subprocess.Popen(
+                    [firefox_path, "--new-window", url],
+                    env=env,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    start_new_session=True
                 )
                 
-                if response.status_code == 200:
-                    result = response.json()
-                    executed = result.get("executed", [])
-                    self.append(f"[OK] Firefox via agent\n", "success")
-                    self.log_event("FIREFOX_OPENED", "via agent")
+                import time as time_mod
+                time_mod.sleep(0.5)
+                if proc.poll() is None:
+                    self.append("[OK] Firefox launched\n", "success")
+                    self.log_event("FIREFOX_LAUNCHED", f"PID={proc.pid}")
+                    return
                 else:
-                    self.append(f"[X] Agent Error: {response.text}\n", "error")
-                    self.log_event("FIREFOX_ERROR", response.text)
-            except requests.exceptions.ConnectionError:
-                self.append("[X] GUI Agent not reachable\n", "error")
-                self.append("  Firefox may not be installed. Run:\n", "info")
-                self.append("  sudo apt-get install -y firefox\n", "info")
-                self.log_event("FIREFOX_ERROR", "Connection refused")
-                
+                    stdout, stderr = proc.communicate(timeout=1)
+                    err_text = stderr.decode() if stderr else "unknown"
+                    self.append(f"[X] Firefox failed: {err_text[:60]}\n", "error")
+                    self.log_event("FIREFOX_ERROR", f"code={proc.returncode}")
+            except Exception as e:
+                self.append(f"[X] Firefox error: {str(e)[:60]}\n", "error")
+                self.log_event("FIREFOX_EXCEPTION", str(e)[:80])
+
+        # Fallback to GUI Agent automation
+        self._fallback_to_agent(url)
+
+    def _run_comet_planner(self, query):
+        """Call the unified inference server to get a Perplexity-style answer."""
+        try:
+            payload = {
+                "query": (
+                    "You are AuraOS Comet (Perplexity-style). "
+                    "Provide a concise blended answer with 3-5 bullet facts, "
+                    "a short next-action plan, and 3 suggested follow-up queries.\n"
+                    f"Question: {query}\n"),
+                "images": [],
+                "parse_json": False,
+            }
+            resp = requests.post(f"{INFERENCE_URL}/ask", json=payload, timeout=90)
+            if resp.status_code == 200:
+                return resp.json().get("response", "").strip()
+            self.append(f"[!] Inference server returned {resp.status_code}\n", "warning")
+            return None
+        except Exception as e:
+            self.append(f"[!] Comet planner error: {e}\n", "warning")
+            return None
+
+    def _install_firefox(self):
+        """Attempt to install Firefox via apt-get (Linux/Debian)."""
+        try:
+            subprocess.run(["sudo", "apt-get", "update", "-qq"], capture_output=True, timeout=30, check=False)
+            result = subprocess.run(["sudo", "apt-get", "install", "-y", "-qq", "firefox"], capture_output=True, timeout=120, check=False)
+            return result.returncode == 0
+        except Exception:
+            return False
+
+    def _fallback_to_agent(self, url):
+        """Fallback to GUI Agent automation."""
+        try:
+            search_request = f"open firefox and navigate to {url}"
+            response = requests.post(
+                f"{AGENT_URL}/ask",
+                json={"query": search_request},
+                timeout=120
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                executed = result.get("executed", [])
+                self.append(f"[OK] Agent executed {len(executed)} actions.\n", "success")
+            else:
+                self.append(f"[X] Agent error: {response.text[:60]}\n", "error")
+        except requests.exceptions.ConnectionError:
+            self.append("[X] GUI Agent unreachable; try manually: " + url + "\n", "error")
+        except requests.exceptions.Timeout:
+            self.append("[X] Agent timeout\n", "error")
+
+    def open_firefox(self, url=None):
+        """Open Firefox browser - with snap confinement workaround"""
+        try:
+            self.update_status("Opening Browser...", "#ff7f50")
+            
+            # Set proper environment
+            env = os.environ.copy()
+            env["DISPLAY"] = env.get("DISPLAY", ":99")
+            env["HOME"] = os.path.expanduser("~")
+            
+            # Try Chromium first (more reliable on ARM), then Firefox
+            browsers = [
+                ("Chromium", "chromium-browser", ["chromium-browser", "--no-sandbox", "--disable-gpu"]),
+                ("Firefox", "firefox", ["firefox", "--new-window", "--no-sandbox"])
+            ]
+            
+            for browser_name, browser_cmd, browser_args in browsers:
+                if shutil.which(browser_cmd):
+                    try:
+                        self.append(f"[*] Attempting {browser_name} launch...\n", "info")
+                        cmd = browser_args.copy()
+                        if url:
+                            cmd.append(url)
+                        
+                        subprocess.Popen(
+                            cmd,
+                            env=env,
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            start_new_session=True
+                        )
+                        
+                        # Give it a moment to start
+                        time.sleep(1)
+                        
+                        self.append(f"[OK] {browser_name} launched\n", "success")
+                        self.update_status("Ready", "#6db783")
+                        self.log_event("BROWSER_OPENED", browser_name)
+                        return
+                        
+                    except Exception as e:
+                        error_msg = str(e)
+                        self.append(f"[!] {browser_name} launch failed: {error_msg[:60]}\n", "warning")
+                        self.log_event(f"{browser_name.upper()}_FAILED", error_msg)
+            
+            # Fallback: Show user instructions
+            self.append("\n", "info")
+            self.append("=" * 50 + "\n", "info")
+            self.append("No web browser could be launched automatically.\n", "warning")
+            self.append("Chromium and Firefox are installed but may have\n", "warning")
+            self.append("environment issues in this VM.\n", "warning")
+            self.append("\n", "info")
+            self.append("You can:\n", "info")
+            self.append("1. Open Chromium from Terminal app\n", "info")
+            self.append("   Command: chromium-browser --no-sandbox\n", "info")
+            self.append("\n", "info")
+            self.append("2. Or use Firefox from Terminal\n", "info")
+            self.append("   Command: firefox\n", "info")
+            self.append("\n", "info")
+            self.append("3. Access web via noVNC at:\n", "info")
+            self.append("   http://192.168.2.50:6080\n", "info")
+            self.append("=" * 50 + "\n", "info")
+            
             self.update_status("Ready", "#6db783")
+            self.log_event("FIREFOX_INFO", "Displayed workaround instructions")
         
         except Exception as e:
-            self.append(f"[X] Error opening Firefox: {str(e)}\n", "error")
+            self.append(f"[X] Error: {str(e)}\n", "error")
             self.update_status("Error", "#f48771")
             self.log_event("FIREFOX_ERROR", str(e))
+    
+    def open_terminal_for_browser(self):
+        """Open Terminal app to launch browser manually"""
+        self.append("[*] Opening Terminal app for browser launch...\n", "info")
+        try:
+            # Try to launch the Terminal app (auraos_terminal.py)
+            import sys
+            from pathlib import Path
+            terminal_script = Path(__file__).parent / "auraos_terminal.py"
+            if terminal_script.exists():
+                subprocess.Popen(
+                    [sys.executable, str(terminal_script)],
+                    start_new_session=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+                self.append("[OK] Terminal app launched\n", "success")
+                self.append("[*] In Terminal, run: firefox\n", "info")
+                self.append("     or: chromium-browser --no-sandbox\n", "info")
+                self.update_status("Terminal opened", "#6db783")
+            else:
+                self.append("[!] Terminal app not found\n", "warning")
+                self.append("[*] Run in your terminal:\n", "info")
+                self.append("    firefox\n", "info")
+                self.append("    or chromium-browser --no-sandbox\n", "info")
+        except Exception as e:
+            self.append(f"[X] Error opening Terminal: {str(e)}\n", "error")
+            self.log_event("TERMINAL_OPEN_ERROR", str(e))
     
     def clear_chat(self):
         """Clear chat history"""

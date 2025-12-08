@@ -11,6 +11,7 @@ import sys
 import os
 import subprocess
 import random
+import importlib.util
 
 # Check file to track first-run vs subsequent boots
 FIRST_RUN_FLAG = os.path.expanduser("~/.auraos_first_run_complete")
@@ -233,37 +234,61 @@ class AuraOSOnboarding:
             if launcher_path:
                 env = os.environ.copy()
                 env['DISPLAY'] = env.get('DISPLAY', ':99')
-                subprocess.Popen(
-                    [sys.executable, launcher_path, '--fullscreen'],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    env=env,
-                    start_new_session=True
-                )
+                # Launch launcher directly in this process (don't spawn subprocess)
+                # This ensures the launcher runs as the main application and doesn't exit
+                self.root.destroy()
+                
+                # Import and run launcher directly
+                sys.path.insert(0, os.path.dirname(launcher_path))
+                import importlib.util
+                spec = importlib.util.spec_from_file_location("auraos_launcher", launcher_path)
+                launcher_module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(launcher_module)
+                
+                # Run launcher's main with fullscreen flag
+                sys.argv = ['auraos_launcher.py', '--fullscreen']
+                launcher_module.main()
             else:
                 print("Warning: Could not find auraos_launcher.py")
+                self.root.destroy()
         except Exception as e:
             print(f"Failed to launch AuraOS Home: {e}")
-        
-        # Close onboarding
-        self.root.destroy()
+            self.root.destroy()
 
 def main():
     # Ensure DISPLAY is set
     if 'DISPLAY' not in os.environ:
         os.environ['DISPLAY'] = ':99'
     
-    # Check if this is first run or subsequent boot
-    skip_animation = os.path.exists(FIRST_RUN_FLAG) and '--force' not in sys.argv
+    # Check if we should skip the animation (for faster startup)
+    skip_animation = '--skip' in sys.argv or '--force' in sys.argv
     
-    # But if --skip is passed, always skip
-    if '--skip' in sys.argv:
-        skip_animation = True
-    
-    # If --force is passed, always show full animation
+    # If --force, launch launcher directly without onboarding animation
     if '--force' in sys.argv:
-        skip_animation = False
+        # Find and import launcher directly
+        launcher_paths = [
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "auraos_launcher.py"),
+            "/opt/auraos/bin/auraos_launcher.py",
+        ]
         
+        launcher_path = None
+        for path in launcher_paths:
+            if os.path.exists(path):
+                launcher_path = path
+                break
+        
+        if launcher_path:
+            sys.path.insert(0, os.path.dirname(launcher_path))
+            spec = importlib.util.spec_from_file_location("auraos_launcher", launcher_path)
+            launcher_module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(launcher_module)
+            sys.argv = ['auraos_launcher.py', '--fullscreen']
+            launcher_module.main()
+        else:
+            print("Error: Could not find auraos_launcher.py")
+            sys.exit(1)
+    
+    # Otherwise show onboarding animation
     app = AuraOSOnboarding(skip_to_launcher=skip_animation)
     app.root.mainloop()
 

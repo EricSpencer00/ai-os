@@ -18,6 +18,7 @@ import time
 import signal
 import fcntl
 import random
+import struct
 
 # Smart URL detection: use host gateway IP when running inside VM
 def get_inference_url():
@@ -63,19 +64,108 @@ class AuraOSTerminal:
         self.root.protocol("WM_DELETE_WINDOW", self._cleanup_and_exit)
     
     def _init_shell(self):
-        """Initialize persistent PTY shell session"""
+        """Initialize persistent PTY shell session using openpty() + fork/exec"""
         try:
-            self.shell_pid, self.shell_fd = pty.forkpty()
+            # Ensure DISPLAY is set for X11 (important when launched from GUI)
+            if 'DISPLAY' not in os.environ:
+                os.environ['DISPLAY'] = ':99'
+            
+            # Create a PTY pair (master, slave)
+            master_fd, slave_fd = pty.openpty()
+            
+            # Fork a child process
+            self.shell_pid = os.fork()
+            
             if self.shell_pid == 0:
-                # Child process - start bash
-                os.execvp("bash", ["bash", "--noprofile", "--norc"])
-                sys.exit(0)
+                # ===== CHILD PROCESS =====
+                try:
+                    # Close master fd in child (we only need slave)
+                    os.close(master_fd)
+                    
+                    # Create a new session (detach from parent's controlling terminal)
+                    os.setsid()
+                    
+                    # Duplicate slave fd to stdin/stdout/stderr
+                    os.dup2(slave_fd, 0)  # stdin
+                    os.dup2(slave_fd, 1)  # stdout  
+                    os.dup2(slave_fd, 2)  # stderr
+                    
+                    # Close the original slave fd (no longer needed after dup2)
+                    os.close(slave_fd)
+                    
+                    # Configure terminal attributes
+                    import termios
+                    
+                    # Set terminal size
+                    rows, cols = 24, 80
+                    fcntl.ioctl(0, termios.TIOCSWINSZ, struct.pack('HHHH', rows, cols, 0, 0))
+                    
+                    # Get and configure terminal attributes for proper interactive mode
+                    try:
+                        attrs = termios.tcgetattr(0)
+                        # attrs[3] is c_lflag (local flags)
+                        # Set ECHO to see input, set ICANON for line-buffered input
+                        attrs[3] |= termios.ECHO | termios.ICANON
+                        # attrs[6] is cc (control characters)
+                        attrs[6][termios.VMIN] = 0    # Non-blocking read
+                        attrs[6][termios.VTIME] = 0   # No timeout
+                        termios.tcsetattr(0, termios.TCSANOW, attrs)
+                    except:
+                        pass  # Terminal attributes may not be fully available
+                    
+                    # Set environment variables
+                    os.environ['LINES'] = str(rows)
+                    os.environ['COLUMNS'] = str(cols)
+                    
+                    # Execute bash interactively
+                    # +H disables history expansion for more reliable output parsing
+                    os.execvp("bash", ["bash", "--noprofile", "--norc", "-i", "+H"])
+                    # If execvp succeeds, this line is never reached
+                    # If execvp fails, the exception is caught below
+                    
+                except (OSError, ValueError) as child_err:
+                    # If exec fails, write error to stderr and exit
+                    print(f"[SHELL_INIT_ERROR] {child_err}", file=sys.stderr)
+                    sys.exit(127)
+                    
             else:
-                # Parent process - set non-blocking mode
+                # ===== PARENT PROCESS =====
+                # Close slave fd in parent (we only need master)
+                os.close(slave_fd)
+                self.shell_fd = master_fd
+                
+                # Set master fd to non-blocking for reading output
                 flags = fcntl.fcntl(self.shell_fd, fcntl.F_GETFL)
                 fcntl.fcntl(self.shell_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+                
+                # Give the shell a moment to initialize
+                time.sleep(0.5)
+                
+                # Verify shell process is still alive
+                try:
+                    # Check if child is still running (non-blocking wait)
+                    pid_result, status = os.waitpid(self.shell_pid, os.WNOHANG)
+                    
+                    if pid_result == self.shell_pid:
+                        # Shell exited immediately (error)
+                        exit_code = os.WEXITSTATUS(status) if os.WIFEXITED(status) else -1
+                        print(f"[ERROR] Shell process exited immediately with code {exit_code}", file=sys.stderr)
+                        self.shell_pid = None
+                        self.shell_fd = None
+                        try:
+                            os.close(master_fd)
+                        except:
+                            pass
+                except ChildProcessError:
+                    # This is expected if child is still running
+                    pass
+                
+                print(f"[DEBUG] Shell initialized successfully: pid={self.shell_pid}, fd={self.shell_fd}", file=sys.stderr)
+                    
         except Exception as e:
-            print(f"Failed to initialize shell: {e}")
+            import traceback
+            print(f"[ERROR] Failed to initialize shell: {e}", file=sys.stderr)
+            print(traceback.format_exc(), file=sys.stderr)
             self.shell_pid = None
             self.shell_fd = None
     
@@ -522,7 +612,15 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
         Validates command, resolves binaries with fallbacks, escapes safely.
         """
         if not self.shell_fd:
-            return 1, "", "Shell not initialized", ""
+            # Provide detailed diagnostic info
+            error_msg = f"Shell not initialized (fd={self.shell_fd}, pid={self.shell_pid})"
+            print(f"[ERROR] {error_msg}", file=sys.stderr)
+            return 1, "", error_msg, ""
+        
+        if self.shell_pid is None or self.shell_pid <= 0:
+            error_msg = f"Shell process not running (pid={self.shell_pid})"
+            print(f"[ERROR] {error_msg}", file=sys.stderr)
+            return 1, "", error_msg, ""
         
         try:
             # Pre-exec validation: detect injections and resolve binaries
@@ -537,7 +635,7 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
             pwd_cmd = "pwd\n"
             os.write(self.shell_fd, pwd_cmd.encode())
             time.sleep(0.1)
-            cwd = self._read_shell_output(timeout=2).strip().split('\n')[-1]
+            cwd = self._read_shell_output(timeout=1).strip().split('\n')[-1]
             
             # Use unique markers to avoid collision (PID + random UUID)
             marker_uuid = f"{os.getpid()}_{random.randint(100000, 999999)}"
@@ -560,9 +658,9 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
             
             os.write(self.shell_fd, full_command.encode())
             
-            # Capture output with timeout
-            output = self._read_shell_output(timeout=timeout)
-            print(f"[DEBUG] Output: {repr(output[:150])}", file=sys.stderr)
+            # Capture output with timeout, exit early when end marker is found
+            output = self._read_shell_output(timeout=min(timeout, 10), end_marker=marker_end)
+            print(f"[DEBUG] Output length: {len(output)}, looking for markers", file=sys.stderr)
             
             # Parse output between markers
             if marker_start in output and marker_end in output:
@@ -587,27 +685,41 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
             print(f"[DEBUG] Exception: {e}\n{traceback.format_exc()}", file=sys.stderr)
             return 1, "", str(e), ""
     
-    def _read_shell_output(self, timeout=5):
-        """Read available output from shell with timeout"""
+    def _read_shell_output(self, timeout=5, end_marker=None):
+        """Read available output from shell with timeout and optional end marker detection"""
         if not self.shell_fd:
             return ""
         
         output = ""
         start_time = time.time()
+        no_data_count = 0
         
         while time.time() - start_time < timeout:
-            ready, _, _ = select.select([self.shell_fd], [], [], 0.1)
-            if ready:
-                try:
+            try:
+                ready, _, _ = select.select([self.shell_fd], [], [], 0.05)
+                if ready:
                     chunk = os.read(self.shell_fd, 4096)
                     if chunk:
                         output += chunk.decode('utf-8', errors='ignore')
+                        no_data_count = 0  # Reset counter when we get data
+                        
+                        # If end marker is specified and found, stop early
+                        if end_marker and end_marker in output:
+                            break
                     else:
                         break
-                except (OSError, IOError):
-                    break
-            else:
-                time.sleep(0.05)
+                else:
+                    # No data available right now
+                    no_data_count += 1
+                    
+                    # If we have data and haven't received anything in 3 iterations,
+                    # assume command is done
+                    if output and no_data_count >= 3:
+                        break
+                    
+                    time.sleep(0.01)
+            except (OSError, IOError):
+                break
         
         return output
 
