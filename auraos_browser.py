@@ -74,6 +74,14 @@ class AuraOSBrowser:
         )
         firefox_btn.pack(side='left', padx=10, pady=10)
         
+        # Open Terminal button (for manual browser launch)
+        terminal_btn = tk.Button(
+            top_frame, text="[Terminal]", command=self.open_terminal_for_browser,
+            bg='#4a90e2', fg='#ffffff', font=('Arial', 10, 'bold'),
+            relief='flat', cursor='hand2', padx=12, pady=12
+        )
+        terminal_btn.pack(side='left', padx=5, pady=10)
+        
         # Title
         self.title_label = tk.Label(
             top_frame, text="AuraOS Browser - AI Search", 
@@ -477,66 +485,61 @@ class AuraOSBrowser:
     def open_firefox(self, url=None):
         """Open Firefox browser - with snap confinement workaround"""
         try:
-            self.update_status("Opening Firefox...", "#ff7f50")
-            self.append("[*] Starting Firefox...\n", "info")
+            self.update_status("Opening Browser...", "#ff7f50")
             
             # Set proper environment
             env = os.environ.copy()
             env["DISPLAY"] = env.get("DISPLAY", ":99")
             env["HOME"] = os.path.expanduser("~")
             
-            # Build command
-            firefox_cmd = ["firefox"]
-            if url:
-                firefox_cmd.append(url)
+            # Try Chromium first (more reliable on ARM), then Firefox
+            browsers = [
+                ("Chromium", "chromium-browser", ["chromium-browser", "--no-sandbox", "--disable-gpu"]),
+                ("Firefox", "firefox", ["firefox", "--new-window", "--no-sandbox"])
+            ]
             
-            # Try direct launch with snap confinement bypass attempts
-            if shutil.which("firefox"):
-                try:
-                    # Method 1: Try with --no-sandbox
-                    self.append("[*] Attempting Firefox launch...\n", "info")
-                    firefox_with_flags = ["firefox", "--new-window", "--no-sandbox"]
-                    if url:
-                        firefox_with_flags.append(url)
-                    
-                    subprocess.Popen(
-                        firefox_with_flags,
-                        env=env,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        start_new_session=True
-                    )
-                    
-                    # Give it a moment to start
-                    time.sleep(1)
-                    
-                    # Check if process is still running
-                    self.append("[OK] Firefox launched\n", "success")
-                    self.update_status("Ready", "#6db783")
-                    self.log_event("FIREFOX_OPENED", "direct launch")
-                    return
-                    
-                except Exception as e:
-                    error_msg = str(e)
-                    # Snap cgroup error is expected in some environments
-                    if "snap" in error_msg.lower() or "cgroup" in error_msg.lower():
-                        self.append("[!] Firefox snap confinement issue detected\n", "warning")
-                        self.append("[*] This is a known issue in virtualized environments\n", "info")
-                    else:
-                        self.append(f"[!] Launch attempt failed\n", "warning")
-                    self.log_event("FIREFOX_DIRECT_FAILED", error_msg)
+            for browser_name, browser_cmd, browser_args in browsers:
+                if shutil.which(browser_cmd):
+                    try:
+                        self.append(f"[*] Attempting {browser_name} launch...\n", "info")
+                        cmd = browser_args.copy()
+                        if url:
+                            cmd.append(url)
+                        
+                        subprocess.Popen(
+                            cmd,
+                            env=env,
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            start_new_session=True
+                        )
+                        
+                        # Give it a moment to start
+                        time.sleep(1)
+                        
+                        self.append(f"[OK] {browser_name} launched\n", "success")
+                        self.update_status("Ready", "#6db783")
+                        self.log_event("BROWSER_OPENED", browser_name)
+                        return
+                        
+                    except Exception as e:
+                        error_msg = str(e)
+                        self.append(f"[!] {browser_name} launch failed: {error_msg[:60]}\n", "warning")
+                        self.log_event(f"{browser_name.upper()}_FAILED", error_msg)
             
             # Fallback: Show user instructions
             self.append("\n", "info")
             self.append("=" * 50 + "\n", "info")
-            self.append("Firefox is installed but has snap confinement\n", "warning")
-            self.append("issues in this virtualized environment.\n", "warning")
+            self.append("No web browser could be launched automatically.\n", "warning")
+            self.append("Chromium and Firefox are installed but may have\n", "warning")
+            self.append("environment issues in this VM.\n", "warning")
             self.append("\n", "info")
             self.append("You can:\n", "info")
-            self.append("1. Open Firefox from Terminal app\n", "info")
-            self.append("   Command: firefox\n", "info")
+            self.append("1. Open Chromium from Terminal app\n", "info")
+            self.append("   Command: chromium-browser --no-sandbox\n", "info")
             self.append("\n", "info")
-            self.append("2. Use a different browser (if available)\n", "info")
+            self.append("2. Or use Firefox from Terminal\n", "info")
+            self.append("   Command: firefox\n", "info")
             self.append("\n", "info")
             self.append("3. Access web via noVNC at:\n", "info")
             self.append("   http://192.168.2.50:6080\n", "info")
@@ -549,6 +552,34 @@ class AuraOSBrowser:
             self.append(f"[X] Error: {str(e)}\n", "error")
             self.update_status("Error", "#f48771")
             self.log_event("FIREFOX_ERROR", str(e))
+    
+    def open_terminal_for_browser(self):
+        """Open Terminal app to launch browser manually"""
+        self.append("[*] Opening Terminal app for browser launch...\n", "info")
+        try:
+            # Try to launch the Terminal app (auraos_terminal.py)
+            import sys
+            from pathlib import Path
+            terminal_script = Path(__file__).parent / "auraos_terminal.py"
+            if terminal_script.exists():
+                subprocess.Popen(
+                    [sys.executable, str(terminal_script)],
+                    start_new_session=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+                self.append("[OK] Terminal app launched\n", "success")
+                self.append("[*] In Terminal, run: firefox\n", "info")
+                self.append("     or: chromium-browser --no-sandbox\n", "info")
+                self.update_status("Terminal opened", "#6db783")
+            else:
+                self.append("[!] Terminal app not found\n", "warning")
+                self.append("[*] Run in your terminal:\n", "info")
+                self.append("    firefox\n", "info")
+                self.append("    or chromium-browser --no-sandbox\n", "info")
+        except Exception as e:
+            self.append(f"[X] Error opening Terminal: {str(e)}\n", "error")
+            self.log_event("TERMINAL_OPEN_ERROR", str(e))
     
     def clear_chat(self):
         """Clear chat history"""
