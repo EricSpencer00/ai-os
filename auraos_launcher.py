@@ -66,15 +66,20 @@ class AuraOSLauncher:
             self.root.bind('<Escape>', self.toggle_fullscreen)
             self.root.bind('<F11>', self.toggle_fullscreen)
         else:
-            self.root.geometry("900x700")
-            # Normal window - allow window manager decorations
+            # Normal window - defer geometry until after setup
             self.root.attributes('-topmost', False)
+            self.root.geometry("1000x750+100+50")
 
         # Handle window close - minimize instead of close in fullscreen
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
         self.setup_ui()
         self.update_clock()
+        
+        # Force proper window sizing after all widgets are created
+        if not fullscreen:
+            self.root.update_idletasks()
+            self.root.geometry("1000x750+100+50")
 
     def toggle_fullscreen(self, event=None):
         """Toggle between fullscreen and windowed mode"""
@@ -112,7 +117,7 @@ class AuraOSLauncher:
 
         # App Grid
         grid_frame = tk.Frame(main_container, bg='#0a0e27')
-        grid_frame.pack(expand=True, pady=30, fill='both')
+        grid_frame.pack(expand=True, pady=20, padx=40, fill='both')
 
         # Pre-build icons and app definitions
         self.icon_images = self._build_icon_set()
@@ -127,13 +132,15 @@ class AuraOSLauncher:
 
         for c in range(3):
             grid_frame.grid_columnconfigure(c, weight=1, uniform="appgrid")
+        for r in range(2):
+            grid_frame.grid_rowconfigure(r, weight=1, uniform="appgrid")
 
         for i, (name, desc, handler, color) in enumerate(apps):
             row = i // 3
             col = i % 3
 
             btn_frame = tk.Frame(grid_frame, bg='#0a0e27')
-            btn_frame.grid(row=row, column=col, padx=24, pady=24, sticky='nsew')
+            btn_frame.grid(row=row, column=col, padx=16, pady=16, sticky='nsew')
 
             icon_img = self.icon_images.get(name)
 
