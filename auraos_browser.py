@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-AuraOS Browser - Perplexity Comet-Inspired AI Browser
+AuraOS Browser - Native AI Search & Web Browser
 Features:
-  - ChatGPT-like search interface
-  - Firefox integration for web browsing
-  - AI-powered search and recommendations
+  - ChatGPT-like search interface with native AI responses
+  - Firefox/Chromium integration for web browsing
+  - Direct inference server queries for instant answers
   - Conversation history
   - Smart web navigation
 """
@@ -355,25 +355,22 @@ class AuraOSBrowser:
         threading.Thread(target=self._perform_search, args=(query,), daemon=True).start()
     
     def _perform_search(self, query):
-        """Perplexity/Comet wrapper: summarize + launch Firefox to live results."""
+        """Native AI search - ask the inference model directly instead of Perplexity."""
         try:
             self.is_processing = True
-            self.update_status("Comet search...", "#00ff88")
-            import urllib.parse
-            perp_url = f"https://www.perplexity.ai/search?q={urllib.parse.quote(query)}&src=auraos"
+            self.update_status("Searching...", "#00ff88")
 
-            self.append(f"[*] Comet plan for: {query}\n", "info")
+            self.append(f"[*] Searching: {query}\n", "info")
 
-            # Run a fast local summary to mimic Comet cards
-            summary = self._run_comet_planner(query)
-            if summary:
-                self.append(summary + "\n\n", "ai")
+            # Query the inference server directly for fast results
+            answer = self._query_inference_server(query)
+            
+            if answer:
+                self.append(f"\n[AI] {answer}\n\n", "ai")
+                self.log_event("SEARCH_SUCCESS", f"Native search: {query[:60]}")
             else:
-                self.append("[!] Comet summarizer unavailable, opening Perplexity directly.\n\n", "warning")
-
-            # Always open Firefox to the Perplexity page
-            self._open_perplexity(perp_url)
-            self.log_event("SEARCH_SUCCESS", f"Perplexity: {query[:60]}")
+                self.append("[!] Search failed - inference server unreachable\n", "error")
+                self.log_event("SEARCH_FAILED", "Inference server error")
 
         except Exception as e:
             self.append(f"[X] Unexpected error: {e}\n", "error")
@@ -382,108 +379,51 @@ class AuraOSBrowser:
         self.is_processing = False
         self.update_status("Ready", "#6db783")
 
-    def _open_perplexity(self, url):
-        """Open Perplexity/Comet page in Firefox with fallbacks."""
-        self.append(f"[*] Opening Perplexity: {url}\n", "info")
-
-        firefox_path = shutil.which("firefox")
-        if not firefox_path:
-            self.append("[!] Firefox not found; attempting install...\n", "warning")
-            if self._install_firefox():
-                firefox_path = shutil.which("firefox")
-                if not firefox_path:
-                    self.append("[X] Firefox installed but not in PATH\n", "error")
-            else:
-                self.append("[X] Could not install Firefox\n", "error")
-
-        # Try direct Firefox launch
-        if firefox_path:
-            try:
-                env = os.environ.copy()
-                env = os.environ.copy()
-                env["DISPLAY"] = env.get("DISPLAY", ":99")
-                env["XDG_RUNTIME_DIR"] = "/run/user/1000"
-                env["HOME"] = os.path.expanduser("~")
-                # Ensure X authority is set so subprocesses can connect to Xvfb
-                env["XAUTHORITY"] = env.get("XAUTHORITY", os.path.expanduser("~/.Xauthority"))
-                
-                self.append(f"[*] Launching Firefox...\n", "info")
-                proc = subprocess.Popen(
-                    [firefox_path, "--new-window", url],
-                    env=env,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    start_new_session=True
-                )
-                
-                import time as time_mod
-                time_mod.sleep(0.5)
-                if proc.poll() is None:
-                    self.append("[OK] Firefox launched\n", "success")
-                    self.log_event("FIREFOX_LAUNCHED", f"PID={proc.pid}")
-                    return
-                else:
-                    stdout, stderr = proc.communicate(timeout=1)
-                    err_text = stderr.decode() if stderr else "unknown"
-                    self.append(f"[X] Firefox failed: {err_text[:60]}\n", "error")
-                    self.log_event("FIREFOX_ERROR", f"code={proc.returncode}")
-            except Exception as e:
-                self.append(f"[X] Firefox error: {str(e)[:60]}\n", "error")
-                self.log_event("FIREFOX_EXCEPTION", str(e)[:80])
-
-        # Fallback to GUI Agent automation
-        self._fallback_to_agent(url)
-
-    def _run_comet_planner(self, query):
-        """Call the unified inference server to get a Perplexity-style answer."""
+    def _query_inference_server(self, query):
+        """Query the local inference server for search results."""
         try:
             payload = {
                 "query": (
-                    "You are AuraOS Comet (Perplexity-style). "
-                    "Provide a concise blended answer with 3-5 bullet facts, "
-                    "a short next-action plan, and 3 suggested follow-up queries.\n"
-                    f"Question: {query}\n"),
+                    "You are AuraOS Search - a helpful AI assistant. "
+                    "Provide a clear, concise answer with:\n"
+                    "1. Direct answer to the question\n"
+                    "2. Key facts (2-3 bullet points)\n"
+                    "3. Suggested follow-up questions\n\n"
+                    f"Question: {query}\n"
+                ),
                 "images": [],
                 "parse_json": False,
             }
-            resp = requests.post(f"{INFERENCE_URL}/ask", json=payload, timeout=90)
+            
+            self.append("[*] Querying inference server...\n", "info")
+            resp = requests.post(
+                f"{INFERENCE_URL}/ask", 
+                json=payload, 
+                timeout=60
+            )
+            
             if resp.status_code == 200:
-                return resp.json().get("response", "").strip()
-            self.append(f"[!] Inference server returned {resp.status_code}\n", "warning")
+                result = resp.json()
+                answer = result.get("response", "").strip()
+                if answer:
+                    self.append("[+] Got response from model\n", "success")
+                    return answer
+                else:
+                    self.append("[!] Model returned empty response\n", "warning")
+                    return None
+            else:
+                self.append(f"[!] Inference server error: {resp.status_code}\n", "error")
+                return None
+                
+        except requests.exceptions.ConnectionError as e:
+            self.append(f"[!] Cannot reach inference server: {e}\n", "error")
+            return None
+        except requests.exceptions.Timeout:
+            self.append("[!] Inference server timeout (60s)\n", "error")
             return None
         except Exception as e:
-            self.append(f"[!] Comet planner error: {e}\n", "warning")
+            self.append(f"[!] Search error: {e}\n", "error")
             return None
-
-    def _install_firefox(self):
-        """Attempt to install Firefox via apt-get (Linux/Debian)."""
-        try:
-            subprocess.run(["sudo", "apt-get", "update", "-qq"], capture_output=True, timeout=30, check=False)
-            result = subprocess.run(["sudo", "apt-get", "install", "-y", "-qq", "firefox"], capture_output=True, timeout=120, check=False)
-            return result.returncode == 0
-        except Exception:
-            return False
-
-    def _fallback_to_agent(self, url):
-        """Fallback to GUI Agent automation."""
-        try:
-            search_request = f"open firefox and navigate to {url}"
-            response = requests.post(
-                f"{AGENT_URL}/ask",
-                json={"query": search_request},
-                timeout=120
-            )
-
-            if response.status_code == 200:
-                result = response.json()
-                executed = result.get("executed", [])
-                self.append(f"[OK] Agent executed {len(executed)} actions.\n", "success")
-            else:
-                self.append(f"[X] Agent error: {response.text[:60]}\n", "error")
-        except requests.exceptions.ConnectionError:
-            self.append("[X] GUI Agent unreachable; try manually: " + url + "\n", "error")
-        except requests.exceptions.Timeout:
-            self.append("[X] Agent timeout\n", "error")
 
     def open_firefox(self, url=None):
         """Open Firefox browser - with snap confinement workaround"""
