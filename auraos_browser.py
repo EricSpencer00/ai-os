@@ -421,124 +421,82 @@ class AuraOSBrowser:
             return None
 
     def open_firefox(self, url=None):
-        """Open Firefox browser - with snap confinement workaround"""
+        """Open Firefox browser - launch directly, UI is running in VM"""
         try:
             self.update_status("Opening Browser...", "#ff7f50")
+            self.append(f"[*] Launching Firefox...\n", "info")
             
-            # Set proper environment
+            # Set proper environment for X11 display
             env = os.environ.copy()
             env["DISPLAY"] = env.get("DISPLAY", ":99")
             env["HOME"] = os.path.expanduser("~")
-            # Ensure X authority is present so the browser can attach to Xvfb
             env["XAUTHORITY"] = env.get("XAUTHORITY", os.path.expanduser("~/.Xauthority"))
             
-            # Try Chromium first (more reliable on ARM), then Firefox
-            browsers = [
-                ("Chromium", "chromium-wrapped", ["chromium-wrapped"]),
-                ("Chromium", "chromium-browser", ["chromium-browser", "--no-sandbox", "--disable-gpu"]),
-                ("Firefox", "firefox-wrapped", ["firefox-wrapped"]),
-                ("Firefox", "firefox", ["firefox", "--new-window", "--no-sandbox"])
-            ]
             log_path = "/tmp/auraos_browser_launch.log"
-            for browser_name, browser_cmd, browser_args in browsers:
-                # Prefer checking the actual executable name (first arg), fall back to the wrapper name
-                exe = browser_args[0] if browser_args else browser_cmd
-                if shutil.which(exe) or shutil.which(browser_cmd):
+            
+            # Browser commands to try (in order of preference)
+            browsers = [
+                ("Firefox", ["firefox", "--new-window"]),
+                ("Chromium", ["chromium-browser", "--no-sandbox", "--disable-gpu"]),
+            ]
+            
+            for browser_name, browser_args in browsers:
+                try:
+                    cmd = browser_args.copy()
+                    if url:
+                        cmd.append(url)
+                    
+                    self.append(f"[*] Attempting {browser_name}...\n", "info")
+                    
+                    # Log the attempt
                     try:
-                        self.append(f"[*] Attempting {browser_name} launch ({exe})...\n", "info")
-                        cmd = browser_args.copy()
-                        if url:
-                            cmd.append(url)
-
-                        # Log the attempted command and environment vars helpful for X11
-                        try:
-                            with open(log_path, "a") as lf:
-                                ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                                lf.write(f"[{ts}] LAUNCH ATTEMPT: {cmd} ENV_DISPLAY={env.get('DISPLAY')} XAUTHORITY={env.get('XAUTHORITY')}\n")
-                        except Exception:
-                            pass
-
-                        # Try local launch, capturing stdout/stderr to log file
-                        lf = open(log_path, "a")
-                        p = subprocess.Popen(
-                            cmd,
-                            env=env,
-                            stdout=lf,
-                            stderr=lf,
-                            start_new_session=True
-                        )
-
-                        # Give it a moment to start and check if it's still running
-                        time.sleep(2)
-                        poll = p.poll()
-                        if poll is None or poll == 0:
-                            self.append(f"[OK] {browser_name} launched (pid={p.pid})\n", "success")
-                            self.update_status("Ready", "#6db783")
-                            self.log_event("BROWSER_OPENED", f"{browser_name} pid={p.pid}")
-                            try:
-                                lf.close()
-                            except:
-                                pass
-                            return
-                        else:
-                            # Process exited quickly - capture exit code
-                            self.append(f"[!] {browser_name} exited early (code={poll}). Trying VM fallback...\n", "warning")
-                            self.log_event(f"{browser_name.upper()}_EARLY_EXIT", str(poll))
-                            try:
-                                lf.close()
-                            except:
-                                pass
-
-                    except Exception as e:
-                        error_msg = str(e)
-                        self.append(f"[!] {browser_name} launch failed: {error_msg[:200]}\n", "warning")
-                        self.log_event(f"{browser_name.upper()}_FAILED", error_msg)
-
-                    # Fallback: try launching inside the Multipass VM as the auraos user
-                    try:
-                        fallback_cmd = " ".join([shutil.which(exe) or exe] + ([url] if url else []))
-                        vm_cmd = [
-                            "multipass", "exec", "auraos-multipass", "--",
-                            "bash", "-lc",
-                            f"sudo -u auraos DISPLAY=\":99\" XAUTHORITY=/home/auraos/.Xauthority {fallback_cmd} &>/tmp/auraos_browser_vm_launch.log &"
-                        ]
-                        self.append(f"[*] Attempting VM fallback launch for {browser_name}...\n", "info")
-                        self.log_event("BROWSER_VM_FALLBACK", browser_name)
-                        vm_result = subprocess.run(vm_cmd, capture_output=True, text=True, timeout=60)
-                        with open(log_path, "a") as lf2:
+                        with open(log_path, "a") as lf:
                             ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                            lf2.write(f"[{ts}] VM FALLBACK CMD: {' '.join(vm_cmd)}\n")
-                            lf2.write(f"STDOUT:\n{vm_result.stdout}\nSTDERR:\n{vm_result.stderr}\n")
-
-                        # Wait a moment and report success if no obvious error
-                        time.sleep(2)
-                        self.append(f"[OK] VM fallback attempted; see /tmp/auraos_browser_vm_launch.log and {log_path}\n", "success")
+                            lf.write(f"[{ts}] LAUNCH: {' '.join(cmd)} DISPLAY={env.get('DISPLAY')}\n")
+                    except Exception:
+                        pass
+                    
+                    # Launch the browser directly
+                    p = subprocess.Popen(
+                        cmd,
+                        env=env,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        start_new_session=True
+                    )
+                    
+                    # Wait a moment to see if it starts successfully
+                    time.sleep(2)
+                    poll_result = p.poll()
+                    
+                    if poll_result is None:
+                        # Process is still running - success!
+                        self.append(f"[OK] {browser_name} launched (pid={p.pid})\n", "success")
                         self.update_status("Ready", "#6db783")
+                        self.log_event("BROWSER_OPENED", f"{browser_name} pid={p.pid}")
                         return
-                    except Exception as e:
-                        self.append(f"[!] VM fallback failed: {e}\n", "warning")
-                        self.log_event("BROWSER_VM_FALLBACK_FAILED", str(e))
+                    elif poll_result == 0:
+                        # Process exited cleanly (likely backgrounded successfully)
+                        self.append(f"[OK] {browser_name} launched and backgrounded\n", "success")
+                        self.update_status("Ready", "#6db783")
+                        self.log_event("BROWSER_OPENED", browser_name)
+                        return
+                    else:
+                        # Process exited with error, try next browser
+                        stdout, stderr = p.communicate()
+                        error_msg = stderr.decode('utf-8', errors='ignore') if stderr else ""
+                        self.append(f"[!] {browser_name} failed (code {poll_result}): {error_msg[:100]}\n", "warning")
+                        self.log_event(f"{browser_name.upper()}_EXIT_ERROR", f"code={poll_result}")
+                        
+                except Exception as e:
+                    self.append(f"[!] {browser_name} launch error: {str(e)[:100]}\n", "warning")
+                    self.log_event(f"{browser_name.upper()}_EXCEPTION", str(e))
             
-            # Fallback: Show user instructions
-            self.append("\n", "info")
-            self.append("=" * 50 + "\n", "info")
-            self.append("No web browser could be launched automatically.\n", "warning")
-            self.append("Chromium and Firefox are installed but may have\n", "warning")
-            self.append("environment issues in this VM.\n", "warning")
-            self.append("\n", "info")
-            self.append("You can:\n", "info")
-            self.append("1. Open Chromium from Terminal app\n", "info")
-            self.append("   Command: chromium-browser --no-sandbox\n", "info")
-            self.append("\n", "info")
-            self.append("2. Or use Firefox from Terminal\n", "info")
-            self.append("   Command: firefox\n", "info")
-            self.append("\n", "info")
-            self.append("3. Access web via noVNC at:\n", "info")
-            self.append("   http://192.168.2.50:6080\n", "info")
-            self.append("=" * 50 + "\n", "info")
-            
-            self.update_status("Ready", "#6db783")
-            self.log_event("FIREFOX_INFO", "Displayed workaround instructions")
+            # All browsers failed
+            self.append("\n[X] Unable to launch any browser.\n", "error")
+            self.append("You can try from Terminal: firefox\n", "info")
+            self.update_status("Browser launch failed", "#f48771")
+            self.log_event("BROWSER_ALL_FAILED", "All browsers failed to launch")
         
         except Exception as e:
             self.append(f"[X] Error: {str(e)}\n", "error")
