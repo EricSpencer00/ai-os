@@ -245,6 +245,12 @@ class AuraOSTerminal:
             except:
                 pass
         self.root.destroy()
+    
+    def _request_password(self):
+        """Show a simple password input dialog for sudo commands"""
+        import tkinter.simpledialog as simpledialog
+        password = simpledialog.askstring("Password Required", "Enter password:", show='*')
+        return password
         
     def setup_ui(self):
         # Title Bar
@@ -583,18 +589,37 @@ REMEMBER: Output ONLY the command(s). Nothing else."""
 
     def _analyze_command_result(self, command, stdout, stderr, exit_code, cwd=""):
         """Analyze if a command succeeded or failed, provide recovery hints for common errors."""
+        # Check for sudo password prompt in output
+        combined_output = stdout + stderr
+        if "[sudo]" in combined_output or "password" in combined_output.lower() or "Password:" in combined_output:
+            return {
+                "success": False,
+                "reason": "password_required",
+                "issue": "Command requires password input",
+                "hint": "User needs to enter password"
+            }
+        
         if exit_code == 0:
             return {"success": True, "reason": "exit code 0", "issue": "", "hint": ""}
         
         if exit_code != 0 and not stderr and stdout:
             return {"success": True, "reason": "exit code non-zero but has output", "issue": "", "hint": ""}
         
+        # Check for common permission denied patterns
+        if "permission denied" in stderr.lower() or "permission denied" in stdout.lower():
+            return {
+                "success": False,
+                "reason": "permission_denied",
+                "issue": stderr[:200] if stderr else stdout[:200],
+                "hint": "Permission denied. Try with 'sudo' or check file permissions with 'ls -l'"
+            }
+        
         # Provide specific hints for common failures
         hint = ""
         if exit_code == 127:
             hint = "Command not found. Try: use python3 instead of python, pip3 instead of pip, nodejs instead of node."
         elif exit_code == 126:
-            hint = "Permission denied. Consider adding 'chmod +x' first."
+            hint = "Permission denied. Consider adding 'chmod +x' first or use sudo."
         elif exit_code == 1:
             hint = "General failure. Check the error message above for details."
         elif exit_code == 2:
@@ -842,6 +867,39 @@ Output ONLY a new bash command to fix this. NOTHING ELSE."""
                     failure_reason = analysis.get("reason", "Unknown error")
                     failure_issue = analysis.get("issue", stderr or "No error details")
                     failure_hint = analysis.get("hint", "")
+                    
+                    # Special handling for password prompts
+                    if failure_reason == "password_required":
+                        self.append_text(f"\n🔐 Password required:\n", "info")
+                        self.append_text(f"Command: {command}\n\n", "command")
+                        
+                        # Show password input field
+                        password = self._request_password()
+                        if password:
+                            # Re-run with password via sudo -S (read from stdin)
+                            self.append_text(f"[*] Retrying with password...\n", "info")
+                            try:
+                                # Use echo to pipe password to sudo
+                                full_cmd = f"echo '{password}' | sudo -S {command.replace('sudo ', '')}"
+                                exit_code, stdout, stderr, cwd = self._run_in_shell(full_cmd, timeout=30)
+                                
+                                if stdout:
+                                    clean = self._clean_shell_output(stdout)
+                                    if clean:
+                                        self.append_text(f"{clean}\n", "info")
+                                
+                                if exit_code == 0:
+                                    self.append_text(f"[OK] Command succeeded\n", "success")
+                                    self.status_label.config(text="Ready", fg='#6db783')
+                                    self.is_processing = False
+                                    self.retry_count = 0
+                                    return
+                            except Exception as e:
+                                self.append_text(f"[!] Password execution failed: {e}\n", "error")
+                        else:
+                            self.append_text(f"[!] Password entry cancelled\n", "error")
+                        
+                        # Fall through to retry logic
                     
                     if AUTO_RETRY_ERRORS and self.retry_count < self.max_retries - 1:
                         self.retry_count += 1
