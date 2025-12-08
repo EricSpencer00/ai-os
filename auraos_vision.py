@@ -361,6 +361,28 @@ class AuraOSVision:
                 screenshot.save(buffer, format='PNG')
                 img_data = base64.b64encode(buffer.getvalue()).decode()
                 
+                # Improved automation prompt with full desktop context
+                prompt = f'''You are an AI assistant controlling a desktop computer screen. Your task is to help the user accomplish:
+
+TASK: "{task}"
+
+IMPORTANT INSTRUCTIONS:
+1. You are looking at the ENTIRE desktop screen with multiple windows/applications
+2. Do NOT interact with the "AuraOS Vision" application window itself (that's just the control panel)
+3. Focus on completing the task in OTHER applications on the desktop (Terminal, Browser, Files, etc.)
+4. When you see text input fields or UI elements in other apps, that's where you should click and type
+5. Return exactly ONE of these JSON actions:
+   {{"action":"click","x":500,"y":300,"why":"clicking the Firefox icon to open browser"}}
+   {{"action":"type","text":"hello","why":"typing text into the currently focused field"}}
+   {{"action":"done","why":"task has been completed successfully"}}
+   {{"action":"wait","why":"page is loading, need to wait for content"}}
+
+RESPOND ONLY WITH JSON, nothing else. Example valid responses:
+{{"action":"click","x":640,"y":360,"why":"opening Firefox to search"}}
+{{"action":"type","text":"search query","why":"entering search text"}}
+{{"action":"done","why":"search results are now displayed"}}
+'''
+                
                 # Send to inference server with full screen context and improved prompt
                 response = requests.post(
                     f"{INFERENCE_URL}/ask",
