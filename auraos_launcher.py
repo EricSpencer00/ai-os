@@ -62,6 +62,8 @@ class AuraOSLauncher:
             # Fullscreen mode - completely overlay XFCE
             self.root.attributes('-fullscreen', True)
             self.root.attributes('-topmost', True)
+            # Prevent window manager from closing it
+            self.root.resizable(False, False)
             # Bind Escape to toggle fullscreen (but don't close)
             self.root.bind('<Escape>', self.toggle_fullscreen)
             self.root.bind('<F11>', self.toggle_fullscreen)

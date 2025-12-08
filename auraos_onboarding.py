@@ -11,6 +11,7 @@ import sys
 import os
 import subprocess
 import random
+import importlib.util
 
 # Check file to track first-run vs subsequent boots
 FIRST_RUN_FLAG = os.path.expanduser("~/.auraos_first_run_complete")
@@ -233,20 +234,26 @@ class AuraOSOnboarding:
             if launcher_path:
                 env = os.environ.copy()
                 env['DISPLAY'] = env.get('DISPLAY', ':99')
-                subprocess.Popen(
-                    [sys.executable, launcher_path, '--fullscreen'],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    env=env,
-                    start_new_session=True
-                )
+                # Launch launcher directly in this process (don't spawn subprocess)
+                # This ensures the launcher runs as the main application and doesn't exit
+                self.root.destroy()
+                
+                # Import and run launcher directly
+                sys.path.insert(0, os.path.dirname(launcher_path))
+                import importlib.util
+                spec = importlib.util.spec_from_file_location("auraos_launcher", launcher_path)
+                launcher_module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(launcher_module)
+                
+                # Run launcher's main with fullscreen flag
+                sys.argv = ['auraos_launcher.py', '--fullscreen']
+                launcher_module.main()
             else:
                 print("Warning: Could not find auraos_launcher.py")
+                self.root.destroy()
         except Exception as e:
             print(f"Failed to launch AuraOS Home: {e}")
-        
-        # Close onboarding
-        self.root.destroy()
+            self.root.destroy()
 
 def main():
     # Ensure DISPLAY is set
