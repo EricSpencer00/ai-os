@@ -18,6 +18,7 @@ import io
 import re
 import logging
 from pathlib import Path
+from PIL import ImageChops, ImageDraw
 
 # Optional imports with detailed fallback
 try:
@@ -669,6 +670,67 @@ RESPOND ONLY WITH JSON, nothing else. Example valid responses:
             err_msg = f"[Error] Type failed: {e}"
             self.append_text(f"{err_msg}\n", "error")
             logger.error(err_msg)
+
+    def _verify_click_coordinates(self, x, y, save_prefix='/tmp/vision_click'):
+        """Debug helper: capture before/after screenshots around a click and compute diff.
+
+        Saves: {save_prefix}_before.png, {save_prefix}_after.png, {save_prefix}_debug.png
+        Returns a dict with bbox and offset information.
+        """
+        try:
+            if not HAS_PYAUTOGUI or not HAS_PIL:
+                return {"ok": False, "reason": "missing_dependencies"}
+
+            # Ensure we have a recent screenshot size
+            before = pyautogui.screenshot()
+            before.save(f"{save_prefix}_before.png")
+
+            # Perform a single click using our normal routine but without retries to exercise exact behaviour
+            try:
+                pyautogui.moveTo(x, y, duration=0.05)
+                pyautogui.click(x, y)
+            except Exception as e:
+                logger.warning("_verify_click_coordinates: pyautogui click error: %s", e)
+
+            time.sleep(0.35)
+
+            after = pyautogui.screenshot()
+            after.save(f"{save_prefix}_after.png")
+
+            # Compute difference bbox
+            diff = ImageChops.difference(before, after).convert('L')
+            bbox = diff.getbbox()  # (left, upper, right, lower)
+
+            debug_img = after.copy()
+            draw = ImageDraw.Draw(debug_img)
+
+            # Draw expected coordinate crosshair
+            cross_color = (0, 255, 0)
+            draw.line((x-10, y, x+10, y), fill=cross_color)
+            draw.line((x, y-10, x, y+10), fill=cross_color)
+
+            details = {"ok": True, "requested": (x, y), "bbox": bbox}
+
+            if bbox:
+                cx = (bbox[0] + bbox[2]) // 2
+                cy = (bbox[1] + bbox[3]) // 2
+                dx = cx - x
+                dy = cy - y
+                details.update({"center": (cx, cy), "offset": (dx, dy)})
+                # Draw bbox in red
+                draw.rectangle(bbox, outline=(255, 0, 0), width=2)
+                draw.ellipse((cx-5, cy-5, cx+5, cy+5), outline=(255,0,0), width=2)
+            else:
+                details.update({"center": None, "offset": None})
+
+            debug_img.save(f"{save_prefix}_debug.png")
+
+            logger.info("Click verify details: %s", details)
+            return details
+
+        except Exception as e:
+            logger.exception("_verify_click_coordinates failed: %s", e)
+            return {"ok": False, "reason": str(e)}
 
 if __name__ == "__main__":
     try:
