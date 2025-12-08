@@ -27,6 +27,8 @@ def get_agent_url():
     return "http://localhost:8765"
 
 AGENT_URL = get_agent_url()
+DEFAULT_INFERENCE_URL = "http://192.168.2.1:8081" if os.path.exists("/opt/auraos") else "http://localhost:8081"
+INFERENCE_URL = os.environ.get("AURAOS_INFERENCE_URL", DEFAULT_INFERENCE_URL)
 
 
 class AuraOSBrowser:
@@ -307,7 +309,7 @@ class AuraOSBrowser:
         self.output_area.config(state='disabled')
         
         self.append("AuraOS Browser\n", "system")
-        self.append("Perplexity Comet-Inspired AI Search\n\n", "system")
+        self.append("Comet / Perplexity-Style AI Search\n\n", "system")
         self.append("Search for anything:\n", "info")
         self.append("  • python tutorials\n", "output")
         self.append("  • how to set up a docker container\n", "output")
@@ -344,76 +346,97 @@ class AuraOSBrowser:
         threading.Thread(target=self._perform_search, args=(query,), daemon=True).start()
     
     def _perform_search(self, query):
-        """Perform actual search - opens Firefox with search URL directly"""
+        """Perplexity/Comet wrapper: summarize + launch Firefox to live results."""
         try:
             self.is_processing = True
-            self.update_status("Searching...", "#00ff88")
-            
-            # Build search URL (use DuckDuckGo for privacy)
+            self.update_status("Comet search...", "#00ff88")
             import urllib.parse
-            search_url = f"https://duckduckgo.com/?q={urllib.parse.quote(query)}"
-            
-            self.append(f"[*] Searching for: {query}\n", "info")
-            self.append(f"[*] Opening: {search_url}\n", "info")
-            
-            # Try direct Firefox launch first
-            if shutil.which("firefox"):
-                try:
-                    env = os.environ.copy()
-                    env["DISPLAY"] = env.get("DISPLAY", ":99")
-                    
-                    subprocess.Popen(
-                        ["firefox", search_url],
-                        env=env,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        start_new_session=True
-                    )
-                    self.append("[OK] Search opened in Firefox\n", "success")
-                    self.log_event("SEARCH_SUCCESS", f"Direct: {query[:60]}")
-                    self.is_processing = False
-                    self.update_status("Ready", "#6db783")
-                    return
-                except Exception as e:
-                    self.append(f"[!] Direct launch failed: {e}\n", "warning")
-            
-            # Fallback to GUI Agent
-            self.append("[*] Trying via GUI Agent...\n", "info")
-            try:
-                search_request = f"open firefox and navigate to {search_url}"
-                response = requests.post(
-                    f"{AGENT_URL}/ask",
-                    json={"query": search_request},
-                    timeout=180
-                )
-                
-                if response.status_code == 200:
-                    result = response.json()
-                    executed = result.get("executed", [])
-                    self.append(f"[OK] Agent executed {len(executed)} actions.\n", "success")
-                    for action in executed:
-                        act = action.get("action", {})
-                        self.append(f"  - {act}\n", "output")
-                    self.log_event("SEARCH_SUCCESS", f"Agent search: {query[:60]}")
-                else:
-                    self.append(f"[X] Agent Error: {response.text}\n", "error")
-                    self.log_event("SEARCH_ERROR", response.text)
-                    
-            except requests.exceptions.ConnectionError:
-                self.append("[X] Cannot reach GUI Agent\n", "error")
-                self.append(f"\n  Fallback: Open Firefox manually and go to:\n", "info")
-                self.append(f"  {search_url}\n\n", "info")
-                self.log_event("SEARCH_EXCEPTION", "Connection refused")
-            except requests.exceptions.Timeout:
-                self.append("[X] Request timed out\n", "error")
-                self.log_event("SEARCH_EXCEPTION", "Timeout")
-                
+            perp_url = f"https://www.perplexity.ai/search?q={urllib.parse.quote(query)}&src=auraos"
+
+            self.append(f"[*] Comet plan for: {query}\n", "info")
+
+            # Run a fast local summary to mimic Comet cards
+            summary = self._run_comet_planner(query)
+            if summary:
+                self.append(summary + "\n\n", "ai")
+            else:
+                self.append("[!] Comet summarizer unavailable, opening Perplexity directly.\n\n", "warning")
+
+            # Always open Firefox to the Perplexity page
+            self._open_perplexity(perp_url)
+            self.log_event("SEARCH_SUCCESS", f"Perplexity: {query[:60]}")
+
         except Exception as e:
             self.append(f"[X] Unexpected error: {e}\n", "error")
             self.log_event("SEARCH_EXCEPTION", str(e))
             
         self.is_processing = False
         self.update_status("Ready", "#6db783")
+
+    def _open_perplexity(self, url):
+        """Open Perplexity/Comet page in Firefox with fallbacks."""
+        self.append(f"[*] Opening Perplexity: {url}\n", "info")
+
+        # Try direct Firefox launch first
+        if shutil.which("firefox"):
+            try:
+                env = os.environ.copy()
+                env["DISPLAY"] = env.get("DISPLAY", ":99")
+                env["XDG_RUNTIME_DIR"] = "/run/user/1000"
+                env["HOME"] = os.path.expanduser("~")
+                subprocess.Popen(
+                    ["firefox", "--new-window", url],
+                    env=env,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True
+                )
+                self.append("[OK] Perplexity opened in Firefox\n", "success")
+                return
+            except Exception as e:
+                self.append(f"[!] Firefox launch failed: {e}\n", "warning")
+
+        # Fallback to GUI Agent automation
+        try:
+            search_request = f"open firefox and navigate to {url}"
+            response = requests.post(
+                f"{AGENT_URL}/ask",
+                json={"query": search_request},
+                timeout=120
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                executed = result.get("executed", [])
+                self.append(f"[OK] Agent executed {len(executed)} actions.\n", "success")
+            else:
+                self.append(f"[X] Agent Error: {response.text}\n", "error")
+        except requests.exceptions.ConnectionError:
+            self.append("[X] GUI Agent not reachable\n", "error")
+            self.append(f"  Manual fallback URL: {url}\n", "info")
+        except requests.exceptions.Timeout:
+            self.append("[X] Agent timed out\n", "error")
+
+    def _run_comet_planner(self, query):
+        """Call the unified inference server to get a Perplexity-style answer."""
+        try:
+            payload = {
+                "query": (
+                    "You are AuraOS Comet (Perplexity-style). "
+                    "Provide a concise blended answer with 3-5 bullet facts, "
+                    "a short next-action plan, and 3 suggested follow-up queries.\n"
+                    f"Question: {query}\n"),
+                "images": [],
+                "parse_json": False,
+            }
+            resp = requests.post(f"{INFERENCE_URL}/ask", json=payload, timeout=90)
+            if resp.status_code == 200:
+                return resp.json().get("response", "").strip()
+            self.append(f"[!] Inference server returned {resp.status_code}\n", "warning")
+            return None
+        except Exception as e:
+            self.append(f"[!] Comet planner error: {e}\n", "warning")
+            return None
 
     def open_firefox(self, url=None):
         """Open Firefox browser - direct launch with proper environment"""

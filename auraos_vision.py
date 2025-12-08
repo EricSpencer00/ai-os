@@ -52,6 +52,8 @@ def get_inference_url():
     return "http://localhost:8081"
 
 INFERENCE_URL = get_inference_url()
+DEFAULT_OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+LLAVA_MODEL = os.environ.get("AURAOS_LLAVA_MODEL", "llava:13b")
 
 class AuraOSVision:
     def __init__(self, root):
@@ -66,6 +68,7 @@ class AuraOSVision:
         self.screenshot_size = None
         self.automation_running = False
         self.last_action_type = None  # Track action type for adaptive cooldown
+        self.recent_actions = []  # keep short context window for llava planning
         
         # Set DISPLAY for VM
         if "DISPLAY" not in os.environ:
@@ -83,147 +86,110 @@ class AuraOSVision:
         title = tk.Label(
             title_frame, text="AuraOS Vision",
             font=('Arial', 14, 'bold'), fg='#00ff88', bg='#0a0e27'
-        )
-        title.pack(side='left')
-        
-        self.status_label = tk.Label(
-            title_frame, text="Ready",
-            font=('Arial', 10), fg='#6db783', bg='#0a0e27'
-        )
-        self.status_label.pack(side='right')
-        
-        # Quick action buttons (compact row)
-        btn_frame = tk.Frame(self.root, bg='#0a0e27')
-        btn_frame.pack(fill='x', padx=10, pady=5)
-        
-        # Screenshot button - with emoji icon
-        self.screenshot_btn = tk.Button(
-            btn_frame, text="📷 Capture",
-            command=self.take_screenshot,
-            bg='#00d4ff', fg='#0a0e27', font=('Arial', 10, 'bold'),
-            relief='flat', cursor='hand2', padx=8, pady=5
-        )
-        self.screenshot_btn.pack(side='left', padx=(0, 5))
-        
-        # Analyze button
-        self.analyze_btn = tk.Button(
-            btn_frame, text="🤖 Analyze",
-            command=self.analyze,
-            bg='#00ff88', fg='#0a0e27', font=('Arial', 10, 'bold'),
-            relief='flat', cursor='hand2', padx=8, pady=5
-        )
-        self.analyze_btn.pack(side='left', padx=(0, 5))
-        
-        # Clear button
-        self.clear_btn = tk.Button(
-            btn_frame, text="✖️",
-            command=self.clear_output,
-            bg='#2d3547', fg='#ffffff', font=('Arial', 10, 'bold'),
-            relief='flat', cursor='hand2', padx=8, pady=5
-        )
-        self.clear_btn.pack(side='left')
-        
-        # Output area
-        output_frame = tk.Frame(self.root, bg='#0a0e27')
-        output_frame.pack(fill='both', expand=True, padx=10, pady=5)
-        
-        self.output_area = scrolledtext.ScrolledText(
-            output_frame, wrap=tk.WORD, bg='#1a1f3c', fg='#d4d4d4',
-            font=('Consolas', 10), relief='flat', height=12
-        )
-        self.output_area.pack(fill='both', expand=True)
-        self.output_area.config(state='disabled')
-        
-        # Tags
-        self.output_area.tag_config('info', foreground='#9cdcfe')
-        self.output_area.tag_config('success', foreground='#6db783')
-        self.output_area.tag_config('error', foreground='#f48771')
-        self.output_area.tag_config('ai', foreground='#00d4ff')
-        self.output_area.tag_config('action', foreground='#ffaa00')
-        
-        # Welcome
-        self.append_text("👁️ Ready - Capture then Analyze\n", "info")
-        
-        # Separator
-        sep = tk.Frame(self.root, bg='#2d3547', height=2)
-        sep.pack(fill='x', padx=10, pady=5)
-        
-        # Cluely Automation Section
-        auto_label = tk.Label(
-            self.root, text="Cluely Automation",
-            font=('Arial', 12, 'bold'), fg='#ff7f50', bg='#0a0e27'
-        )
-        auto_label.pack(anchor='w', padx=10)
-        
-        # Task input
-        task_frame = tk.Frame(self.root, bg='#0a0e27')
-        task_frame.pack(fill='x', padx=10, pady=5)
-        
-        self.task_entry = tk.Entry(
-            task_frame, font=('Arial', 10), bg='#1a1f3c', fg='#ffffff',
-            insertbackground='#00ff88', relief='flat'
-        )
-        self.task_entry.pack(fill='x', ipady=5)
-        self.task_entry.insert(0, "Describe task for AI...")
-        self.task_entry.bind('<FocusIn>', self._clear_placeholder)
-        
-        # Automation buttons
-        auto_btn_frame = tk.Frame(self.root, bg='#0a0e27')
-        auto_btn_frame.pack(fill='x', padx=10, pady=5)
-        
-        self.start_auto_btn = tk.Button(
-            auto_btn_frame, text="[>] Start",
-            command=self.start_automation,
-            bg='#ff7f50', fg='#ffffff', font=('Arial', 10, 'bold'),
-            relief='flat', cursor='hand2', padx=8, pady=5
-        )
-        self.start_auto_btn.pack(side='left', padx=(0, 5))
-        
-        self.stop_auto_btn = tk.Button(
-            auto_btn_frame, text="[||] Stop",
-            command=self.stop_automation,
-            bg='#ff4444', fg='#ffffff', font=('Arial', 10, 'bold'),
-            relief='flat', cursor='hand2', padx=8, pady=5, state='disabled'
-        )
-        self.stop_auto_btn.pack(side='left')
-        
-        # Status bar
-        self.auto_status = tk.Label(
-            self.root, text="Automation: Idle",
-            font=('Arial', 9), fg='#888888', bg='#0a0e27'
-        )
-        self.auto_status.pack(side='bottom', pady=5)
-    
-    def _clear_placeholder(self, event):
-        if self.task_entry.get() == "Describe task for AI...":
-            self.task_entry.delete(0, 'end')
-        
-    def append_text(self, text, tag='info'):
-        """Append text to output area"""
-        self.output_area.config(state='normal')
-        self.output_area.insert(tk.END, text, tag)
-        self.output_area.see(tk.END)
-        self.output_area.config(state='disabled')
-        self.root.update_idletasks()
-        
-    def clear_output(self):
-        """Clear output area"""
-        self.output_area.config(state='normal')
-        self.output_area.delete(1.0, tk.END)
-        self.output_area.config(state='disabled')
-        self.append_text("[Cleared]\n", "info")
-        
-    def take_screenshot(self):
-        """Take a screenshot"""
-        if self.is_processing:
-            return
-        
-        if not HAS_PIL:
-            self.append_text("[Error] PIL not installed\n", "error")
-            return
-            
-        self.is_processing = True
-        self.status_label.config(text="Capturing...", fg='#ffaa00')
+                """Continuous automation loop using LLaVA 13B via Ollama."""
+                step = 0
+                consecutive_errors = 0
+                max_consecutive_errors = 5
+
+                logger.info("Starting automation loop for task: %s", task)
+
+                while self.automation_running:
+                    step += 1
+                    self.auto_status.config(text=f"Automation: Running (step {step})", fg='#00ff88')
+                    self.append_text(f"\n[Step {step}]\n", "action")
+
+                    try:
+                        if not HAS_PIL:
+                            raise RuntimeError("PIL required for screenshots")
+
+                        screenshot = ImageGrab.grab()
+                        self.screenshot_size = screenshot.size
+                        buffer = io.BytesIO()
+                        screenshot.save(buffer, format='PNG')
+                        img_data = base64.b64encode(buffer.getvalue()).decode()
+                        logger.debug("Screenshot captured: %dx%d", screenshot.size[0], screenshot.size[1])
+
+                        plan = self._plan_action_with_llava(task, img_data)
+                        if not plan:
+                            self.append_text("[Wait] No action returned, retrying...\n", "warning")
+                            consecutive_errors += 1
+                            time.sleep(2)
+                            continue
+
+                        action = plan.get('action', 'wait')
+                        why = plan.get('why', '')
+                        self._record_action_context(action, why)
+                        self.append_text(f"[AI] {why}\n", "ai")
+                        logger.info("Action determined: %s - %s", action, why)
+                        consecutive_errors = 0
+
+                        if action == 'done':
+                            self.append_text("[Auto] Task Complete!\n", "success")
+                            logger.info("Automation completed successfully at step %d", step)
+                            break
+                        if action == 'fail':
+                            self.append_text("[Auto] Marked as failed - stopping.\n", "error")
+                            logger.error("Automation failed: %s", why)
+                            break
+
+                        if action == 'click':
+                            x, y = int(plan.get('x', 0)), int(plan.get('y', 0))
+                            if self._validate_coordinates(x, y):
+                                self.append_text(f"[Click] ({x},{y})\n", "action")
+                                self._do_click(x, y)
+                                self.last_action_type = 'click'
+                            else:
+                                self.append_text(f"[Skip] Click out of bounds: ({x},{y})\n", "error")
+                                logger.warning("Click coordinates invalid: (%d,%d)", x, y)
+                        elif action == 'type':
+                            text = plan.get('text', '')
+                            self.append_text(f"[Type] {text[:40]}\n", "action")
+                            self._do_type(text)
+                            self.last_action_type = 'type'
+                        elif action == 'key':
+                            key = plan.get('key', '')
+                            self.append_text(f"[Key] {key}\n", "action")
+                            self._do_key(key)
+                            self.last_action_type = 'key'
+                        elif action == 'scroll':
+                            amount = int(plan.get('amount', 0))
+                            self.append_text(f"[Scroll] {amount}\n", "action")
+                            self._do_scroll(amount)
+                            self.last_action_type = 'scroll'
+                        else:
+                            self.append_text("[Wait] Cooling down...\n", "info")
+                            self.last_action_type = 'wait'
+
+                        cooldown = self._get_adaptive_cooldown(action)
+                        time.sleep(cooldown)
+
+                    except requests.exceptions.Timeout:
+                        err_msg = "[Error] LLaVA request timeout"
+                        self.append_text(f"{err_msg}\n", "error")
+                        logger.error(err_msg)
+                        consecutive_errors += 1
+                        time.sleep(3)
+                    except requests.exceptions.ConnectionError as e:
+                        err_msg = f"[Error] Cannot reach Ollama: {e}"
+                        self.append_text(f"{err_msg}\n", "error")
+                        logger.error(err_msg)
+                        consecutive_errors += 1
+                        time.sleep(3)
+                    except Exception as e:
+                        err_msg = f"[Error] {str(e)[:80]}"
+                        self.append_text(f"{err_msg}\n", "error")
+                        logger.exception("Automation loop exception")
+                        consecutive_errors += 1
+                        time.sleep(2)
+
+                    if consecutive_errors >= max_consecutive_errors:
+                        self.append_text(f"[Error] Too many errors ({consecutive_errors}) - stopping\n", "error")
+                        logger.error("Stopping automation due to %d consecutive errors", consecutive_errors)
+                        break
+
+                self.automation_running = False
+                logger.info("Automation loop completed at step %d", step)
+                self.root.after(0, self._reset_auto_ui)
         self.append_text("[+] Capturing...\n", "info")
         
         threading.Thread(target=self._take_screenshot, daemon=True).start()
@@ -331,144 +297,107 @@ class AuraOSVision:
         threading.Thread(target=self._automation_loop, args=(task,), daemon=True).start()
     
     def _automation_loop(self, task):
-        """Automation loop with resilience features"""
+        """Continuous automation loop using LLaVA 13B via Ollama."""
         step = 0
-        max_steps = 15
         consecutive_errors = 0
-        max_consecutive_errors = 3
-        
+        max_consecutive_errors = 5
+
         logger.info("Starting automation loop for task: %s", task)
-        
-        while self.automation_running and step < max_steps:
+
+        while self.automation_running:
             step += 1
-            self.append_text(f"\n[Step {step}/{max_steps}]\n", "action")
-            
+            self.auto_status.config(text=f"Automation: Running (step {step})", fg='#00ff88')
+            self.append_text(f"\n[Step {step}]\n", "action")
+
             try:
-                # Capture screen
                 if not HAS_PIL:
-                    self.append_text("[Error] PIL required\n", "error")
-                    logger.error("PIL not available")
-                    break
-                
+                    raise RuntimeError("PIL required for screenshots")
+
                 screenshot = ImageGrab.grab()
                 self.screenshot_size = screenshot.size
                 buffer = io.BytesIO()
                 screenshot.save(buffer, format='PNG')
                 img_data = base64.b64encode(buffer.getvalue()).decode()
                 logger.debug("Screenshot captured: %dx%d", screenshot.size[0], screenshot.size[1])
-                
-                # Ask AI what to do
-                prompt = f'''Task: "{task}"
-Look at this screen and determine ONE action to take.
-Reply ONLY with JSON like:
-{{"action":"click","x":500,"y":300,"why":"clicking button"}}
-{{"action":"type","text":"hello","why":"typing text"}}
-{{"action":"done","why":"task complete"}}
-{{"action":"wait","why":"loading"}}
-'''
-                
-                response = requests.post(
-                    f"{INFERENCE_URL}/ask",
-                    json={
-                        "query": prompt,
-                        "images": [img_data],
-                        "parse_json": False
-                    },
-                    timeout=60
-                )
-                
-                if response.status_code != 200:
-                    err_msg = f"[Error] Server returned {response.status_code}"
-                    self.append_text(f"{err_msg}\n", "error")
-                    logger.error(err_msg)
+
+                plan = self._plan_action_with_llava(task, img_data)
+                if not plan:
+                    self.append_text("[Wait] No action returned, retrying...\n", "warning")
                     consecutive_errors += 1
-                    time.sleep(3)
+                    time.sleep(2)
                     continue
-                
-                ai_text = response.json().get('response', '{}')
-                logger.debug("AI response: %s", ai_text[:100])
-                
-                # Parse JSON from response with fallback
-                action_data = {"action": "wait"}
-                try:
-                    json_match = re.search(r'\{[^}]+\}', ai_text)
-                    if json_match:
-                        action_data = json.loads(json_match.group())
-                    else:
-                        logger.warning("No JSON found in response: %s", ai_text[:50])
-                except json.JSONDecodeError as e:
-                    logger.warning("JSON parse failed: %s", e)
-                    action_data = {"action": "wait", "why": "parse error"}
-                
-                action = action_data.get('action', 'wait')
-                why = action_data.get('why', '')
-                
+
+                action = plan.get('action', 'wait')
+                why = plan.get('why', '')
+                self._record_action_context(action, why)
                 self.append_text(f"[AI] {why}\n", "ai")
                 logger.info("Action determined: %s - %s", action, why)
-                
-                consecutive_errors = 0  # Reset error counter on success
-                
+                consecutive_errors = 0
+
                 if action == 'done':
                     self.append_text("[Auto] Task Complete!\n", "success")
                     logger.info("Automation completed successfully at step %d", step)
                     break
-                    
-                elif action == 'click':
-                    x, y = action_data.get('x', 0), action_data.get('y', 0)
+                if action == 'fail':
+                    self.append_text("[Auto] Marked as failed - stopping.\n", "error")
+                    logger.error("Automation failed: %s", why)
+                    break
+
+                if action == 'click':
+                    x, y = int(plan.get('x', 0)), int(plan.get('y', 0))
                     if self._validate_coordinates(x, y):
                         self.append_text(f"[Click] ({x},{y})\n", "action")
                         self._do_click(x, y)
                         self.last_action_type = 'click'
                     else:
                         self.append_text(f"[Skip] Click out of bounds: ({x},{y})\n", "error")
-                        logger.warning("Click coordinates invalid: (%d, %d)", x, y)
-                        
+                        logger.warning("Click coordinates invalid: (%d,%d)", x, y)
                 elif action == 'type':
-                    text = action_data.get('text', '')
-                    self.append_text(f"[Type] {text[:20]}...\n", "action")
+                    text = plan.get('text', '')
+                    self.append_text(f"[Type] {text[:40]}\n", "action")
                     self._do_type(text)
                     self.last_action_type = 'type'
-                    
-                else:  # wait or unknown
-                    self.append_text(f"[Wait] Pausing...\n", "info")
+                elif action == 'key':
+                    key = plan.get('key', '')
+                    self.append_text(f"[Key] {key}\n", "action")
+                    self._do_key(key)
+                    self.last_action_type = 'key'
+                elif action == 'scroll':
+                    amount = int(plan.get('amount', 0))
+                    self.append_text(f"[Scroll] {amount}\n", "action")
+                    self._do_scroll(amount)
+                    self.last_action_type = 'scroll'
+                else:
+                    self.append_text("[Wait] Cooling down...\n", "info")
                     self.last_action_type = 'wait'
-                
-                # Adaptive cooldown
+
                 cooldown = self._get_adaptive_cooldown(action)
                 time.sleep(cooldown)
-                
+
             except requests.exceptions.Timeout:
-                err_msg = "[Error] AI request timeout (60s)"
+                err_msg = "[Error] LLaVA request timeout"
                 self.append_text(f"{err_msg}\n", "error")
                 logger.error(err_msg)
                 consecutive_errors += 1
                 time.sleep(3)
-                
             except requests.exceptions.ConnectionError as e:
-                err_msg = f"[Error] Cannot reach inference server: {e}"
+                err_msg = f"[Error] Cannot reach Ollama: {e}"
                 self.append_text(f"{err_msg}\n", "error")
                 logger.error(err_msg)
                 consecutive_errors += 1
                 time.sleep(3)
-                
             except Exception as e:
-                err_msg = f"[Error] {str(e)[:50]}"
+                err_msg = f"[Error] {str(e)[:80]}"
                 self.append_text(f"{err_msg}\n", "error")
                 logger.exception("Automation loop exception")
                 consecutive_errors += 1
                 time.sleep(2)
-            
-            # Exit if too many consecutive errors
+
             if consecutive_errors >= max_consecutive_errors:
                 self.append_text(f"[Error] Too many errors ({consecutive_errors}) - stopping\n", "error")
                 logger.error("Stopping automation due to %d consecutive errors", consecutive_errors)
                 break
-        
-        # Final status
-        if step >= max_steps and self.automation_running:
-            self.append_text(f"[Auto] Reached max steps ({max_steps})\n", "action")
-            logger.info("Automation stopped: max steps reached")
-        
+
         self.automation_running = False
         logger.info("Automation loop completed at step %d", step)
         self.root.after(0, self._reset_auto_ui)
@@ -483,6 +412,69 @@ Reply ONLY with JSON like:
         self.start_auto_btn.config(state='normal')
         self.stop_auto_btn.config(state='disabled')
         self.auto_status.config(text="Automation: Idle", fg='#888888')
+
+    def _plan_action_with_llava(self, task, img_data):
+        """Call LLaVA 13B via Ollama with recent context to choose next action."""
+        context_lines = [
+            f"- {entry['action']}: {entry['why']}" for entry in self.recent_actions[-6:]
+        ]
+        context_block = "\n".join(context_lines) if context_lines else "(no prior actions)"
+        width, height = self.screenshot_size or (0, 0)
+
+        prompt = f"""
+You are AuraOS Vision, an autonomous desktop agent. Goal: "{task}".
+Screen size: {width}x{height}.
+Recent actions:\n{context_block}
+Choose the single best next action to move toward the goal.
+Return ONLY one JSON object with keys: action, why, and the needed fields for that action.
+Allowed actions:
+- click: include integer x and y within screen bounds.
+- type: include text.
+- key: include key (e.g., enter, tab, esc, ctrl+l).
+- scroll: include amount (positive scrolls down).
+- wait: when loading.
+- done: when goal achieved.
+- fail: if blocked and human help needed.
+"""
+
+        raw = self._call_llava(prompt, [img_data])
+        return self._extract_action_json(raw)
+
+    def _call_llava(self, prompt, images_b64):
+        if not HAS_REQUESTS:
+            raise RuntimeError("requests is required for llava automation")
+
+        payload = {
+            "model": LLAVA_MODEL,
+            "prompt": prompt,
+            "images": images_b64,
+            "stream": False,
+        }
+        url = f"{DEFAULT_OLLAMA_URL}/api/generate"
+        logger.debug("Sending LLaVA request to %s", url)
+        resp = requests.post(url, json=payload, timeout=180)
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("response", "")
+
+    def _extract_action_json(self, raw_text):
+        if not raw_text:
+            return None
+        try:
+            return json.loads(raw_text)
+        except json.JSONDecodeError:
+            pass
+        match = re.search(r'\{.*\}', raw_text, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group(0))
+            except json.JSONDecodeError:
+                return None
+        return None
+
+    def _record_action_context(self, action, why):
+        self.recent_actions.append({"action": action, "why": why, "ts": time.time()})
+        self.recent_actions = self.recent_actions[-6:]
     
     def _validate_coordinates(self, x, y):
         """Validate click coordinates are within screen bounds"""
@@ -502,6 +494,8 @@ Reply ONLY with JSON like:
         cooldowns = {
             'click': 1.5,     # Clicks are quick
             'type': 2.5,      # Typing needs time to register
+            'key': 1.2,
+            'scroll': 1.0,
             'wait': 1.0,      # Waiting is fastest
             'default': 2.0
         }
@@ -523,6 +517,40 @@ Reply ONLY with JSON like:
             logger.error(err_msg)
         except Exception as e:
             err_msg = f"[Error] Click failed: {e}"
+            self.append_text(f"{err_msg}\n", "error")
+            logger.error(err_msg)
+
+    def _do_key(self, key):
+        """Press a single key via xdotool."""
+        try:
+            subprocess.run(
+                ['xdotool', 'key', '--clearmodifiers', key],
+                check=True, env={**os.environ, 'DISPLAY': ':99'},
+                timeout=5,
+                capture_output=True
+            )
+            logger.debug("Key pressed: %s", key)
+        except Exception as e:
+            err_msg = f"[Error] Key press failed: {e}"
+            self.append_text(f"{err_msg}\n", "error")
+            logger.error(err_msg)
+
+    def _do_scroll(self, amount):
+        """Scroll using xdotool (positive = down)."""
+        try:
+            # xdotool button 4 = scroll up, 5 = scroll down
+            button = '5' if amount >= 0 else '4'
+            repeats = min(max(abs(amount) // 100, 1), 10)
+            for _ in range(repeats):
+                subprocess.run(
+                    ['xdotool', 'click', button],
+                    check=True, env={**os.environ, 'DISPLAY': ':99'},
+                    timeout=3,
+                    capture_output=True
+                )
+            logger.debug("Scrolled %s (%d steps)", button, repeats)
+        except Exception as e:
+            err_msg = f"[Error] Scroll failed: {e}"
             self.append_text(f"{err_msg}\n", "error")
             logger.error(err_msg)
     

@@ -37,21 +37,27 @@ class AuraOSLauncher:
         self.fullscreen = fullscreen
         self.root.title("AuraOS")
         self.root.configure(bg='#0a0e27')
-        
+
         # Set DISPLAY for VM environment
         if "DISPLAY" not in os.environ:
             os.environ["DISPLAY"] = ":99"
-        
+
+        # Normalize DPI scaling so the UI is not zoomed in on HiDPI displays
+        try:
+            self.root.tk.call('tk', 'scaling', 1.0)
+        except Exception:
+            pass
+
         # Enable proper window manager integration for resize/drag
         self.root.resizable(True, True)
         self.root.minsize(600, 400)
-        
+
         # Enable window decorations (title bar with close button)
         try:
             self.root.attributes('-type', 'normal')
-        except:
+        except Exception:
             pass  # -type not supported on all window managers
-        
+
         if fullscreen:
             # Fullscreen mode - completely overlay XFCE
             self.root.attributes('-fullscreen', True)
@@ -63,116 +69,108 @@ class AuraOSLauncher:
             self.root.geometry("900x700")
             # Normal window - allow window manager decorations
             self.root.attributes('-topmost', False)
-        
+
         # Handle window close - minimize instead of close in fullscreen
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
-        
+
         self.setup_ui()
         self.update_clock()
-        
+
     def toggle_fullscreen(self, event=None):
         """Toggle between fullscreen and windowed mode"""
         self.fullscreen = not self.fullscreen
         self.root.attributes('-fullscreen', self.fullscreen)
         self.root.attributes('-topmost', self.fullscreen)
-        
-    def on_close(self):
-        """Handle window close - ask before closing in fullscreen"""
-        if self.fullscreen:
-            if messagebox.askyesno("AuraOS", "Exit AuraOS interface?\n\nThis will show the Ubuntu desktop."):
-                self.root.destroy()
-        else:
-            self.root.destroy()
-        
+
     def setup_ui(self):
-        # Get screen dimensions
-        screen_width = self.root.winfo_screenwidth()
-        screen_height = self.root.winfo_screenheight()
-        
         # Main container
         main_container = tk.Frame(self.root, bg='#0a0e27')
         main_container.pack(fill='both', expand=True)
-        
+
         # Header
         header = tk.Frame(main_container, bg='#0a0e27')
-        header.pack(fill='x', pady=(50, 20))
-        
-        # Logo
+        header.pack(fill='x', pady=(40, 20))
+
         logo = tk.Label(
-            header, text="⚡ AuraOS", 
+            header, text="⚡ AuraOS",
             font=('Arial', 48, 'bold'), fg='#00ff88', bg='#0a0e27'
         )
         logo.pack()
-        
+
         subtitle = tk.Label(
-            header, text="AI-Powered Operating System", 
+            header, text="AI-Powered Operating System",
             font=('Arial', 14), fg='#9cdcfe', bg='#0a0e27'
         )
         subtitle.pack(pady=(5, 0))
-        
-        # Clock display
+
+        # Clock
         self.clock_label = tk.Label(
-            header, text="", 
+            header, text="",
             font=('Arial', 12), fg='#666666', bg='#0a0e27'
         )
-        self.clock_label.pack(pady=(20, 0))
-        
+        self.clock_label.pack(pady=(16, 0))
+
         # App Grid
         grid_frame = tk.Frame(main_container, bg='#0a0e27')
-        grid_frame.pack(expand=True, pady=30)
-        
-        # Define apps with icons and colors
+        grid_frame.pack(expand=True, pady=30, fill='both')
+
+        # Pre-build icons and app definitions
+        self.icon_images = self._build_icon_set()
         apps = [
-            ("🖥️", "Terminal", "AI-Powered Terminal", self.launch_terminal, '#00d4ff'),
-            ("🌐", "Browser", "Web Browser", self.launch_browser, '#ff7f50'),
-            ("👁️", "Vision", "Vision Desktop", self.launch_vision_os, '#00ff88'),
-            ("📁", "Files", "File Manager", self.launch_files, '#ffd700'),
-            ("⚙️", "Settings", "System Settings", self.launch_settings, '#888888'),
-            ("🔌", "Ubuntu", "Show Ubuntu Desktop", self.show_ubuntu_desktop, '#dd4814'),
+            ("Terminal", "AI-Powered Terminal", self.launch_terminal, '#00d4ff'),
+            ("Browser", "Web Browser", self.launch_browser, '#ff7f50'),
+            ("Vision", "Vision Desktop", self.launch_vision_os, '#00ff88'),
+            ("Files", "File Manager", self.launch_files, '#ffd700'),
+            ("Settings", "System Settings", self.launch_settings, '#888888'),
+            ("Ubuntu", "Show Ubuntu Desktop", self.show_ubuntu_desktop, '#dd4814'),
         ]
-        
-        # Create app buttons in a 3x2 grid
-        for i, (icon, name, desc, handler, color) in enumerate(apps):
+
+        for c in range(3):
+            grid_frame.grid_columnconfigure(c, weight=1, uniform="appgrid")
+
+        for i, (name, desc, handler, color) in enumerate(apps):
             row = i // 3
             col = i % 3
-            
+
             btn_frame = tk.Frame(grid_frame, bg='#0a0e27')
-            btn_frame.grid(row=row, column=col, padx=20, pady=20)
-            
+            btn_frame.grid(row=row, column=col, padx=24, pady=24, sticky='nsew')
+
+            icon_img = self.icon_images.get(name)
+
             btn = tk.Button(
-                btn_frame, text=icon,
-                font=('Arial', 36),
-                width=4, height=2,
+                btn_frame,
+                image=icon_img,
+                width=96, height=96,
                 bg='#1a1e37', fg=color,
                 activebackground='#2a2e47', activeforeground=color,
                 relief='flat', cursor='hand2',
                 command=handler
             )
+            btn.image = icon_img
             btn.pack()
-            
+
             label = tk.Label(
                 btn_frame, text=name,
                 font=('Arial', 12, 'bold'), fg='#ffffff', bg='#0a0e27'
             )
-            label.pack(pady=(5, 0))
-            
+            label.pack(pady=(6, 0))
+
             desc_label = tk.Label(
                 btn_frame, text=desc,
                 font=('Arial', 9), fg='#666666', bg='#0a0e27'
             )
             desc_label.pack()
-        
-        # Status bar at bottom
+
+        # Status bar
         status_bar = tk.Frame(main_container, bg='#1a1e37', height=40)
         status_bar.pack(fill='x', side='bottom')
-        
+
         self.status_label = tk.Label(
-            status_bar, text="System Ready", 
+            status_bar, text="System Ready",
             font=('Arial', 10), fg='#6db783', bg='#1a1e37'
         )
         self.status_label.pack(side='left', padx=20, pady=10)
-        
-        # Fullscreen hint
+
         if self.fullscreen:
             hint = tk.Label(
                 status_bar, text="Press ESC or F11 to toggle windowed mode",
@@ -180,6 +178,26 @@ class AuraOSLauncher:
             )
             hint.pack(side='right', padx=20, pady=10)
 
+    def _build_icon_set(self):
+        """Create simple, always-present icons without external files."""
+        icons = {}
+        icon_specs = {
+            "Terminal": ("#0ff0ff", "#081021"),
+            "Browser": ("#ff7f50", "#1b0f0a"),
+            "Vision": ("#00ff88", "#062015"),
+            "Files": ("#ffd700", "#211a06"),
+            "Settings": ("#9cdcfe", "#0d1a26"),
+            "Ubuntu": ("#dd4814", "#220d08"),
+        }
+
+        for name, (fill, border) in icon_specs.items():
+            img = tk.PhotoImage(width=96, height=96)
+            # Outer border
+            img.put(border, to=(0, 0, 95, 95))
+            # Inner fill
+            img.put(fill, to=(8, 8, 87, 87))
+            icons[name] = img
+        return icons
     def update_clock(self):
         """Update the clock display"""
         now = datetime.now()
