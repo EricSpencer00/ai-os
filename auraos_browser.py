@@ -303,11 +303,6 @@ class AuraOSBrowser:
         }
         for tag_name, config in tags.items():
             self.output_area.tag_config(tag_name, **config)
-        
-        # History display tags
-        self.history_display.tag_config("system", foreground="#00d4ff", font=('Menlo', 9, 'bold'))
-        self.history_display.tag_config("search", foreground="#00ff88", font=('Menlo', 9, 'bold'))
-        self.history_display.tag_config("info", foreground="#9cdcfe", font=('Menlo', 9))
     
     def show_welcome(self):
         """Show welcome message"""
