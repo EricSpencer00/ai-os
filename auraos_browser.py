@@ -377,45 +377,50 @@ class AuraOSBrowser:
         """Open Perplexity/Comet page in Firefox with fallbacks."""
         self.append(f"[*] Opening Perplexity: {url}\n", "info")
 
-        # Try direct Firefox launch first
-        if shutil.which("firefox"):
+        firefox_path = shutil.which("firefox")
+        if not firefox_path:
+            self.append("[!] Firefox not found; attempting install...\n", "warning")
+            if self._install_firefox():
+                firefox_path = shutil.which("firefox")
+                if not firefox_path:
+                    self.append("[X] Firefox installed but not in PATH\n", "error")
+            else:
+                self.append("[X] Could not install Firefox\n", "error")
+
+        # Try direct Firefox launch
+        if firefox_path:
             try:
                 env = os.environ.copy()
                 env["DISPLAY"] = env.get("DISPLAY", ":99")
                 env["XDG_RUNTIME_DIR"] = "/run/user/1000"
                 env["HOME"] = os.path.expanduser("~")
-                subprocess.Popen(
-                    ["firefox", "--new-window", url],
+                
+                self.append(f"[*] Launching Firefox...\n", "info")
+                proc = subprocess.Popen(
+                    [firefox_path, "--new-window", url],
                     env=env,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
                     start_new_session=True
                 )
-                self.append("[OK] Perplexity opened in Firefox\n", "success")
-                return
+                
+                import time as time_mod
+                time_mod.sleep(0.5)
+                if proc.poll() is None:
+                    self.append("[OK] Firefox launched\n", "success")
+                    self.log_event("FIREFOX_LAUNCHED", f"PID={proc.pid}")
+                    return
+                else:
+                    stdout, stderr = proc.communicate(timeout=1)
+                    err_text = stderr.decode() if stderr else "unknown"
+                    self.append(f"[X] Firefox failed: {err_text[:60]}\n", "error")
+                    self.log_event("FIREFOX_ERROR", f"code={proc.returncode}")
             except Exception as e:
-                self.append(f"[!] Firefox launch failed: {e}\n", "warning")
+                self.append(f"[X] Firefox error: {str(e)[:60]}\n", "error")
+                self.log_event("FIREFOX_EXCEPTION", str(e)[:80])
 
         # Fallback to GUI Agent automation
-        try:
-            search_request = f"open firefox and navigate to {url}"
-            response = requests.post(
-                f"{AGENT_URL}/ask",
-                json={"query": search_request},
-                timeout=120
-            )
-
-            if response.status_code == 200:
-                result = response.json()
-                executed = result.get("executed", [])
-                self.append(f"[OK] Agent executed {len(executed)} actions.\n", "success")
-            else:
-                self.append(f"[X] Agent Error: {response.text}\n", "error")
-        except requests.exceptions.ConnectionError:
-            self.append("[X] GUI Agent not reachable\n", "error")
-            self.append(f"  Manual fallback URL: {url}\n", "info")
-        except requests.exceptions.Timeout:
-            self.append("[X] Agent timed out\n", "error")
+        self._fallback_to_agent(url)
 
     def _run_comet_planner(self, query):
         """Call the unified inference server to get a Perplexity-style answer."""
@@ -437,6 +442,36 @@ class AuraOSBrowser:
         except Exception as e:
             self.append(f"[!] Comet planner error: {e}\n", "warning")
             return None
+
+    def _install_firefox(self):
+        """Attempt to install Firefox via apt-get (Linux/Debian)."""
+        try:
+            subprocess.run(["sudo", "apt-get", "update", "-qq"], capture_output=True, timeout=30, check=False)
+            result = subprocess.run(["sudo", "apt-get", "install", "-y", "-qq", "firefox"], capture_output=True, timeout=120, check=False)
+            return result.returncode == 0
+        except Exception:
+            return False
+
+    def _fallback_to_agent(self, url):
+        """Fallback to GUI Agent automation."""
+        try:
+            search_request = f"open firefox and navigate to {url}"
+            response = requests.post(
+                f"{AGENT_URL}/ask",
+                json={"query": search_request},
+                timeout=120
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                executed = result.get("executed", [])
+                self.append(f"[OK] Agent executed {len(executed)} actions.\n", "success")
+            else:
+                self.append(f"[X] Agent error: {response.text[:60]}\n", "error")
+        except requests.exceptions.ConnectionError:
+            self.append("[X] GUI Agent unreachable; try manually: " + url + "\n", "error")
+        except requests.exceptions.Timeout:
+            self.append("[X] Agent timeout\n", "error")
 
     def open_firefox(self, url=None):
         """Open Firefox browser - direct launch with proper environment"""

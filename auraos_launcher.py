@@ -229,58 +229,29 @@ class AuraOSLauncher:
         self.root.after(1000, self.update_clock)
 
     def ensure_at_back(self):
-        """Best-effort: keep the launcher window at the back of the stack.
-
-        This calls `lower()` and clears topmost. Some window managers may ignore this;
-        we periodically re-assert the state in background thread.
+        """Keep launcher at back of window stack.
+        
+        Clear topmost and lower the window. Some WMs may ignore lower(),
+        so we periodically re-assert in the background thread.
         """
         try:
-            # Make sure window is not topmost
-            try:
-                self.root.attributes('-topmost', False)
-            except Exception:
-                pass
-
-            # Lower the window under other application windows
-            try:
-                self.root.lower()
-            except Exception:
-                pass
+            self.root.attributes('-topmost', False)
+            self.root.lower()
         except Exception:
             pass
 
     def _maintain_zorder(self):
-        """Background thread: periodically enforce z-order policy."""
-        try:
-            while True:
-                # If fullscreen, keep at back but still fullscreen (user wanted overlay behavior)
+        """Background thread: periodically re-assert z-order (every 3 sec)."""
+        while True:
+            try:
+                time.sleep(3)
                 try:
-                    if self.fullscreen:
-                        # ensure not topmost even in fullscreen
-                        try:
-                            self.root.attributes('-topmost', False)
-                        except Exception:
-                            pass
-                        try:
-                            self.root.lower()
-                        except Exception:
-                            pass
-                    else:
-                        # Normal windowed mode: keep lowered behind other apps
-                        try:
-                            self.root.attributes('-topmost', False)
-                        except Exception:
-                            pass
-                        try:
-                            self.root.lower()
-                        except Exception:
-                            pass
+                    self.root.attributes('-topmost', False)
+                    self.root.lower()
                 except Exception:
                     pass
-
-                time.sleep(2)
-        except Exception:
-            return
+            except Exception:
+                break
 
     def launch_terminal(self):
         self.status_label.config(text="Launching Terminal...", fg='#00d4ff')
