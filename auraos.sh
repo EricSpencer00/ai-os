@@ -462,8 +462,41 @@ PY
     fi
     echo ""
 
-    # Check 11: Inference Server
-    echo -e "${YELLOW}[11/11]${NC} Inference Server (localhost:8081)"
+    # Check 10: Browser availability in VM
+    echo -e "${YELLOW}[10/12]${NC} Browser Availability (in VM)"
+    BROWSER_FOUND=0
+    # Quick file existence checks (no which/file commands that can hang)
+    if multipass exec "$VM_NAME" -- bash -c "[ -f /usr/bin/firefox ] || [ -f /usr/bin/firefox-esr ]" 2>/dev/null; then
+        echo -e "${GREEN}✓ Firefox available${NC}"
+        BROWSER_FOUND=1
+    fi
+    if multipass exec "$VM_NAME" -- bash -c "[ -f /usr/bin/chromium-browser ]" 2>/dev/null; then
+        echo -e "${GREEN}✓ Chromium browser available${NC}"
+        BROWSER_FOUND=1
+    fi
+    if [ $BROWSER_FOUND -eq 0 ]; then
+        echo -e "${YELLOW}⚠ No browser found in VM. Vision/Browser apps may not work fully.${NC}"
+    fi
+    echo ""
+
+    # Check 11: Essential tools in VM
+    echo -e "${YELLOW}[11/12]${NC} Essential Tools (in VM)"
+    TOOLS_OK=1
+    for tool in xdotool scrot python3 pip3; do
+        if multipass exec "$VM_NAME" -- bash -c "[ -x \$(command -v $tool) ]" 2>/dev/null; then
+            echo -e "  ${GREEN}✓${NC} $tool"
+        else
+            echo -e "  ${RED}✗${NC} $tool missing"
+            TOOLS_OK=0
+        fi
+    done
+    if [ $TOOLS_OK -eq 0 ]; then
+        echo -e "${YELLOW}  Some tools missing. Run: ./auraos.sh vm-setup or install manually.${NC}"
+    fi
+    echo ""
+
+    # Check 12: Inference Server
+    echo -e "${YELLOW}[12/12]${NC} Inference Server (localhost:8081)"
     INFERENCE_UP=0
     if curl -s -m 3 http://localhost:8081/health >/dev/null 2>&1; then
         INFERENCE_UP=1
@@ -1165,11 +1198,42 @@ VNC_START
 # multipass AURAOS_APPS: ensure AURAOS_USER is set inside remote environment
     multipass exec "$VM_NAME" -- sudo bash <<'AURAOS_APPS'
 AURAOS_USER='auraos'
-# Install dependencies for AuraOS apps
-apt-get update -qq && apt-get install -y python3-tk python3-pip python3-venv portaudio19-dev firefox scrot xdotool >/dev/null 2>&1
+
+# Install dependencies for AuraOS apps (excluding firefox - handled separately)
+apt-get update -qq
+apt-get install -y python3-tk python3-pip python3-venv portaudio19-dev scrot xdotool software-properties-common >/dev/null 2>&1
+
+# Install Firefox from Mozilla's PPA (not snap) to avoid confinement issues
+# Remove snap firefox if present (use --purge to ensure clean removal)
+snap remove --purge firefox 2>/dev/null || true
+
+# Wait for snap removal to complete
+sleep 2
+
+# Add Mozilla Team PPA for proper deb-based Firefox
+add-apt-repository -y ppa:mozillateam/ppa >/dev/null 2>&1 || true
+
+# Set apt preferences to prefer PPA firefox over snap
+cat > /etc/apt/preferences.d/mozilla-firefox << 'MOZPREF'
+Package: *
+Pin: release o=LP-PPA-mozillateam
+Pin-Priority: 1001
+
+Package: firefox
+Pin: version 1:1snap*
+Pin-Priority: -1
+MOZPREF
+
+# Update and install real firefox deb
+apt-get update -qq
+apt-get install -y firefox >/dev/null 2>&1 || apt-get install -y firefox-esr >/dev/null 2>&1 || true
+
+# Also install chromium as backup
+apt-get install -y chromium-browser >/dev/null 2>&1 || true
+
 pip3 install flask pyautogui pillow requests numpy >/dev/null 2>&1
 
-# Install browser wrappers for snap compatibility
+# Install browser wrappers for compatibility
 cat > /usr/local/bin/firefox-wrapped <<'FIREFOX_WRAP'
 #!/bin/bash
 exec /usr/bin/firefox --no-sandbox --new-window "$@"
@@ -2384,6 +2448,185 @@ cmd_inference() {
     esac
 }
 
+cmd_fix_browser() {
+    # Fix browser on existing VM without full reinstall
+    echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
+    echo -e "${BLUE}║   Fix Browser Installation in VM       ║${NC}"
+    echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
+    echo ""
+
+    VM_NAME="auraos-multipass"
+    
+    # Check if VM exists and is running
+    if ! multipass list 2>/dev/null | grep -q "$VM_NAME.*Running"; then
+        echo -e "${RED}✗ VM not running. Start with: multipass start $VM_NAME${NC}"
+        return 1
+    fi
+    
+    echo -e "${YELLOW}[1/5]${NC} Removing snap Firefox (if present - this may take a moment)..."
+    # Snap removal can be slow - use a background process with timeout
+    multipass exec "$VM_NAME" -- sudo bash -c "snap remove --purge firefox 2>/dev/null || true" 2>/dev/null || true
+    sleep 2
+    
+    echo -e "${YELLOW}[2/5]${NC} Installing required tools..."
+    multipass exec "$VM_NAME" -- sudo apt-get update -qq >/dev/null 2>&1
+    multipass exec "$VM_NAME" -- sudo apt-get install -y software-properties-common >/dev/null 2>&1
+    
+    echo -e "${YELLOW}[3/5]${NC} Adding Mozilla PPA for deb-based Firefox..."
+    multipass exec "$VM_NAME" -- sudo bash <<'FIX_BROWSER'
+# Add Mozilla Team PPA
+add-apt-repository -y ppa:mozillateam/ppa >/dev/null 2>&1 || true
+
+# Set apt preferences to prefer PPA firefox over snap
+mkdir -p /etc/apt/preferences.d
+cat > /etc/apt/preferences.d/mozilla-firefox << 'MOZPREF'
+Package: *
+Pin: release o=LP-PPA-mozillateam
+Pin-Priority: 1001
+
+Package: firefox
+Pin: version 1:1snap*
+Pin-Priority: -1
+MOZPREF
+
+echo "✓ Mozilla PPA configured"
+FIX_BROWSER
+    
+    echo -e "${YELLOW}[4/5]${NC} Installing Firefox from PPA..."
+    multipass exec "$VM_NAME" -- sudo bash <<'INSTALL_FF'
+apt-get update -qq >/dev/null 2>&1
+# Try PPA firefox first, then fallback to firefox-esr
+apt-get install -y firefox 2>/dev/null || apt-get install -y firefox-esr >/dev/null 2>&1 || true
+echo "✓ Firefox installed"
+INSTALL_FF
+
+    echo -e "${YELLOW}[5/5]${NC} Verifying installation..."
+    
+    # Check if firefox deb exists (not snap)
+    FF_EXISTS=0
+    FF_SNAP=0
+    
+    # Check for deb-based firefox
+    if multipass exec "$VM_NAME" -- bash -c "[ -f /usr/bin/firefox ] || [ -f /usr/bin/firefox-esr ]" 2>/dev/null; then
+        FF_EXISTS=1
+    fi
+    
+    # Check if it's still a snap (snap redirect)
+    if multipass exec "$VM_NAME" -- bash -c "file /usr/bin/firefox 2>/dev/null | grep -q snap" 2>/dev/null; then
+        FF_SNAP=1
+    fi
+    
+    if [ $FF_EXISTS -eq 1 ] && [ $FF_SNAP -eq 0 ]; then
+        echo -e "${GREEN}✓ Firefox (deb version) installed successfully${NC}"
+    elif [ $FF_EXISTS -eq 1 ]; then
+        echo -e "${YELLOW}⚠ Firefox exists but may still be snap version${NC}"
+        echo -e "${YELLOW}  Attempting to purge snap completely...${NC}"
+        multipass exec "$VM_NAME" -- sudo bash -c "snap remove --purge firefox 2>&1 | grep -v 'no such file'" 2>/dev/null || true
+        sleep 3
+        # Try installing firefox-esr directly
+        multipass exec "$VM_NAME" -- sudo apt-get install -y firefox-esr >/dev/null 2>&1 || true
+        echo -e "${YELLOW}  Please try running firefox again.${NC}"
+    else
+        echo -e "${YELLOW}⚠ Firefox not found. Installing Chromium as fallback...${NC}"
+        multipass exec "$VM_NAME" -- sudo apt-get install -y chromium-browser >/dev/null 2>&1 || true
+        
+        if multipass exec "$VM_NAME" -- bash -c "[ -f /usr/bin/chromium-browser ]" 2>/dev/null; then
+            echo -e "${GREEN}✓ Chromium installed as fallback${NC}"
+        fi
+    fi
+    
+    echo ""
+    echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}✓ Browser fix complete!${NC}"
+    echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "${YELLOW}To test:${NC}"
+    echo -e "  1. Open http://localhost:6080/vnc.html"
+    echo -e "  2. Launch the Terminal app"
+    echo -e "  3. Run: firefox"
+    echo -e "     or: chromium-browser --no-sandbox"
+    echo ""
+}
+
+cmd_dev() {
+    # Quick dev mode: transfer Python files to VM without full reinstall
+    echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
+    echo -e "${BLUE}║       AuraOS Dev Mode - Quick Sync     ║${NC}"
+    echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
+    echo ""
+
+    VM_NAME="auraos-multipass"
+    
+    # Check if VM exists and is running
+    if ! multipass list 2>/dev/null | grep -q "$VM_NAME.*Running"; then
+        echo -e "${RED}✗ VM not running. Start with: multipass start $VM_NAME${NC}"
+        return 1
+    fi
+    
+    echo -e "${YELLOW}[1/3]${NC} Transferring Python files to VM..."
+    
+    # List of Python files to transfer
+    local files_transferred=0
+    local files_failed=0
+    
+    for pyfile in auraos_terminal.py auraos_browser.py auraos_vision.py auraos_launcher.py auraos_onboarding.py gui_agent.py; do
+        if [ -f "$SCRIPT_DIR/$pyfile" ]; then
+            if multipass transfer "$SCRIPT_DIR/$pyfile" "$VM_NAME:/tmp/$pyfile" 2>/dev/null; then
+                echo -e "  ${GREEN}✓${NC} $pyfile"
+                ((files_transferred++))
+            else
+                echo -e "  ${RED}✗${NC} $pyfile (transfer failed)"
+                ((files_failed++))
+            fi
+        fi
+    done
+    
+    echo ""
+    echo -e "${YELLOW}[2/3]${NC} Installing files in VM..."
+    
+    multipass exec "$VM_NAME" -- sudo bash <<'DEV_INSTALL'
+AURAOS_USER='auraos'
+
+# Install transferred Python files
+for pyfile in auraos_terminal.py auraos_browser.py auraos_vision.py auraos_launcher.py auraos_onboarding.py; do
+    if [ -f "/tmp/$pyfile" ]; then
+        cp "/tmp/$pyfile" "/opt/auraos/bin/$pyfile"
+        chmod +x "/opt/auraos/bin/$pyfile"
+        chown ${AURAOS_USER}:${AURAOS_USER} "/opt/auraos/bin/$pyfile"
+        rm -f "/tmp/$pyfile"
+    fi
+done
+
+# Handle gui_agent separately (goes to different location)
+if [ -f "/tmp/gui_agent.py" ]; then
+    mkdir -p /opt/auraos/gui_agent
+    mv "/tmp/gui_agent.py" "/opt/auraos/gui_agent/agent.py"
+    chmod +x "/opt/auraos/gui_agent/agent.py"
+    chown -R ${AURAOS_USER}:${AURAOS_USER} /opt/auraos/gui_agent
+fi
+
+echo "Files installed to /opt/auraos/"
+DEV_INSTALL
+
+    echo ""
+    echo -e "${YELLOW}[3/3]${NC} Restarting GUI agent service..."
+    multipass exec "$VM_NAME" -- sudo systemctl restart auraos-gui-agent.service 2>/dev/null || true
+    
+    echo ""
+    echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}✓ Dev sync complete!${NC}"
+    echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "  Transferred: ${GREEN}$files_transferred${NC} files"
+    if [ $files_failed -gt 0 ]; then
+        echo -e "  Failed: ${RED}$files_failed${NC} files"
+    fi
+    echo ""
+    echo -e "${YELLOW}To apply UI changes:${NC}"
+    echo -e "  ${BLUE}./auraos.sh ui${NC}  - Relaunch the AuraOS interface"
+    echo ""
+}
+
 cmd_help() {
     print_header
     echo ""
@@ -2392,6 +2635,8 @@ cmd_help() {
     echo "Commands:"
     echo "  install            - Install all dependencies (Homebrew, Multipass, Ollama, Python)"
     echo "  vm-setup           - Create Ubuntu VM with AI terminal, desktop, and full stack"
+    echo "  dev                - Quick sync: transfer Python files to VM without reinstall"
+    echo "  fix-browser        - Fix Firefox/Chromium installation in existing VM (snap→deb)"
     echo "  status             - Show VM and service status"
     echo "  health             - Run comprehensive system health check"
     echo "  inference          - Manage AI inference server: start|stop|status|logs|restart"
@@ -2416,6 +2661,11 @@ cmd_help() {
     echo "  2. ./auraos.sh vm-setup      # Create VM with everything"
     echo "  3. ./auraos.sh health        # Verify all systems"
     echo ""
+    echo "Development workflow:"
+    echo "  1. Edit Python files locally"
+    echo "  2. ./auraos.sh dev           # Quick sync to VM"
+    echo "  3. ./auraos.sh ui            # Relaunch UI to test"
+    echo ""
     echo "Then open: http://localhost:6080/vnc.html (password: auraos123)"
     echo ""
 }
@@ -2427,6 +2677,12 @@ case "$1" in
         ;;
     vm-setup)
         cmd_vm_setup
+        ;;
+    dev)
+        cmd_dev
+        ;;
+    fix-browser)
+        cmd_fix_browser
         ;;
     forward)
         shift
