@@ -465,18 +465,12 @@ PY
     # Check 10: Browser availability in VM
     echo -e "${YELLOW}[10/12]${NC} Browser Availability (in VM)"
     BROWSER_FOUND=0
-    if multipass exec "$VM_NAME" -- which firefox >/dev/null 2>&1; then
-        # Check if it's the real firefox or snap redirect
-        FIREFOX_PATH=$(multipass exec "$VM_NAME" -- which firefox 2>/dev/null)
-        if multipass exec "$VM_NAME" -- file "$FIREFOX_PATH" 2>/dev/null | grep -q "snap"; then
-            echo -e "${YELLOW}⚠ Firefox is snap version (may have confinement issues)${NC}"
-            echo -e "${YELLOW}  Consider running: ./auraos.sh vm-setup to reinstall with deb version${NC}"
-        else
-            echo -e "${GREEN}✓ Firefox available (deb version)${NC}"
-            BROWSER_FOUND=1
-        fi
+    # Quick file existence checks (no which/file commands that can hang)
+    if multipass exec "$VM_NAME" -- bash -c "[ -f /usr/bin/firefox ] || [ -f /usr/bin/firefox-esr ]" 2>/dev/null; then
+        echo -e "${GREEN}✓ Firefox available${NC}"
+        BROWSER_FOUND=1
     fi
-    if multipass exec "$VM_NAME" -- which chromium-browser >/dev/null 2>&1; then
+    if multipass exec "$VM_NAME" -- bash -c "[ -f /usr/bin/chromium-browser ]" 2>/dev/null; then
         echo -e "${GREEN}✓ Chromium browser available${NC}"
         BROWSER_FOUND=1
     fi
@@ -489,7 +483,7 @@ PY
     echo -e "${YELLOW}[11/12]${NC} Essential Tools (in VM)"
     TOOLS_OK=1
     for tool in xdotool scrot python3 pip3; do
-        if multipass exec "$VM_NAME" -- which $tool >/dev/null 2>&1; then
+        if multipass exec "$VM_NAME" -- bash -c "[ -x \$(command -v $tool) ]" 2>/dev/null; then
             echo -e "  ${GREEN}✓${NC} $tool"
         else
             echo -e "  ${RED}✗${NC} $tool missing"
@@ -1210,8 +1204,11 @@ apt-get update -qq
 apt-get install -y python3-tk python3-pip python3-venv portaudio19-dev scrot xdotool software-properties-common >/dev/null 2>&1
 
 # Install Firefox from Mozilla's PPA (not snap) to avoid confinement issues
-# Remove snap firefox if present
-snap remove firefox 2>/dev/null || true
+# Remove snap firefox if present (use --purge to ensure clean removal)
+snap remove --purge firefox 2>/dev/null || true
+
+# Wait for snap removal to complete
+sleep 2
 
 # Add Mozilla Team PPA for proper deb-based Firefox
 add-apt-repository -y ppa:mozillateam/ppa >/dev/null 2>&1 || true
@@ -2466,17 +2463,22 @@ cmd_fix_browser() {
         return 1
     fi
     
-    echo -e "${YELLOW}[1/4]${NC} Removing snap Firefox (if present)..."
-    multipass exec "$VM_NAME" -- sudo snap remove firefox 2>/dev/null || true
+    echo -e "${YELLOW}[1/5]${NC} Removing snap Firefox (if present - this may take a moment)..."
+    # Snap removal can be slow - use a background process with timeout
+    multipass exec "$VM_NAME" -- sudo bash -c "snap remove --purge firefox 2>/dev/null || true" 2>/dev/null || true
+    sleep 2
     
-    echo -e "${YELLOW}[2/4]${NC} Adding Mozilla PPA for deb-based Firefox..."
+    echo -e "${YELLOW}[2/5]${NC} Installing required tools..."
+    multipass exec "$VM_NAME" -- sudo apt-get update -qq >/dev/null 2>&1
+    multipass exec "$VM_NAME" -- sudo apt-get install -y software-properties-common >/dev/null 2>&1
+    
+    echo -e "${YELLOW}[3/5]${NC} Adding Mozilla PPA for deb-based Firefox..."
     multipass exec "$VM_NAME" -- sudo bash <<'FIX_BROWSER'
 # Add Mozilla Team PPA
-apt-get update -qq
-apt-get install -y software-properties-common >/dev/null 2>&1
 add-apt-repository -y ppa:mozillateam/ppa >/dev/null 2>&1 || true
 
 # Set apt preferences to prefer PPA firefox over snap
+mkdir -p /etc/apt/preferences.d
 cat > /etc/apt/preferences.d/mozilla-firefox << 'MOZPREF'
 Package: *
 Pin: release o=LP-PPA-mozillateam
@@ -2490,20 +2492,47 @@ MOZPREF
 echo "✓ Mozilla PPA configured"
 FIX_BROWSER
     
-    echo -e "${YELLOW}[3/4]${NC} Installing Firefox from PPA..."
+    echo -e "${YELLOW}[4/5]${NC} Installing Firefox from PPA..."
     multipass exec "$VM_NAME" -- sudo bash <<'INSTALL_FF'
-apt-get update -qq
-apt-get install -y firefox >/dev/null 2>&1 || apt-get install -y firefox-esr >/dev/null 2>&1
+apt-get update -qq >/dev/null 2>&1
+# Try PPA firefox first, then fallback to firefox-esr
+apt-get install -y firefox 2>/dev/null || apt-get install -y firefox-esr >/dev/null 2>&1 || true
 echo "✓ Firefox installed"
 INSTALL_FF
 
-    echo -e "${YELLOW}[4/4]${NC} Verifying installation..."
-    if multipass exec "$VM_NAME" -- which firefox >/dev/null 2>&1; then
-        FF_VERSION=$(multipass exec "$VM_NAME" -- firefox --version 2>/dev/null || echo "unknown")
-        echo -e "${GREEN}✓ Firefox installed: $FF_VERSION${NC}"
+    echo -e "${YELLOW}[5/5]${NC} Verifying installation..."
+    
+    # Check if firefox deb exists (not snap)
+    FF_EXISTS=0
+    FF_SNAP=0
+    
+    # Check for deb-based firefox
+    if multipass exec "$VM_NAME" -- bash -c "[ -f /usr/bin/firefox ] || [ -f /usr/bin/firefox-esr ]" 2>/dev/null; then
+        FF_EXISTS=1
+    fi
+    
+    # Check if it's still a snap (snap redirect)
+    if multipass exec "$VM_NAME" -- bash -c "file /usr/bin/firefox 2>/dev/null | grep -q snap" 2>/dev/null; then
+        FF_SNAP=1
+    fi
+    
+    if [ $FF_EXISTS -eq 1 ] && [ $FF_SNAP -eq 0 ]; then
+        echo -e "${GREEN}✓ Firefox (deb version) installed successfully${NC}"
+    elif [ $FF_EXISTS -eq 1 ]; then
+        echo -e "${YELLOW}⚠ Firefox exists but may still be snap version${NC}"
+        echo -e "${YELLOW}  Attempting to purge snap completely...${NC}"
+        multipass exec "$VM_NAME" -- sudo bash -c "snap remove --purge firefox 2>&1 | grep -v 'no such file'" 2>/dev/null || true
+        sleep 3
+        # Try installing firefox-esr directly
+        multipass exec "$VM_NAME" -- sudo apt-get install -y firefox-esr >/dev/null 2>&1 || true
+        echo -e "${YELLOW}  Please try running firefox again.${NC}"
     else
-        echo -e "${YELLOW}⚠ Firefox not found, trying chromium as fallback...${NC}"
-        multipass exec "$VM_NAME" -- sudo apt-get install -y chromium-browser >/dev/null 2>&1
+        echo -e "${YELLOW}⚠ Firefox not found. Installing Chromium as fallback...${NC}"
+        multipass exec "$VM_NAME" -- sudo apt-get install -y chromium-browser >/dev/null 2>&1 || true
+        
+        if multipass exec "$VM_NAME" -- bash -c "[ -f /usr/bin/chromium-browser ]" 2>/dev/null; then
+            echo -e "${GREEN}✓ Chromium installed as fallback${NC}"
+        fi
     fi
     
     echo ""
@@ -2513,8 +2542,9 @@ INSTALL_FF
     echo ""
     echo -e "${YELLOW}To test:${NC}"
     echo -e "  1. Open http://localhost:6080/vnc.html"
-    echo -e "  2. Launch the Browser app or Terminal"
+    echo -e "  2. Launch the Terminal app"
     echo -e "  3. Run: firefox"
+    echo -e "     or: chromium-browser --no-sandbox"
     echo ""
 }
 
