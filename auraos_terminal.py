@@ -592,29 +592,84 @@ REMEMBER: Output ONLY the command(s). Nothing else."""
         
         lines = command.strip().split('\n')
         corrected_lines = []
-        
+
         for line in lines:
             line = line.strip()
             if not line:
                 continue
-            
-            tokens = line.split(None, 1)
-            if not tokens:
+
+            # Use shlex.split for robust tokenization (handles quotes)
+            try:
+                parts = shlex.split(line)
+            except Exception:
+                parts = line.split()
+
+            if not parts:
                 continue
-            
-            binary = tokens[0]
-            args = tokens[1] if len(tokens) > 1 else ""
-            
+
+            binary = parts[0]
+            args_parts = parts[1:]
+
+            # If the first token looks like flags (e.g. '-sL'), try to infer the intended binary.
+            if binary.startswith('-'):
+                inferred = None
+
+                # 1) If any token looks like a URL, prefer curl/wget
+                for t in parts:
+                    if isinstance(t, str) and (t.startswith('http://') or t.startswith('https://')):
+                        for cand in ('curl', 'wget'):
+                            if self._resolve_binary(cand):
+                                inferred = cand
+                                break
+                        if inferred:
+                            break
+
+                # 2) Otherwise, search later tokens for an executable name
+                if not inferred:
+                    for idx, t in enumerate(parts[1:], start=1):
+                        if not t.startswith('-'):
+                            if self._resolve_binary(t):
+                                inferred = t
+                                # Remove the found binary from its later position so we don't duplicate it
+                                args_parts = [p for i, p in enumerate(parts[1:], start=1) if i != idx]
+                                break
+
+                # 3) Fallback heuristic: if a path-like token is present, assume 'ls' (if available)
+                if not inferred:
+                    if any('/' in t or t.startswith('.') or t.startswith('~') for t in parts[1:]):
+                        if self._resolve_binary('ls'):
+                            inferred = 'ls'
+
+                # 4) As a last resort, if flags contain typical curl flags, assume curl
+                if not inferred:
+                    flagstr = ''.join(parts[0].lstrip('-'))
+                    if any(ch in flagstr for ch in ('s', 'L', 'S')):
+                        if self._resolve_binary('curl'):
+                            inferred = 'curl'
+
+                # If we inferred a binary, insert it at the front and rebuild parts
+                if inferred:
+                    # Avoid duplicating the inferred token if it already appears later
+                    new_parts = [inferred] + [p for p in parts if p != inferred]
+                    parts = new_parts
+                    binary = parts[0]
+                    args_parts = parts[1:]
+
             # Strip any remaining backticks from binary name
             binary = binary.strip('`')
-            
+
             # Resolve binary with fallbacks (python->python3, pip->pip3, etc)
             resolved = self._resolve_binary(binary)
             if not resolved:
                 hint = self._suggest_fallback(binary)
+                # If binary looks like flags, provide a clearer hint
+                if binary.startswith('-'):
+                    return False, f"Command appears to start with flags: {binary}. Did you mean e.g. 'curl {binary} <url>' or include the binary name? (try: {hint})", ""
                 return False, f"Command not found: {binary} (try: {hint})", ""
-            
-            corrected_lines.append(f"{resolved} {args}".strip())
+
+            # Reconstruct corrected line using resolved binary path and remaining args
+            corrected = ' '.join([resolved] + args_parts).strip()
+            corrected_lines.append(corrected)
         
         if not corrected_lines:
             return False, "No valid commands", ""
