@@ -19,24 +19,34 @@ import re
 import logging
 from pathlib import Path
 
-# Optional imports
+# Optional imports with detailed fallback
 try:
     import requests
     HAS_REQUESTS = True
 except ImportError:
     HAS_REQUESTS = False
+    requests = None
 
 try:
     from PIL import Image
     HAS_PIL = True
 except ImportError:
     HAS_PIL = False
+    Image = None
 
 try:
     import pyautogui
     HAS_PYAUTOGUI = True
+    # Set display early for screenshot
+    if "DISPLAY" not in os.environ:
+        os.environ["DISPLAY"] = ":99"
+    pyautogui.FAIL_SAFE = False
 except ImportError:
     HAS_PYAUTOGUI = False
+    pyautogui = None
+except Exception as e:
+    HAS_PYAUTOGUI = False
+    pyautogui = None
 
 # Setup logging
 LOG_DIR = Path.home() / ".auraos" / "logs"
@@ -50,6 +60,25 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+def check_dependencies():
+    """Check if critical dependencies are available and log status."""
+    issues = []
+    
+    if not HAS_PIL:
+        issues.append("PIL/Pillow not installed")
+    if not HAS_PYAUTOGUI:
+        issues.append("pyautogui not installed")
+    if not HAS_REQUESTS:
+        issues.append("requests not installed")
+    
+    if issues:
+        logger.warning("Missing dependencies: %s", ", ".join(issues))
+        logger.warning("Install with: pip3 install pillow pyautogui requests")
+    else:
+        logger.info("All dependencies available")
+    
+    return len(issues) == 0
 
 def get_inference_url():
     """Get the correct inference server URL based on environment."""
@@ -77,7 +106,11 @@ class AuraOSVision:
         if "DISPLAY" not in os.environ:
             os.environ["DISPLAY"] = ":99"
         
+        # Check dependencies early
+        check_dependencies()
+        
         logger.info("AuraOS Vision initialized - Inference URL: %s", INFERENCE_URL)
+        logger.info("Dependencies - PIL: %s, pyautogui: %s, requests: %s", HAS_PIL, HAS_PYAUTOGUI, HAS_REQUESTS)
         
         self.setup_ui()
         
@@ -613,6 +646,17 @@ RESPOND ONLY WITH JSON, nothing else. Example valid responses:
             logger.error(err_msg)
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    app = AuraOSVision(root)
-    root.mainloop()
+    try:
+        root = tk.Tk()
+        app = AuraOSVision(root)
+        
+        # Show startup status
+        logger.info("AuraOS Vision started successfully")
+        print("AuraOS Vision ready - check ~/.auraos/logs/vision.log for details")
+        
+        root.mainloop()
+    except Exception as e:
+        logger.critical("Failed to start AuraOS Vision: %s", e, exc_info=True)
+        print(f"ERROR: Failed to start Vision app: {e}")
+        print("Check ~/.auraos/logs/vision.log for details")
+        raise
