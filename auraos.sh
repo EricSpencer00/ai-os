@@ -1166,7 +1166,7 @@ VNC_START
     multipass exec "$VM_NAME" -- sudo bash <<'AURAOS_APPS'
 AURAOS_USER='auraos'
 # Install dependencies for AuraOS apps
-apt-get update -qq && apt-get install -y python3-tk python3-pip portaudio19-dev firefox scrot xdotool >/dev/null 2>&1
+apt-get update -qq && apt-get install -y python3-tk python3-pip python3-venv portaudio19-dev firefox scrot xdotool >/dev/null 2>&1
 pip3 install flask pyautogui pillow requests numpy >/dev/null 2>&1
 
 # Install browser wrappers for snap compatibility
